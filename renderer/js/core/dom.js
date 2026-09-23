@@ -28,6 +28,7 @@ export const el = {
   btnChars: $('btn-chars'),
   btnWorldbooks: $('btn-worldbooks'),
   btnTheme: $('btn-theme'),
+  btnAccent: $('btn-accent'),
   modal: $('settings-modal'),
   btnCloseSettings: $('btn-close-settings'),
   btnSaveSettings: $('btn-save-settings'),
@@ -144,6 +145,7 @@ export const el = {
     gender: $('c-gender'),
     race: $('c-race'),
     attrNew: $('c-attr-new'),
+    btnAttrTemplate: $('btn-attr-template'),
     // 分组标签栏：属性按分组切开，点哪个标签就只看哪一组
     attrTabs: $('c-attr-tabs'),
     attrQuick: $('c-attr-quick'),

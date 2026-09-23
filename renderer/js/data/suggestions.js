@@ -82,6 +82,13 @@ export function convoOptionsSpec(convo) {
   return { count, hint: String(spec.hint || '').trim().slice(0, 200) };
 }
 
+// 孤立的拉丁字母片段（模型把格式示例里的「A / B / C」当成标签抄出来了）。
+// 单独一个字母当选项毫无意义（界面上也不显示编号），直接丢掉；
+// 只丢**单个**字母，「OK」「B超」这种多字组合不受影响。
+const STANDALONE_LABEL_RE = /^[A-Za-z]$/;
+// 「A. 」「A、」「A: 」这类**字母前缀** —— 标签贴在选项内容前面时剥掉它
+const LETTER_PREFIX_RE = /^[A-Za-z]\s*[.、,，)）:：．]\s*/;
+
 /**
  * 从模型回复里抽选项。
  * 只认**最后一段**「【剧情选项】：」—— 模型有时会先说一遍再重写，
@@ -104,8 +111,12 @@ export function extractOptionsFromText(text) {
   for (const piece of tail.split(/[\/｜|]/)) {
     let item = piece.trim();
     if (!item) continue;
-    // 容忍「1. 」「① 」「- 」这类前缀和包在引号里
-    item = item.replace(/^[-*•·]\s*/, '').replace(/^\d+\s*[.、)）:：]\s*/, '').replace(/^[①-⑳]\s*/, '');
+    // 孤立字母标签先丢（模型把「A / B / C」示例当成要编号时就是这样输出的）
+    if (STANDALONE_LABEL_RE.test(item)) continue;
+    // 容忍「1. 」「A. 」「① 」「- 」这类前缀和包在引号里
+    item = item.replace(/^[-*•·]\s*/, '');
+    item = item.replace(/^[①-⑳]\s*/, '');
+    item = item.replace(/^\d+\s*[.、)）:：]\s*/, '').replace(LETTER_PREFIX_RE, '');
     item = item.replace(/^[「『"'“”‘’]+/, '').replace(/[」』"'“”‘’]+$/, '').trim();
     if (!item) continue;
     if (item.length > MAX_OPTION_CHARS) item = `${item.slice(0, MAX_OPTION_CHARS)}…`;
@@ -116,6 +127,39 @@ export function extractOptionsFromText(text) {
   return out;
 }
 
+/**
+ * 「换一批」的指令：上一批剧情选项玩家不满意，让模型按同一套设定再给一批。
+ *
+ * 关键是要它**别再给和上一批一样的**，否则点了等于没点。所以明确把上一批
+ * 列出来，要求避开。选项格式和 optionsInstruction 保持一致（一行、用「 / 」隔开）。
+ *
+ * 格式示例里给的是**真实内容**而不是「A / B / C」—— 占位字母会被模型照抄，
+ * 给每个选项都安上字母标签（输出成「A / 选项一 / B / 选项二 …」），拆出来就是
+ * 一堆没头没尾的单字母按钮（实测踩过）。
+ */
+export function rerollOptionsInstruction(convo) {
+  const spec = convoOptionsSpec(convo);
+  const count = spec ? spec.count : 3;
+
+  const previous = (Array.isArray(convo.options) ? convo.options : []).filter(Boolean);
+  const avoid = previous.length
+    ? `上一批选项是：${previous.map((t) => `「${t}」`).join('、')}。换一批时请避开这些（或至少别原样照搬），给几个明显不一样的做法。\n`
+    : '';
+
+  const lines = [
+    '【换一批剧情选项】',
+    `把上面刚给出的那批剧情选项换掉，重新另起一行，用「【剧情选项】：选项内容 / 选项内容 / 选项内容」的格式给 ${count} 个选项，` +
+      '每个选项之间用「 / 」隔开（就这一行，不要编号、不要加 A/B/C 字母标签、不要再分多行）。',
+    '每个选项是玩家接下来可以**直接说出口或做出来**的动作/台词，用玩家第一人称，' +
+      `每条一句话以内（不超过 ${MAX_OPTION_CHARS} 字）。`,
+    '例如：【剧情选项】：走过去抱住她 / 退后一步问她怎么了 / 假装没看见，继续做自己的事。',
+    '选项之间要明显不同（不同的态度、做法或对象），不要是同一件事的不同说法。'
+  ];
+  if (avoid) lines.push(avoid.trim());
+  if (spec && spec.hint) lines.push(`额外要求：${spec.hint}`);
+  return lines.join('\n');
+}
+
 /** 注入给模型的选项指令（有配置时才注入） */
 export function optionsInstruction(convo) {
   const spec = convoOptionsSpec(convo);
@@ -123,10 +167,11 @@ export function optionsInstruction(convo) {
 
   const lines = [
     '【剧情选项】',
-    `在正文和状态栏之后，另起一行，用「${OPTIONS_LABEL}：A / B / C」的格式给出 ${spec.count} 个选项，` +
-      '每个选项之间用「 / 」隔开（就这一行，不要编号、不要再分多行）。',
+    `在正文和状态栏之后，另起一行，用「【${OPTIONS_LABEL}】：选项内容 / 选项内容 / 选项内容」的格式给出 ${spec.count} 个选项，` +
+      '每个选项之间用「 / 」隔开（就这一行，不要编号、不要加 A/B/C 字母标签、不要再分多行）。',
     '每个选项是玩家接下来可以**直接说出口或做出来**的动作/台词，用玩家第一人称，' +
       `每条一句话以内（不超过 ${MAX_OPTION_CHARS} 字）。`,
+    `例如：【${OPTIONS_LABEL}】：走过去抱住她 / 退后一步问她怎么了 / 假装没看见，继续做自己的事。`,
     '选项之间要明显不同（不同的态度、做法或对象），不要是同一件事的不同说法。'
   ];
   if (spec.hint) lines.push(`额外要求：${spec.hint}`);

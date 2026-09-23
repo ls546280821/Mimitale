@@ -48,8 +48,29 @@ const PANEL_RESERVED = new Set([
 
 export const MAX_PANEL_FIELDS = 120;
 
+// 身份四项（姓名/年龄/性别/种族）在状态面板里的分组名。它们和「时间/地点/
+// 好感度」这类随剧情变化的动态状态不是一回事，单独成块，跟状态栏/关系/背包并列。
+export const IDENTITY_GROUP = '身份';
+
+// 身份四项的字段名。老会话种身份时还没有「身份」分组，panelDefs 里没记 group；
+// 按字段名兜底归组（见 panelFieldGroup），新旧会话的展示和注入就一致了。
+const IDENTITY_FIELD_NAMES = new Set(['姓名', '年龄', '性别', '种族']);
+
+/**
+ * 会话面板字段属于哪个分组：优先用 defs 里记的；没记 group 且是身份四项的，
+ * 兜底归进「身份」。分组只是视图键，面板上的分组编辑不存在（组的归属在
+ * 种进去那一刻就定了），所以这个兜底不会跟任何手工操作打架。
+ */
+export function panelFieldGroup(convo, name) {
+  const group = (convoPanelDef(convo, name) || {}).group || '';
+  if (group) return group;
+  return IDENTITY_FIELD_NAMES.has(name) ? IDENTITY_GROUP : '';
+}
+
 export const OPTIONS_LABEL = '剧情选项';
-export const OPTIONS_LINE_RE = /^【剧情选项】[：:]\s*(.*)$/;
+// 方括号可有可无：指令让模型输出「【剧情选项】：A / B / C」，但模型偶尔会
+// 漏掉方括号只写「剧情选项：A / B / C」，两边都要能解析出来才稳。
+export const OPTIONS_LINE_RE = /^【?剧情选项】?[：:]\s*(.*)$/;
 
 export function panelFieldAllowed(name) {
   return !PANEL_RESERVED.has(name) && !name.includes('的设定') && !name.includes('的性格');
@@ -121,6 +142,53 @@ export function stripPanelLines(text, knownFields) {
   return collapseBlankLines(out.join('\n')).trim();
 }
 
+/**
+ * 会话里有哪些「分组名」—— 从 panelDefs 各字段的 group 收集，再加上身份四项
+ * 兜底的「身份」。这些组名就是注入时 `—— 组名 ——` 小标题的来源，
+ * 剥正文时拿它来认分组标题（只剥已知组名，避免误删正文里「—— 破折号 ——」引语）。
+ */
+export function panelGroupNames(convo) {
+  const names = new Set();
+  const defs = convoPanelDefs(convo);
+  for (const name of Object.keys(defs)) {
+    const g = (defs[name] || {}).group;
+    if (g) names.add(g);
+  }
+  // 身份四项可能没记 group（老会话），但 panelFieldGroup 会兜底成「身份」，
+  // 所以只要面板里有身份字段，就把「身份」也算作已知分组。
+  for (const name of convoPanelFields(convo)) {
+    if (IDENTITY_FIELD_NAMES.has(name)) {
+      names.add(IDENTITY_GROUP);
+      break;
+    }
+  }
+  return names;
+}
+
+/** 分组标题正则：`—— 组名 ——`。中文全角破折号，两边可有空格。 */
+const GROUP_HEADER_RE = /^——\s*([^—\n]{1,24})\s*——$/;
+
+/**
+ * 从一段文本里剥掉分组小标题（`—— 组名 ——`）。
+ * 只剥 knownGroups 里列出的组名 —— 正文里「—— 他顿了顿 ——」这种破折号引语
+ * 组名不在列表里，不会被误删。
+ */
+export function stripPanelGroupHeaders(text, knownGroups) {
+  const source = String(text || '');
+  if (!source.trim()) return source;
+  const known = knownGroups && knownGroups.length ? new Set(knownGroups) : null;
+  if (!known || !known.size) return source;
+
+  const out = source.split('\n').filter((rawLine) => {
+    const line = rawLine.trim();
+    if (!GROUP_HEADER_RE.test(line)) return true;
+    const m = line.match(GROUP_HEADER_RE);
+    return m ? !known.has(m[1].trim()) : true;
+  });
+
+  return collapseBlankLines(out.join('\n')).trim();
+}
+
 /** 连续空行压成一个，去掉首尾空白（剥面板后容易留下空格） */
 export function collapseBlankLines(text) {
   return String(text || '')
@@ -142,11 +210,12 @@ export function stripOptionsLine(text) {
 }
 
 /**
- * 助手消息的正文该怎么给模型/界面看：状态栏行和剧情选项行都剥掉。
- * 两者都是程序读的中间产物 —— 值已经由面板权威注入，选项已经变成按钮。
+ * 助手消息的正文该怎么给模型/界面看：状态栏行、分组小标题、剧情选项行都剥掉。
+ * 三者都是程序读的中间产物 —— 值已经由面板权威注入，选项已经变成按钮，
+ * 分组标题是给模型看的排版提示，正文里留着只会像漏网之鱼一样突兀地挂在那儿。
  */
-export function cleanAssistantText(text, panelFields) {
-  return stripOptionsLine(stripPanelLines(text, panelFields));
+export function cleanAssistantText(text, panelFields, knownGroups) {
+  return stripOptionsLine(stripPanelGroupHeaders(stripPanelLines(text, panelFields), knownGroups));
 }
 
 export function convoPanelFields(convo) {
@@ -384,9 +453,8 @@ export function formatPanelForPrompt(convo) {
   const panel = convoPanel(convo);
 
   // 按分组拼。分组的字段顺序由 groupPanelFields 保序，没分组的排最后。
-  const groups = groupPanelFields(
-    fields.map((name) => ({ name, group: (convoPanelDef(convo, name) || {}).group || '' }))
-  );
+  // 老会话的身份四项没有记 group，panelFieldGroup 按字段名兜底归进「身份」。
+  const groups = groupPanelFields(fields.map((name) => ({ name, group: panelFieldGroup(convo, name) })));
 
   const lines = [];
   let groupCount = 0;
@@ -529,19 +597,23 @@ export function seedPanelFromCharacters(convo, list) {
  * 为什么身份也要进面板：世界里时间会走、剧情会推 —— 过一年年龄要涨一岁，
  * 被人改了名字也得跟着改。交给「每轮由程序权威注入」的面板维护，
  * 比让模型自己记牢靠得多。
+ *
+ * 这四项归到同一个「身份」分组里（group 记到 panelDefs），面板上就单独成块，
+ * 跟「状态栏 / 关系 / 背包」这些随剧情变化的动态状态分开 —— 身份是角色的
+ * 固定属性，不该跟时间地点好感度混在一起。分组只是视图键，数据仍是一维数组。
  */
 export function seedIdentity(convo, name, character) {
   const pairs = [];
   const trimmed = String(name || '').trim();
-  if (trimmed) pairs.push(['姓名', trimmed]);
+  if (trimmed) pairs.push({ name: '姓名', value: trimmed, group: IDENTITY_GROUP });
 
   if (character) {
     const age = String(character.age || '').trim();
     const gender = String(character.gender || '').trim();
     const race = String(character.race || '').trim();
-    if (age) pairs.push(['年龄', age]);
-    if (gender) pairs.push(['性别', gender]);
-    if (race) pairs.push(['种族', race]);
+    if (age) pairs.push({ name: '年龄', value: age, group: IDENTITY_GROUP });
+    if (gender) pairs.push({ name: '性别', value: gender, group: IDENTITY_GROUP });
+    if (race) pairs.push({ name: '种族', value: race, group: IDENTITY_GROUP });
   }
 
   return appendPanelFields(convo, pairs);

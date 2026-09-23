@@ -42,7 +42,7 @@ import { el } from './core/dom.js';
 import { activeConvo } from './core/util.js';
 
 import { showToast } from './ui/toast.js';
-import { applyTheme, toggleTheme } from './ui/theme.js';
+import { applyTheme, toggleTheme, applyAccent, toggleAccent } from './ui/theme.js';
 import { esc } from './ui/markdown.js';
 
 import { persistLibrary, markWorldbooksLoaded } from './data/persist.js';
@@ -110,9 +110,9 @@ function registerRefreshListeners() {
   onRefresh(renderConvoList);
   initHeader(); // → onRefresh(renderHeader)
   onRefresh(renderModelSwitch);
-  // 面板要「点选项 = 发一条消息」这个动作，而它属于入口层的编排
-  // （动输入框、建议条、发送流程），所以由这里注入进去。
-  initPanelUi({ pickOption }); // → onRefresh(syncPanelVisibilityForConvo) + onRefresh(renderPanel)
+  // 面板只管状态字段；剧情选项挂在气泡下面，它的动作（点选项/换一批/收起）
+  // 由 chatMessages.js 直接接 suggestionsUi.js，不经过这里。
+  initPanelUi(); // → onRefresh(syncPanelVisibilityForConvo) + onRefresh(renderPanel)
   initMemoryUi(); // → onRefresh(renderMemoryIndicator)
   onRefresh(renderMessages);
   onRefresh(refreshLibraryPage);
@@ -217,6 +217,9 @@ function bindEvents() {
   // 左上角的昼夜切换
   el.btnTheme.addEventListener('click', toggleTheme);
 
+  // 左上角的配色方案切换（粉 ↔ 蓝）
+  if (el.btnAccent) el.btnAccent.addEventListener('click', toggleAccent);
+
   el.btnFolder.addEventListener('click', () => {
     api.openDataFolder('config').catch(() => {});
   });
@@ -224,6 +227,19 @@ function bindEvents() {
   el.input.addEventListener('input', autoGrowInput);
 
   el.input.addEventListener('keydown', (event) => {
+    // 数字键 1~9 快捷选剧情选项：只在输入框为空、且不是组合键时触发，
+    // 否则会跟「想输入数字」打架。选项按钮上印着对应序号，一眼对上。
+    if (event.key >= '1' && event.key <= '9' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+      const convo = activeConvo();
+      const options = convo && Array.isArray(convo.options) ? convo.options : [];
+      const idx = Number(event.key) - 1;
+      if (!el.input.value.trim() && options[idx] && !state.streaming) {
+        event.preventDefault();
+        pickOption(convo, options[idx]);
+        return;
+      }
+    }
+
     if (event.key !== 'Enter') return;
     const wantSend = state.settings && state.settings.sendOnEnter !== false;
     const withModifier = event.ctrlKey || event.metaKey;
@@ -384,8 +400,7 @@ async function init() {
   // 建议条自己绑关闭按钮；点建议 / 点剧情选项 = 发一条消息，那也是入口层的编排
   // （填输入框、让它长高、走发送流程）。
   initSuggestionsUi({
-    send: sendMessage,
-    growInput: autoGrowInput
+    send: sendMessage
   });
   // 侧边栏的「角色库 / 世界书」两个入口自己绑（切屏是 viewSwitch 自己的事）。
   initViewSwitch();
@@ -429,6 +444,8 @@ async function init() {
 
   // 主题以设置里的值为准（preload 已经按启动参数先打过一次，这里只是对齐）
   applyTheme(state.settings.theme);
+  // 配色方案同理（粉色默认，蓝色按设置；preload 已先打标记）
+  applyAccent(state.settings.accent);
   applyChatAppearance();
 
   const storedChars = await api.getCharacters();

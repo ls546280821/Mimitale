@@ -161,6 +161,31 @@ await scenario('主题切换', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  场景 2b：配色方案切换（粉 ↔ 蓝，顺带验证 data-accent 与 CSS 变量 + 落盘）
+// ---------------------------------------------------------------------------
+await scenario('配色方案切换', async () => {
+  const before = document.documentElement.getAttribute('data-accent');
+  const readAccent = () => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const accentBefore = readAccent();
+
+  click('#btn-accent');
+  await waitFor('data-accent 变化', () => document.documentElement.getAttribute('data-accent') !== before);
+
+  const after = document.documentElement.getAttribute('data-accent');
+  check('data-accent 变了', after !== before, `${before} → ${after}`);
+
+  const accentAfter = readAccent();
+  check('--accent 变量跟着变', accentAfter !== accentBefore, `${accentBefore} → ${accentAfter}`);
+
+  await sleep(150);
+  const settings = (await window.mimitale.getSettings()).settings;
+  check('配色已落盘', settings.accent === after, `落盘的是 ${settings.accent}`);
+
+  click('#btn-accent'); // 切回去，别影响后面的场景
+  await waitFor('配色切回', () => document.documentElement.getAttribute('data-accent') === before);
+});
+
+// ---------------------------------------------------------------------------
 //  场景 3：设置弹窗
 // ---------------------------------------------------------------------------
 await scenario('设置弹窗', async () => {
@@ -527,7 +552,9 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   // 分组：填了分组的字段，面板上会多出一块（标题 + 该组字段）
   const groupTitles = $$('#panel-fields .panel-group-title').map((n) => n.textContent);
   check('面板上出现了分组标题', groupTitles.includes('关系'), JSON.stringify(groupTitles));
-  check('没分组的字段不额外加标题（只有 1 个分组块）', groupTitles.length === 1, JSON.stringify(groupTitles));
+  // 身份四项（姓名/年龄/性别/种族）也归到了「身份」分组，所以一共两块：
+  // 「关系」（角色属性里的分组）+「身份」（seedIdentity 种的）。
+  check('身份四项归进独立的「身份」分组（共 2 个分组块）', groupTitles.length === 2 && groupTitles.includes('身份'), JSON.stringify(groupTitles));
   {
     // 分组块里只装它自己那组的字段
     const group = $$('#panel-fields .panel-group').find(
@@ -540,6 +567,20 @@ await scenario('属性：从角色卡种到状态面板', async () => {
       Array.from(g.querySelectorAll('.panel-name')).some((n) => n.textContent === '金币')
     );
     check('没分组的字段没被吸进分组块', !strayInGroup);
+  }
+  {
+    // 身份四项应该整整齐齐待在「身份」分组块里
+    const idGroup = $$('#panel-fields .panel-group').find(
+      (g) => g.querySelector('.panel-group-title').textContent === '身份'
+    );
+    const idFields = idGroup
+      ? Array.from(idGroup.querySelectorAll('.panel-row .panel-name')).map((n) => n.textContent)
+      : [];
+    check(
+      '「身份」分组块里装着姓名/年龄/性别/种族',
+      idFields.join(',') === '姓名,年龄,性别,种族',
+      JSON.stringify(idFields)
+    );
   }
 
   // 数值字段的「/100」被拆成后缀显示，输入框里只剩分子
@@ -1476,6 +1517,85 @@ await scenario('角色属性：粘贴文本批量生成', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  场景 14.5：角色属性 —— 套用官方互动模板
+//
+//  一键种入官方固定分组（状态栏 / 关系 / 背包）和默认字段，字段带好
+//  类型 / 范围 / 变化规则。这是「互动模板」的核心体验：不用手动建组、
+//  不用逐条填类型。
+// ---------------------------------------------------------------------------
+await scenario('角色属性：套用互动模板', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  setValue('#c-name', '模板测试角色');
+
+  // 空卡还没有任何分组
+  const tabLabels = () => $$('#c-attr-tabs .attr-tab').map((b) => b.textContent);
+
+  check('模板入口在属性区里', !!byId('btn-attr-template'));
+  click('#btn-attr-template');
+  await waitFor('模板字段种进来了', () => $$('#c-attr-list .attr-row').length >= 3);
+
+  // 三个官方分组都出现在标签栏里（各带字段计数）
+  check(
+    '三个固定分组都出现了',
+    ['状态栏', '关系', '背包'].every((g) => tabLabels().some((t) => t.startsWith(g))),
+    JSON.stringify(tabLabels())
+  );
+  check('状态栏组里有 3 个字段（时间 / 地点 / 心情）', tabLabels().some((t) => t.startsWith('状态栏 3')), JSON.stringify(tabLabels()));
+  check('关系组里有 2 个字段（好感度 / 关系阶段）', tabLabels().some((t) => t.startsWith('关系 2')), JSON.stringify(tabLabels()));
+  check('背包组里有 1 个字段（物品）', tabLabels().some((t) => t.startsWith('背包 1')), JSON.stringify(tabLabels()));
+
+  // 应用完停在「状态栏」，能看到刚种进来的字段
+  const names = $$('#c-attr-list .attr-name').map((n) => n.textContent);
+  check('应用完停在状态栏，能看到时间/地点/心情', ['时间', '地点', '心情'].every((n) => names.includes(n)), JSON.stringify(names));
+
+  // 切到「关系」：好感度是带范围的数值，关系阶段是文本，都有变化规则
+  const clickTab = (prefix) => {
+    const tab = $$('#c-attr-tabs .attr-tab').find((b) => b.textContent.startsWith(prefix));
+    if (!tab) throw new Error(`标签栏里没有「${prefix}」`);
+    click(tab);
+  };
+  clickTab('关系');
+  await waitFor('切到关系组', () => $$('#c-attr-list .attr-name').some((n) => n.textContent === '好感度'));
+
+  // 好感度是带范围的数值字段，「更多」默认就是展开的（有范围就展开）——
+  // 直接断言范围 0~100 和变化规则，不再点按钮（点了反而会收起）。
+  const favorRow = () => $$('#c-attr-list .attr-row').find((r) => r.querySelector('.attr-name').textContent === '好感度');
+  await waitFor('好感度的范围框可见', () => !!favorRow().parentElement.querySelector('.attr-more .attr-num'));
+  const numInputs = favorRow().parentElement.querySelectorAll('.attr-more .attr-num');
+  check('好感度范围是 0~100', numInputs[0].value === '0' && numInputs[1].value === '100', JSON.stringify(Array.from(numInputs).map((i) => i.value)));
+  check(
+    '好感度带变化规则',
+    favorRow().parentElement.querySelector('.attr-more .attr-hint').value.includes('示好'),
+    favorRow().parentElement.querySelector('.attr-more .attr-hint').value
+  );
+
+  // 保存后落盘：类型/范围/hint/分组都在
+  click('#btn-save-char');
+  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await sleep(150);
+
+  const saved = (await savedCharacters()).find((c) => c.name === '模板测试角色');
+  const byName = (n) => ((saved && saved.attributes) || []).find((a) => a.name === n) || {};
+  check('模板字段都落盘了', !!saved && saved.attributes.length === 6, JSON.stringify(saved && (saved.attributes || []).map((a) => a.name)));
+  check(
+    '好感度类型/范围/规则/分组都对',
+    byName('好感度').type === 'meter' && byName('好感度').min === 0 && byName('好感度').max === 100 &&
+      String(byName('好感度').hint || '').includes('示好') && byName('好感度').group === '关系',
+    JSON.stringify(byName('好感度'))
+  );
+  check('关系阶段带「按好感度自动」的变化规则', String(byName('关系阶段').hint || '').includes('好感度'), JSON.stringify(byName('关系阶段')));
+  check('物品是列表类型、归到背包', byName('物品').type === 'list' && byName('物品').group === '背包', JSON.stringify(byName('物品')));
+
+  // 再套一次：已存在的字段不重复加
+  click('#btn-attr-template');
+  await sleep(80);
+  check('再套一次不会重复加字段', $$('#c-attr-list .attr-row').length === 3, `实际 ${$$('#c-attr-list .attr-row').length}`);
+});
+
+// ---------------------------------------------------------------------------
 //  场景 15：角色属性 —— 分组标签栏
 //
 //  属性在数据上仍是一维数组（分组记在每个字段自己的 group 上），
@@ -2216,8 +2336,9 @@ await scenario('导入：重发 id 时绑定要跟着走', async () => {
 // ---------------------------------------------------------------------------
 //  场景 21：剧情选项（每轮给几个可点选项，点一下就当玩家回复发出去）
 //
-//  这是「互动模板」里最特别的一块：选项不是一次性的建议，而是常驻在状态面板里、
-//  每轮由模型跟着状态栏一起更新，玩家点一下就当作自己说了那句话。
+//  这是「互动模板」里最特别的一块：选项不是一次性的建议，而是跟着最新一条
+//  AI 回复走（挂在气泡下面），每轮由模型跟着状态栏一起更新，
+//  玩家点一下就当作自己说了那句话；不满意还能「换一批」。
 // ---------------------------------------------------------------------------
 await scenario('剧情选项', async () => {
   // --- 1) 在角色编辑器里开剧情选项 ---
@@ -2270,15 +2391,61 @@ await scenario('剧情选项', async () => {
     click('#btn-panel-collapse');
     await sleep(200);
   }
-  const optionBtns = $$('#panel-fields .panel-option-btn');
-  check('面板里出现了剧情选项按钮', optionBtns.length > 0, `实际 ${optionBtns.length} 个`);
+  // 剧情选项挂在最新一条 AI 回复的气泡下面（不在状态面板里）
+  const optionBtns = $$('#messages .msg-option-btn');
+  check('气泡下面出现了剧情选项按钮', optionBtns.length > 0, `实际 ${optionBtns.length} 个`);
   check(
-    '选项标题在',
-    $$('#panel-fields .panel-group-title').some((n) => n.textContent === '剧情选项'),
-    JSON.stringify($$('#panel-fields .panel-group-title').map((n) => n.textContent))
+    '选项块确实长在 AI 回复的气泡下面',
+    $$('#messages .msg.assistant .msg-options').length > 0,
+    `实际 ${$$('#messages .msg.assistant .msg-options').length} 块`
+  );
+  // 选项块底下有个「换一批」按钮，这批不满意可以重新让模型给一批
+  check(
+    '剧情选项有「换一批」按钮',
+    $$('#messages .msg-options-reroll').some((n) => n.textContent.includes('换一批')),
+    JSON.stringify($$('#messages .msg-options-reroll').map((n) => n.textContent))
   );
 
-  const texts = optionBtns.map((b) => b.textContent);
+  // --- 点「换一批」→ 重新发请求、解析、写回、重绘 ---
+  {
+    const rerollBtn = $$('#messages .msg-options-reroll')[0];
+    click(rerollBtn);
+    // 点下去立刻：选项换成骨架屏、按钮禁用并显示「换一批中…」
+    check(
+      '点「换一批」后选项换成骨架屏',
+      $$('#messages .msg-option-skeleton').length > 0,
+      `骨架条 ${$$('#messages .msg-option-skeleton').length} 条`
+    );
+    check(
+      '点「换一批」后按钮显示「换一批中…」',
+      $$('#messages .msg-options-reroll').some((n) => n.textContent.includes('换一批中')),
+      JSON.stringify($$('#messages .msg-options-reroll').map((n) => n.textContent))
+    );
+    // 点下去按钮立刻禁用；完成后整块重绘（按钮换成新的、可点）或原地恢复
+    await waitFor(
+      '换一批完成（按钮恢复可点且选项还在）',
+      () => {
+        const btn = $$('#messages .msg-options-reroll')[0];
+        return !!btn && !btn.disabled && $$('#messages .msg-option-btn').length > 0;
+      },
+      12000
+    );
+    // 换一批完成后整块重绘过，要重新抓节点
+    const afterReroll = $$('#messages .msg-option-btn').map((b) => b.querySelector('.opt-text').textContent);
+    check(
+      '换一批后选项按钮还在（写回并重绘成功）',
+      afterReroll.length > 0,
+      JSON.stringify(afterReroll)
+    );
+    // 换一批的返回也会被解析成干净的选项（没有「【」残留、没有序号）
+    check(
+      '换一批后的选项是干净的',
+      afterReroll.every((t) => t && !t.includes('【') && !/^\d/.test(t)),
+      JSON.stringify(afterReroll)
+    );
+  }
+
+  const texts = optionBtns.map((b) => b.querySelector('.opt-text').textContent);
   check(
     '序号和引号都被剥掉了（模型爱带，得容忍）',
     texts.includes('我想先喝一杯，压压惊') && texts.includes('我直接问他叫什么名字'),
@@ -2332,19 +2499,32 @@ await scenario('剧情选项', async () => {
     }
   }
 
-  // --- 4) 点一个选项 → 当作玩家回复发出去，选项消失 ---
+  // --- 4) 选一个选项 → 当作玩家回复发出去，选项消失 ---
+  // （换一批重绘过整块，选项按钮要重新抓；文字取 .opt-text，别把序号/箭头算进去）
   const beforeCount = $$('#messages .msg').length;
-  const pick = optionBtns[0];
-  const pickText = pick.textContent;
-  click(pick);
+  const pick = $$('#messages .msg-option-btn')[0];
+  const pickText = pick.querySelector('.opt-text').textContent;
+
+  // 数字键快捷选择：选项按钮印着 1、2、3… 序号，输入框为空时按数字键直接选中
+  const idxLabels = $$('#messages .msg-option-btn').map((b) => (b.querySelector('.opt-index') || {}).textContent);
+  const expectedIdx = idxLabels.map((_, i) => String(i + 1)).join(',');
+  check('选项按钮印着连续的数字序号（1、2、3…）', idxLabels.join(',') === expectedIdx && idxLabels.length > 0, JSON.stringify(idxLabels));
+
+  // 输入框为空时按「1」→ 应该选中第一个选项（和上面的 pick 是同一个）
+  const inputEl = byId('input');
+  inputEl.value = '';
+  inputEl.dispatchEvent(new KeyboardEvent('keydown', { key: '1', bubbles: true, cancelable: true }));
   await waitFor('回复完成', () => byId('btn-send').disabled === false, 12000);
   await sleep(300);
+
+  // 点选项/按数字键都是「直接发送」，不该把选项文字写进输入框 —— 输入框保持原样（空）
+  check('选选项后输入框没有被塞进文字', byId('input').value === '', `输入框当前值：${JSON.stringify(byId('input').value)}`);
 
   const userMsgs = $$('#messages .msg')
     .filter((m) => m.classList.contains('user'))
     .map((m) => m.textContent);
   check(
-    '点选项真的把它当玩家回复发出去了',
+    '按数字键真的把对应选项当玩家回复发出去了',
     userMsgs.some((t) => t.includes(pickText)),
     JSON.stringify(userMsgs.slice(-3))
   );
@@ -2367,6 +2547,160 @@ await scenario('剧情选项', async () => {
   );
   check('配置本身还在（下一轮还会给新选项）', !!active && !!active.optionsSpec && active.optionsSpec.count === 3,
     JSON.stringify(active && active.optionsSpec));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 22：身份四项的分组兜底（panelFieldGroup）
+//
+//  身份四项（姓名/年龄/性别/种族）现在种面板时会带上「身份」分组，但**老会话**
+//  种的时候还没有分组这个概念，panelDefs 里没记 group。panelFieldGroup 负责按
+//  字段名兜底，让新旧会话的分组展示和提示词注入一致。
+//  纯函数，动态 import 真代码来测（同场景 20 的路数）。
+// ---------------------------------------------------------------------------
+await scenario('面板：身份分组的兜底', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/panel.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('panel 模块能动态加载', false, (err && err.message) || String(err));
+  }
+
+  if (mod && typeof mod.panelFieldGroup === 'function') {
+    check('panelFieldGroup 能从真模块里拿到', true);
+
+    // 老会话形状：defs 里只有数值字段的定义，身份四项什么都没记
+    const legacyConvo = {
+      panelFields: ['姓名', '年龄', '金币'],
+      panel: { 姓名: '阿莉', 年龄: '18', 金币: '100' },
+      panelDefs: { 金币: { type: 'meter', min: 0, max: 100 } }
+    };
+
+    check(
+      '老会话的身份字段兜底归进「身份」组',
+      mod.panelFieldGroup(legacyConvo, '姓名') === mod.IDENTITY_GROUP && mod.panelFieldGroup(legacyConvo, '年龄') === mod.IDENTITY_GROUP,
+      JSON.stringify([mod.panelFieldGroup(legacyConvo, '姓名'), mod.panelFieldGroup(legacyConvo, '年龄')])
+    );
+    check('不是身份四项的字段不兜底（保持没分组）', mod.panelFieldGroup(legacyConvo, '金币') === '', mod.panelFieldGroup(legacyConvo, '金币'));
+    check(
+      'defs 里记过 group 的以 defs 为准（不被兜底覆盖）',
+      mod.panelFieldGroup({ panelFields: ['好感度'], panel: {}, panelDefs: { 好感度: { type: 'meter', group: '关系' } } }, '好感度') === '关系'
+    );
+
+    // 新会话形状：种的时候 group 已经记进 defs —— 兜底不该多事
+    const newConvo = {
+      panelFields: ['姓名'],
+      panel: { 姓名: '阿莉' },
+      panelDefs: { 姓名: { type: 'text', group: mod.IDENTITY_GROUP } }
+    };
+    check('新会话的身份字段直接读 defs（结果一致）', mod.panelFieldGroup(newConvo, '姓名') === mod.IDENTITY_GROUP);
+  }
+});
+
+// ---------------------------------------------------------------------------
+//  场景 23：正文剥分组小标题（—— 身份 —— / —— 状态栏 ——）
+//
+//  模型照着注入的格式输出状态栏时，会把「—— 组名 ——」小标题也一起抄进正文。
+//  字段行被剥掉后，这些孤零零的分组标题就漏在气泡里。cleanAssistantText 要能
+//  把它们一并剥掉，且不能误删正文里「—— 他顿了顿 ——」这种破折号引语。
+// ---------------------------------------------------------------------------
+await scenario('正文：分组小标题也要剥掉', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/panel.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('panel 模块能动态加载', false, (err && err.message) || String(err));
+  }
+
+  if (!mod || typeof mod.cleanAssistantText !== 'function') return;
+
+  const text = [
+    '*她抬头看向你，眼睛里闪着期待的光。*',
+    '',
+    '—— 身份 ——',
+    '【姓名】：莉莉娅',
+    '【年龄】：18',
+    '',
+    '—— 状态栏 ——',
+    '【时间】：夜晚',
+    '【地点】：主人的家',
+    '',
+    '—— 关系 ——',
+    '【好感度】：40/100',
+    '',
+    '「主人，今天想怎么玩我？」'
+  ].join('\n');
+
+  const fields = ['姓名', '年龄', '时间', '地点', '好感度'];
+  const groups = ['身份', '状态栏', '关系'];
+
+  const cleaned = mod.cleanAssistantText(text, fields, groups);
+
+  check(
+    '分组小标题被剥掉了（身份/状态栏/关系都不在）',
+    !cleaned.includes('—— 身份 ——') && !cleaned.includes('—— 状态栏 ——') && !cleaned.includes('—— 关系 ——'),
+    cleaned
+  );
+  check('字段行也被剥掉了', !cleaned.includes('【姓名】') && !cleaned.includes('【好感度】'), cleaned);
+  check('正文（动作描写 + 台词）完好保留', cleaned.includes('她抬头看向你') && cleaned.includes('今天想怎么玩我'), cleaned);
+
+  // 破折号引语不该被误删：组名不在 knownGroups 里
+  const prose = ['他顿了顿，说：', '—— 我有点累了 ——', '然后就走了。'].join('\n');
+  const proseCleaned = mod.cleanAssistantText(prose, [], ['身份']);
+  check('正文里「—— 破折号引语 ——」不被误删', proseCleaned.includes('—— 我有点累了 ——'), proseCleaned);
+
+  // 没传分组名时，标题保留原样（向后兼容，不会乱删）
+  const noGroups = mod.cleanAssistantText(text, fields);
+  check('不传分组名时不误删标题（保持旧行为）', noGroups.includes('—— 身份 ——'), noGroups);
+});
+
+// ---------------------------------------------------------------------------
+//  场景 24：选项解析容忍「字母标签」
+//
+//  模型有时把指令里的格式示例当成要求，输出「A / 选项一 / B / 选项二 …」——
+//  拆出来就是一堆孤立的单字母按钮（实测截图踩过）。extractOptionsFromText 要：
+//  丢掉孤立字母、剥掉「A. 」前缀，内容原样保留；真选项里的多字组合不受影响。
+// ---------------------------------------------------------------------------
+await scenario('选项：字母标签容错', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/suggestions.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('suggestions 模块能动态加载', false, (err && err.message) || String(err));
+  }
+
+  if (!mod || typeof mod.extractOptionsFromText !== 'function') return;
+
+  // 截图里的实际形状：字母标签和内容交替，全在一行用「 / 」隔开
+  const labeled = mod.extractOptionsFromText(
+    '【剧情选项】：A / 把手指插进去，命令她自己报出湿了几次 / B / 捏住她的下巴，让她张嘴舔你手指 / C / 让她把衬衫脱了，跪着给你口交'
+  );
+  check(
+    '孤立字母标签被丢掉，只剩 3 条真选项',
+    labeled.length === 3 &&
+      labeled[0] === '把手指插进去，命令她自己报出湿了几次' &&
+      labeled[1] === '捏住她的下巴，让她张嘴舔你手指' &&
+      labeled[2] === '让她把衬衫脱了，跪着给你口交',
+    JSON.stringify(labeled)
+  );
+
+  // 标签贴在内容前面（A. 内容）也要剥掉
+  const prefixed = mod.extractOptionsFromText('【剧情选项】：A. 走过去抱住她 / B、退后一步观察 / C: 转身离开');
+  check(
+    '「A. 」「A、」「A: 」前缀被剥掉',
+    prefixed.join('|') === '走过去抱住她|退后一步观察|转身离开',
+    JSON.stringify(prefixed)
+  );
+
+  // 真选项里的多字组合（OK / B超）不能被误伤
+  const real = mod.extractOptionsFromText('【剧情选项】：打开 B超报告给她看 / 说 OK 然后走人');
+  check('多字组合（B超/OK）不被当成标签', real.join('|') === '打开 B超报告给她看|说 OK 然后走人', JSON.stringify(real));
+
+  // 模型把示例整个照抄（全是字母）→ 没有可用选项 → 空数组（保持上一轮的）
+  const placeholder = mod.extractOptionsFromText('【剧情选项】：A / B / C');
+  check('全是占位字母时返回空（保持上一轮选项）', placeholder.length === 0, JSON.stringify(placeholder));
 });
 
 return { results, notes, hoverProbe };

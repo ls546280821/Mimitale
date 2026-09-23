@@ -23,10 +23,10 @@ import { esc, renderMarkdown } from '../ui/markdown.js';
 import { h, button } from '../ui/build.js';
 import { characterForConvo, convoWorldbookIds, worldbookById } from '../data/library.js';
 import { convoPlayer, convoUserName, userName, speakerName } from '../data/cast.js';
-import { cleanAssistantText, convoPanelFields } from '../data/panel.js';
+import { cleanAssistantText, convoPanelFields, panelGroupNames } from '../data/panel.js';
 import { scrollToBottom } from './stream.js';
 import { buildMessageImages, illustrateMessage } from './chatImages.js';
-import { suggestNextActions } from './suggestionsUi.js';
+import { suggestNextActions, pickOption, rerollOptions, closeOptions } from './suggestionsUi.js';
 import { switchVariant, editMessage, regenerateFrom, continueLastMessage } from './composer.js';
 import { removeMessage, branchFromMessage } from './convoActions.js';
 
@@ -36,6 +36,97 @@ let openingBusyId = null;
 /** 由 views/worldPlay.js 在「按世界设定生成开局」前后设置 */
 export function setOpeningBusy(id) {
   openingBusyId = id;
+}
+
+/**
+ * 剧情选项块：每行一个选项（点一下当作玩家说了这句话），底下一条小工具行 ——
+ * 「换一批」（这批没有想要的，重新让模型给一批）和「✕」（收起这一批）。
+ *
+ * 按钮接到谁身上：点选项 / 点换一批 / 点收起 都是 suggestionsUi.js 里的动作 ——
+ * 它要动输入框、走发送流程、调模型，那些都是入口层的编排，这里只管接线。
+ */
+function buildOptionsBlock(options) {
+  const box = h('div', { class: 'msg-options' });
+
+  // 选项按钮包一层容器：点「换一批」时把里面换成骨架屏，等模型返回再换回来
+  const list = h('div', { class: 'msg-options-list' });
+  box.appendChild(list);
+
+  function renderButtons() {
+    list.textContent = '';
+    options.forEach((text, i) => {
+      list.appendChild(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'msg-option-btn',
+            title: '点一下，就当你说这句话发出去',
+            onClick: () => pickOption(activeConvo(), text)
+          },
+          // 数字序号：输入框里按 1~9 也能选，序号印在按钮上对上号
+          h('span', { class: 'opt-index', text: String(i + 1), 'aria-hidden': 'true' }),
+          h('span', { class: 'opt-arrow', text: '↩', 'aria-hidden': 'true' }),
+          h('span', { class: 'opt-text', text })
+        )
+      );
+    });
+  }
+
+  // 骨架屏：几条闪烁的灰条，占住选项的位置，等模型返回再换成真按钮。
+  // 条数跟着这批选项的个数走，高度也用「一行」的样式，过渡才不跳。
+  function renderSkeleton() {
+    list.textContent = '';
+    const n = Math.max(2, Math.min(options.length || 3, 4));
+    for (let i = 0; i < n; i += 1) {
+      const bar = h('div', { class: 'msg-option-skeleton', 'aria-hidden': 'true' });
+      bar.style.width = `${[52, 68, 76, 61][i % 4]}%`;
+      list.appendChild(bar);
+    }
+  }
+
+  renderButtons();
+
+  // 「换一批」：点下去先把选项换成骨架屏，再禁用按钮、等模型返回。
+  // 成功时 refreshAll 会把整块重绘成新选项（骨架屏自然被换掉）；失败则原地
+  // 把旧选项画回来。
+  const reroll = h(
+    'button',
+    {
+      type: 'button',
+      class: 'msg-options-reroll',
+      text: '⟳ 换一批',
+      title: '这批没有想要的？让 AI 再给一批',
+      onClick: async (event) => {
+        const btn = event.currentTarget;
+        if (btn.disabled) return;
+        btn.disabled = true;
+        const original = btn.textContent;
+        btn.textContent = '换一批中…';
+        renderSkeleton();
+        try {
+          const ok = await rerollOptions(activeConvo());
+          // 失败（含「没生成出可用选项」）时 rerollOptions 已把旧选项写回，
+          // 这里把骨架屏换成旧按钮；成功时 refreshAll 已整块重绘，无需处理。
+          if (!ok) renderButtons();
+        } finally {
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      }
+    }
+  );
+
+  const close = h('button', {
+    type: 'button',
+    class: 'msg-options-close',
+    text: '✕',
+    title: '收起这一批选项（下一轮回复会带新的）',
+    onClick: () => closeOptions(activeConvo())
+  });
+
+  box.appendChild(h('div', { class: 'msg-options-foot' }, reroll, close));
+  return box;
 }
 
 function messageNode(message, index, character, labels, ctx) {
@@ -137,7 +228,7 @@ function messageNode(message, index, character, labels, ctx) {
     //   · 选项已经变成可点的按钮了，原文留着只会吵。
     // （换候选时靠面板里的输入框看当前值，不靠正文。）
     content.innerHTML = renderMarkdown(
-      cleanAssistantText(message.content, ctx.panelFields)
+      cleanAssistantText(message.content, ctx.panelFields, ctx.panelGroups)
     );
   }
 
@@ -149,6 +240,14 @@ function messageNode(message, index, character, labels, ctx) {
 
   body.appendChild(role);
   body.appendChild(bubble);
+
+  // 剧情选项：跟在**最新一条** AI 回复的气泡下面（对齐官方互动模板的位置 ——
+  // 模型每轮给几个可点选项，点一下就当玩家说了这句话）。
+  // 只在「最后一条是 AI 回复 + 没在生成下一轮」时出现：你自己刚发完话、
+  // 或正在流式生成时，上一轮的旧选项挂在下面只会碍事。
+  if (!isUser && !isError && index === ctx.lastIndex && ctx.options && ctx.options.length) {
+    body.appendChild(buildOptionsBlock(ctx.options));
+  }
 
   // 操作按钮
   const actions = document.createElement('div');
@@ -300,9 +399,19 @@ export function renderMessages(options) {
     user: convoUserName(convo),
     assistant: speakerName(convo)
   };
+  const lastMsg = convo.messages[convo.messages.length - 1];
+  // 剧情选项挂在最新一条 AI 回复下面：你刚发了话、或正在流式生成就先不挂
+  const showOptions =
+    !state.streaming &&
+    !!lastMsg &&
+    lastMsg.role === 'assistant' &&
+    Array.isArray(convo.options) &&
+    convo.options.length > 0;
   const ctx = {
     panelFields: convoPanelFields(convo),
-    lastIndex: convo.messages.length - 1
+    panelGroups: [...panelGroupNames(convo)],
+    lastIndex: convo.messages.length - 1,
+    options: showOptions ? convo.options : null
   };
 
   convo.messages.forEach((message, index) => {

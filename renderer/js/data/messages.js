@@ -21,7 +21,7 @@
 import { CONFIG } from '../core/config.js';
 import { state } from '../core/state.js';
 import { characterForConvo } from './library.js';
-import { cleanAssistantText, convoPanelFields, formatPanelForPrompt } from './panel.js';
+import { cleanAssistantText, convoPanelFields, formatPanelForPrompt, panelGroupNames } from './panel.js';
 import { formatSummaryForPrompt, summarizedCount } from './memory.js';
 import { gmRuleText, isGmMode, narrationInstruction, roleplayRuleText } from './narration.js';
 import { optionsInstruction } from './suggestions.js';
@@ -247,9 +247,10 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // ---- 4. 真实对话历史（剥掉面板行，面板由程序权威注入）----
   // 用本会话的已知字段名来剥：正文里提到同名字样不会被误删。
   const panelFields = convoPanelFields(convo);
+  const panelGroups = [...panelGroupNames(convo)];
   for (const m of recent) {
     const raw = applyMacros(m.content, character, me);
-    const text = m.role === 'assistant' ? cleanAssistantText(raw, panelFields) : raw;
+    const text = m.role === 'assistant' ? cleanAssistantText(raw, panelFields, panelGroups) : raw;
     const images = messageImages(m);
 
     // 带图的用户消息要发成多模态数组 —— 这是 OpenAI 那套的通用写法，

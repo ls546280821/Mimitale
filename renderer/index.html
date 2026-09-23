@@ -14,6 +14,15 @@
       <div class="brand">
         <span class="brand-dot"></span>
         <span class="brand-name">♪ 如我所书</span>
+        <button id="btn-accent" class="icon-btn brand-theme" type="button" title="切换为蓝色（商务）" aria-label="切换为蓝色（商务）" aria-pressed="false">
+          <svg class="icon-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="13.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
+            <circle cx="17.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" />
+            <circle cx="8.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" />
+            <circle cx="6.5" cy="12.5" r="1.2" fill="currentColor" stroke="none" />
+            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c1.9 0 3-1.4 3-3.1 0-.8-.3-1.5-.8-2-.5-.5-.8-1.2-.8-2 0-1.6 1.2-2.9 2.8-2.9H19c1.7 0 3-1.3 3-3C22 5.6 17.5 2 12 2z" />
+          </svg>
+        </button>
         <button id="btn-theme" class="icon-btn brand-theme" type="button" title="切换为夜间模式" aria-label="切换为夜间模式" aria-pressed="false">
           <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
@@ -581,6 +590,14 @@
                  这样导出 / 导入 / 面板注入全都不用改，风险面小得多。 -->
             <div class="field field-stack">
               <span class="field-label">属性（状态面板）</span>
+
+              <!-- 官方「互动模板」：一键种入预设分组（状态栏 / 关系 / 背包）和默认字段，
+                   字段可再改名 / 修改 / 删除。放在整块最上面，一眼就能看到。 -->
+              <div class="attr-template-bar">
+                <button id="btn-attr-template" class="btn btn-ghost btn-sm" type="button"
+                        title="一键加进官方模板的状态栏 / 关系 / 背包分组和默认字段">套用互动模板</button>
+                <span class="attr-template-hint">状态栏 · 关系 · 背包</span>
+              </div>
 
               <!-- 整块做成一张卡：卡头是分组标签栏，卡身是这一组的字段 + 加字段那一行。
                    平铺成一堆输入框的话，看不出哪些字段属于同一组，

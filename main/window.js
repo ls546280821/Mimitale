@@ -60,8 +60,11 @@ function stopDevWatcher() {
 
 function createWindow() {
   let theme = DEFAULT_SETTINGS.theme;
+  let accent = DEFAULT_SETTINGS.accent;
   try {
-    theme = loadSettings().theme === 'dark' ? 'dark' : 'light';
+    const saved = loadSettings();
+    theme = saved.theme === 'dark' ? 'dark' : 'light';
+    accent = saved.accent === 'blue' ? 'blue' : 'pink';
   } catch (err) {
     // 读不到设置就用默认主题，不影响启动
   }
@@ -80,7 +83,7 @@ function createWindow() {
       nodeIntegration: false,
       spellcheck: false,
       // 把主题提前告诉 preload，让它在首屏渲染前就打好标记
-      additionalArguments: [`--mimitale-theme=${theme}`]
+      additionalArguments: [`--mimitale-theme=${theme}`, `--mimitale-accent=${accent}`]
     }
   });
 

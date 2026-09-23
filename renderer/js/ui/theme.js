@@ -27,6 +27,41 @@ export function applyTheme(theme) {
   }
 }
 
+// ---------------------------------------------------------------------------
+//  配色方案（accent）：pink（可爱粉）/ blue（商务蓝），和明暗模式正交。
+//  体现在 <html> 的 data-accent 上，具体配色在 style.css 的变量里。
+// ---------------------------------------------------------------------------
+
+export function currentAccent() {
+  return document.documentElement.getAttribute('data-accent') === 'blue' ? 'blue' : 'pink';
+}
+
+export function applyAccent(accent) {
+  const next = accent === 'blue' ? 'blue' : 'pink';
+  document.documentElement.setAttribute('data-accent', next);
+
+  if (el.btnAccent) {
+    const isBlue = next === 'blue';
+    const label = isBlue ? '切换为粉色（可爱）' : '切换为蓝色（商务）';
+    el.btnAccent.title = label;
+    el.btnAccent.setAttribute('aria-label', label);
+    el.btnAccent.setAttribute('aria-pressed', isBlue ? 'true' : 'false');
+  }
+}
+
+export function toggleAccent() {
+  const next = currentAccent() === 'blue' ? 'pink' : 'blue';
+  applyAccent(next);
+
+  if (state.settings) state.settings.accent = next;
+
+  // 配色方案跟着 config.json 一起存，下次启动还是这个颜色
+  api.saveSettings({ accent: next }).catch((err) => {
+    console.error('保存配色失败', err);
+    showToast('配色没能保存，重启后会回到原来的颜色', 'error');
+  });
+}
+
 export function toggleTheme() {
   const next = currentTheme() === 'dark' ? 'light' : 'dark';
   applyTheme(next);

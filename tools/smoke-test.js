@@ -464,8 +464,10 @@ function registerStubs() {
       String((m && m.content) || '').includes('【剧情选项】')
     );
     if (askedForOptions) {
+      // 故意不带方括号（写成「剧情选项：」而不是「【剧情选项】：」）——
+      // 指令是让模型带方括号的，但真模型经常漏，解析要两边都认。
       const optionsLine =
-        '【剧情选项】：1.「我想先喝一杯，压压惊」 / 我直接问他叫什么名字 / ' +
+        '剧情选项：1.「我想先喝一杯，压压惊」 / 我直接问他叫什么名字 / ' +
         '3） 我假装什么都没听见，继续吃 / 我想先喝一杯，压压惊 / 这条应该被丢掉（只取前几个）';
       CONTENT = `${CONTENT}\n\n【好感度】：63/100\n${optionsLine}`;
       pieces = [...pieces, '\n\n【好感度】：63/100\n', optionsLine];
@@ -1853,6 +1855,12 @@ app.whenReady().then(async () => {
         await win.webContents.executeJavaScript(`document.querySelector('#btn-theme')?.click(); true`);
         await new Promise((r) => setTimeout(r, 300));
       }
+      // --shot-accent=blue：切到商务蓝配色再截图（点真实的配色按钮）
+      const shotAccent = (process.argv.find((a) => a.startsWith('--shot-accent')) || '').split('=')[1];
+      if (shotAccent === 'blue') {
+        await win.webContents.executeJavaScript(`document.querySelector('#btn-accent')?.click(); true`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
       // 每个场景 = 打开哪个界面。只点真实按钮，不调内部函数。
       const DRIVERS = {
         settings: `
@@ -1872,6 +1880,11 @@ app.whenReady().then(async () => {
         chars: `
           document.querySelector('#btn-chars')?.click();
           await new Promise(r => setTimeout(r, 500));`,
+        // 剧情选项：整条测试跑完正好停在场景 21 的会话里（最新回复带选项），
+        // 这里只需要确认在聊天视图、把 toast 收掉，就能截到「气泡下面的选项块」。
+        msgOptions: `
+          const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
+          await new Promise(r => setTimeout(r, 300));`,
         charEditor: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           document.querySelector('#btn-chars')?.click();
@@ -2113,7 +2126,7 @@ app.whenReady().then(async () => {
         console.log(`  主题=${probe.theme} 弹窗底=${probe.card} 属性卡=${probe.panel} 标签栏=${probe.tabs} 值框=${probe.value}`);
         const dir = path.join(__dirname, 'shots');
         fs.mkdirSync(dir, { recursive: true });
-        const shotName = `${shotArg}${shotDark ? '-dark' : ''}.png`;
+        const shotName = `${shotArg}${shotAccent === 'blue' ? '-blue' : ''}${shotDark ? '-dark' : ''}.png`;
         fs.writeFileSync(path.join(dir, shotName), (await win.webContents.capturePage()).toPNG());
         console.log(`  截图: tools/shots/${shotName}`);
       }

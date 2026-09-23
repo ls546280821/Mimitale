@@ -35,6 +35,52 @@ const ATTR_TYPES = [
   { value: 'list', label: '列表' }
 ];
 
+/**
+ * 官方「互动模板」的预设分组与默认字段。
+ *
+ * 点一下就把这几个官方面板连同默认字段一起种进属性草稿 —— 字段可再改名、
+ * 修改或删除，分组名和 main/card-import.js 的 TEMPLATE_GROUP_LABELS 对齐
+ * （状态栏 / 关系 / 背包），导入的官方模板卡落进来的组名和这里完全一致。
+ *
+ * 变化规则（hint）照着官方模板的「好例子」来写：告诉模型什么时候变、
+ * 变多少，而不是一句「随剧情变化」。
+ */
+const INTERACTIVE_TEMPLATE = [
+  {
+    group: '状态栏',
+    fields: [
+      { name: '时间', type: 'text', value: '' },
+      { name: '地点', type: 'text', value: '' },
+      { name: '心情', type: 'text', value: '' }
+    ]
+  },
+  {
+    group: '关系',
+    fields: [
+      {
+        name: '好感度',
+        type: 'meter',
+        min: 0,
+        max: 100,
+        value: '0',
+        hint: '对方示好时每轮最多加 10，被冒犯时下降'
+      },
+      {
+        name: '关系阶段',
+        type: 'text',
+        value: '陌生',
+        hint: '按好感度自动：低于 30 陌生，30~59 熟人，60 以上亲密'
+      }
+    ]
+  },
+  {
+    group: '背包',
+    fields: [
+      { name: '物品', type: 'list', value: '' }
+    ]
+  }
+];
+
 /** 「没有归到任何分组」那一桶在界面上的标题；数据上它对应 group === ''。 */
 const UNGROUPED_TITLE = '未分组';
 
@@ -837,6 +883,63 @@ export function addCharAttr(list, rawName) {
   renderCharAttrs(list);
 }
 
+/**
+ * 一键应用官方「互动模板」：把预设分组和默认字段种进属性草稿。
+ *
+ * 规则（和手动加字段 / 粘贴文本一致）：
+ *   · 已存在的字段名跳过（不覆盖用户已填的值）；
+ *   · 字段归入模板指定的分组，保留类型 / 范围 / 变化规则；
+ *   · 撞到字段上限就停。
+ *
+ * 返回 { added, skipped }，调用方据此给提示。应用完停在「状态栏」这一组，
+ * 让用户一眼看到刚种进来的东西。
+ */
+export function applyInteractiveTemplate(list) {
+  if (!Array.isArray(list)) return { added: 0, skipped: 0 };
+
+  const existing = new Set(list.map((a) => a && a.name));
+  let added = 0;
+  let skipped = 0;
+
+  for (const panel of INTERACTIVE_TEMPLATE) {
+    for (const field of panel.fields) {
+      const name = String(field.name || '').trim();
+      if (!name || existing.has(name)) {
+        skipped += 1;
+        continue;
+      }
+      if (list.length >= MAX_PANEL_FIELDS) {
+        skipped += 1;
+        continue;
+      }
+      if (!panelFieldAllowed(name)) {
+        skipped += 1;
+        continue;
+      }
+
+      const attr = {
+        name,
+        value: String(field.value == null ? '' : field.value),
+        type: field.type || 'text',
+        group: panel.group
+      };
+      if (typeof field.min === 'number') attr.min = field.min;
+      if (typeof field.max === 'number') attr.max = field.max;
+      if (field.hint) attr.hint = field.hint;
+
+      list.push(attr);
+      existing.add(name);
+      added += 1;
+    }
+  }
+
+  // 停在第一个固定分组，让刚种进来的字段可见
+  list._activeGroup = INTERACTIVE_TEMPLATE[0].group;
+  renderCharAttrs(list);
+
+  return { added, skipped };
+}
+
 // 草稿数组的所有者是角色编辑器（保存时要跟表单一起写回角色卡），
 // 所以这里不存它，只在需要的时候问一声。
 let getDraft = () => [];
@@ -862,4 +965,13 @@ export function initCharAttrsUi({ getList } = {}) {
   // 批量粘贴：一行一项，省得一条条手打
   el.c.btnAttrPaste.addEventListener('click', () => toggleAttrPaste());
   el.c.btnAttrPasteApply.addEventListener('click', () => applyAttrPaste(getDraft()));
+
+  // 官方互动模板：一键种入预设分组和默认字段
+  if (el.c.btnAttrTemplate) {
+    el.c.btnAttrTemplate.addEventListener('click', () => {
+      const { added, skipped } = applyInteractiveTemplate(getDraft());
+      if (added) showToast(`已套用互动模板：新增 ${added} 个字段`, 'ok');
+      else if (skipped) showToast('模板字段都已经有了，没有新增');
+    });
+  }
 }

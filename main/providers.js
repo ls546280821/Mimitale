@@ -120,6 +120,8 @@ const DEFAULT_SETTINGS = {
   maxTurns: 20,
   // 界面主题：light（白天）/ dark（夜间）
   theme: 'light',
+  // 配色方案：pink（可爱粉）/ blue（商务蓝），与明暗模式正交
+  accent: 'pink',
   sendOnEnter: true,
   showDate: true,
   showUsage: true,
@@ -237,6 +239,9 @@ function normalizeSettings(saved) {
 
   // 界面主题
   s.theme = raw.theme === 'dark' ? 'dark' : 'light';
+
+  // 配色方案
+  s.accent = raw.accent === 'blue' ? 'blue' : 'pink';
 
   // 生图：和聊天完全分开的一组配置，所以这里只做格式清洗，
   // 不存在的服务商 id 就留着 —— 用户可能还没保存那个服务商

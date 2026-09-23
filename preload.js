@@ -15,9 +15,13 @@ const { contextBridge, ipcRenderer } = require('electron');
 const themeArg = (process.argv || []).find((arg) => arg.startsWith('--mimitale-theme='));
 const initialTheme = themeArg && themeArg.endsWith('dark') ? 'dark' : 'light';
 
+const accentArg = (process.argv || []).find((arg) => arg.startsWith('--mimitale-accent='));
+const initialAccent = accentArg && accentArg.endsWith('blue') ? 'blue' : 'pink';
+
 function applyInitialTheme() {
   if (document && document.documentElement) {
     document.documentElement.setAttribute('data-theme', initialTheme);
+    document.documentElement.setAttribute('data-accent', initialAccent);
   }
 }
 

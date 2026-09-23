@@ -10,7 +10,6 @@
 //  本模块负责：
 //    · 展开 / 收起 —— 状态属于会话，切到别的会话一律默认收起
 //    · 字段行：单行输入框（边打字边存、防抖）、数值进度条、列表项数
-//    · 剧情选项按钮（点一下当作玩家说了这句话）
 //    · 删单个字段 / 清空整个面板
 //
 //  不在这里的：
@@ -18,8 +17,8 @@
 //    · appendPanelFields / seedPanelFromCharacters / seedIdentity /
 //      syncPlayerNameFromPanel —— 「面板怎么长出来」的写入口，入口层和聊天
 //      流程两头都要用，所以属于 data 层（也在 data/panel.js）
-//    · pickOption（点选项 = 把这句话发出去）—— 它要动输入框、建议条、
-//      发送流程，是入口层的动作编排，由 initPanelUi() 注入进来
+//    · 剧情选项 —— 画在聊天区最新一条 AI 回复的气泡下面（chatMessages.js），
+//      点选项 / 换一批 / 收起的动作在 suggestionsUi.js
 //
 //  renderHeader 是**单向**依赖：header.js 只依赖数据层、不认识任何视图，
 //  所以视图 import 它不构成循环 —— 那条「视图之间不互相 import」的铁律
@@ -41,6 +40,7 @@ import {
   convoPanel,
   convoPanelDef,
   convoPanelFields,
+  panelFieldGroup,
   setPanelField
 } from '../data/panel.js';
 import { onRefresh, refreshAll } from './refresh.js';
@@ -48,11 +48,6 @@ import { renderHeader } from './header.js';
 
 let panelVisible = false; // 面板展开状态（当前会话）
 let panelVisibilityConvoId = null; // 上面这个状态属于哪个会话
-
-// 点「剧情选项」= 把这句话当作玩家回复发出去。那是入口层的动作编排
-// （要动输入框、建议条、发送流程），所以由 initPanelUi() 注入，
-// 而不是从这儿向上 import main.js。
-let pickOption = () => {};
 
 /**
  * 面板展开状态的同步规则：
@@ -98,9 +93,9 @@ function attachPanelEditor(convo, name, input) {
 export function renderPanel() {
   const convo = activeConvo();
   const fields = convo ? convoPanelFields(convo) : [];
-  const options = convo && Array.isArray(convo.options) ? convo.options : [];
-  // 有字段、或有剧情选项，面板就该出现 —— 只开了剧情选项的会话也要有地方点
-  const hasPanel = fields.length > 0 || options.length > 0;
+  // 面板只管状态字段 —— 剧情选项挂在聊天区最新一条 AI 回复的气泡下面
+  // （chatMessages.js 画，suggestionsUi.js 接动作），这里不再重复一份。
+  const hasPanel = fields.length > 0;
 
   // 收起后不整块藏起来，只留标题那一条 —— 否则「能点开」这件事就没人看得见了
   el.panelBox.classList.toggle('hidden', !hasPanel);
@@ -115,7 +110,7 @@ export function renderPanel() {
 
   const panel = convoPanel(convo);
   const filled = fields.filter((n) => String(panel[n] || '').trim()).length;
-  el.panelHint.textContent = fields.length ? `${filled}/${fields.length} 项已填` : '每轮自动更新';
+  el.panelHint.textContent = `${filled}/${fields.length} 项已填`;
 
   // 面板里某个输入框正在编辑时不要重建 DOM，否则光标和输入内容会被打断
   const editing = currentPanelTextarea();
@@ -123,14 +118,10 @@ export function renderPanel() {
 
   clear(el.panelFields);
 
-  // 剧情选项排在字段前面：它是「下一步做什么」，比状态数字更该先看到
-  if (options.length) appendOptionsBlock(convo, options, el.panelFields);
-
   // 按分组铺：每个分组自己一块（标题 + 该组的字段），没分组的字段直接铺在
   // 顶层、不额外加标题 —— 老会话没有分组，看到的和以前一模一样。
-  const buckets = groupPanelFields(
-    fields.map((name) => ({ name, group: (convoPanelDef(convo, name) || {}).group || '' }))
-  );
+  // 身份四项例外：不管新老会话都归「身份」组（panelFieldGroup 按字段名兜底）。
+  const buckets = groupPanelFields(fields.map((name) => ({ name, group: panelFieldGroup(convo, name) })));
 
   for (const bucket of buckets) {
     const host = bucket.id
@@ -144,31 +135,6 @@ export function renderPanel() {
     for (const { name } of bucket.fields) appendPanelRow(convo, name, panel[name], host);
     if (bucket.id) el.panelFields.appendChild(host);
   }
-}
-
-/**
- * 剧情选项那块：一行标题 + 几个按钮，点一下就当作玩家回复发出去。
- * 按钮文字就是选项本身（和「帮我想想」的样式共用 .suggest-btn）。
- */
-function appendOptionsBlock(convo, options, container) {
-  const block = h(
-    'div',
-    { class: 'panel-group panel-options' },
-    h('div', { class: 'panel-group-title', text: '剧情选项', title: '点一下，就当你说这句话发出去' })
-  );
-
-  for (const text of options) {
-    const btn = h('button', {
-      type: 'button',
-      class: 'suggest-btn panel-option-btn',
-      text,
-      title: '点一下，就当你说这句话发出去',
-      onClick: () => pickOption(convo, text)
-    });
-    block.appendChild(btn);
-  }
-
-  container.appendChild(block);
 }
 
 /** 列表型字段里有几项（按「、」和「,」切；空值算 0 项） */
@@ -279,13 +245,8 @@ function resetPanel() {
  *
  * 由 main.js 的 registerRefreshListeners() 在原位调用 —— 登记必须早于第一次
  * 广播，而且登记顺序要和以前的绘制顺序一致（先可见性、再面板）。
- *
- * deps.pickOption：点剧情选项时执行的动作。它是入口层的编排（动输入框、
- * 建议条、发送流程），本模块不向上 import，改成注入。
  */
-export function initPanelUi(deps) {
-  if (deps && typeof deps.pickOption === 'function') pickOption = deps.pickOption;
-
+export function initPanelUi() {
   el.btnPanelCollapse.addEventListener('click', togglePanel);
   // 整条标题栏都能点（「重置」那种按钮除外，它们自己处理点击）
   el.panelHead.addEventListener('click', (event) => {
