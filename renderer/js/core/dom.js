@@ -144,8 +144,12 @@ export const el = {
     gender: $('c-gender'),
     race: $('c-race'),
     attrNew: $('c-attr-new'),
+    // 分组标签栏：属性按分组切开，点哪个标签就只看哪一组
+    attrTabs: $('c-attr-tabs'),
     attrQuick: $('c-attr-quick'),
     attrList: $('c-attr-list'),
+    // 分组操作条（改名 / 解散），铺在字段列表上面
+    attrGroupEdit: $('c-attr-group-edit'),
     btnAttrPaste: $('btn-attr-paste'),
     attrPaste: $('c-attr-paste'),
     // 剧情选项：开关 + 数量 + 额外要求

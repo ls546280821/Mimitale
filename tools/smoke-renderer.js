@@ -374,11 +374,11 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   setValue(numInputs[0], '0');
   setValue(numInputs[1], '100');
   setValue(meterRow.parentElement.querySelector('.attr-more .attr-hint'), '按剧情合理增减，单轮不超过 10');
-  // 分组：这张卡里「好感度」归到「关系」组
-  check('配置区里有分组输入框', !!meterRow.parentElement.querySelector('.attr-more .attr-group'));
-  setValue(meterRow.parentElement.querySelector('.attr-more .attr-group'), '关系');
+  check('配置区里有分组下拉', !!meterRow.parentElement.querySelector('.attr-more select.attr-group'));
 
-  // 「更多」能收起，收起来之后配置不丢（草稿还在）
+  // 「更多」能收起，收起来之后配置不丢（草稿还在）。
+  // 这一段必须跑在**填分组之前** —— 填完分组这个字段就归到「关系」组、
+  // 从当前这一页搬走了，下面按下标取行就会取到别人身上。
   const moreBtn = meterRow.querySelector('.attr-more-btn');
   check('有范围时「更多」默认是展开的', String(moreBtn.textContent).includes('收起'), String(moreBtn.textContent));
   click(moreBtn);
@@ -391,6 +391,88 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     $$('#c-attr-list .attr-more .attr-num')[0].value === '0' && $$('#c-attr-list .attr-more .attr-num')[1].value === '100',
     JSON.stringify($$('#c-attr-list .attr-more .attr-num').map((i) => i.value))
   );
+
+  // --- 分组：把这个字段搬进「关系」---
+  const tabLabels = () => $$('#c-attr-tabs .attr-tab').map((b) => b.textContent);
+  const listedNames = () => $$('#c-attr-list .attr-name').map((n) => n.textContent);
+  check('三个字段都还没分组时，标签栏只有一个「未分组」', JSON.stringify(tabLabels()) === JSON.stringify(['未分组 3']), JSON.stringify(tabLabels()));
+
+  // ⚠️ 必须重新取一次行：上面那次 click 触发过重画，列表是整块重建的，
+  // 之前那个 meterRow 已经是脱离文档的旧节点 —— 在它上面 querySelector
+  // 拿到的会是 null（这个坑当场踩过一次）。
+  meterRow = $$('#c-attr-list .attr-row')[2];
+  const groupSelect = meterRow.parentElement.querySelector('.attr-more .attr-group');
+  // 「未分组」必须在选项里 —— 否则一旦所有属性都归了组，就再也拿不出来了
+  check(
+    '分组是下拉，且永远带一个「未分组」出口',
+    groupSelect.tagName === 'SELECT' &&
+      Array.from(groupSelect.options).some((o) => o.value === '' && o.textContent === '未分组'),
+    groupSelect.tagName
+  );
+  // 卡里一个命名分组都没有时，下拉里唯一的选择就是「＋ 新建分组…」——
+  // 走它 → 这一行临时变输入框 → 打完回车，建组 + 搬过去一步完成。
+  const newOpt = Array.from(groupSelect.options).find((o) => o.textContent.includes('新建分组'));
+  check('下拉末尾有「＋ 新建分组…」', !!newOpt, Array.from(groupSelect.options).map((o) => o.textContent).join('/'));
+  setValue(groupSelect, newOpt.value);
+
+  await waitFor('这一行变成新建分组输入框', () => !!$('#c-attr-list .attr-more input.attr-group-new'));
+  const newGroupInput = $('#c-attr-list .attr-more input.attr-group-new');
+  setValue(newGroupInput, '关系');
+  newGroupInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+  await waitFor('标签栏多出「关系」', () => tabLabels().some((t) => t.startsWith('关系')));
+  check(
+    '标签栏按分组铺出来了，计数也对',
+    JSON.stringify(tabLabels()) === JSON.stringify(['关系 1', '未分组 2']),
+    JSON.stringify(tabLabels())
+  );
+  check(
+    '字段搬走之后，「未分组」这一页只剩两行',
+    listedNames().length === 2 && !listedNames().includes('好感度'),
+    JSON.stringify(listedNames())
+  );
+
+  // 切到「关系」：只铺这一组的字段
+  click($$('#c-attr-tabs .attr-tab').find((b) => b.textContent.startsWith('关系')));
+  await waitFor('切到关系组', () => $$('#c-attr-list .attr-row').length === 1);
+  check(
+    '切组之后只显示这一组的字段',
+    listedNames().join(',') === '好感度',
+    JSON.stringify(listedNames())
+  );
+  check('切组之后那一行的「更多」还是展开的（草稿里的展开状态没丢）', !!$('#c-attr-list .attr-more input.attr-num'));
+
+  // --- 搬到**已经存在**的分组：在下拉里直接选，不用再走「＋ 新建分组…」---
+  click($$('#c-attr-tabs .attr-tab').find((b) => b.textContent.startsWith('未分组')));
+  await waitFor('切回未分组', () => listedNames().length === 2);
+  // 取行的函数要每次现查：「更多」一点开列表就整块重建，手里的节点会作废
+  const shirtRow = () => $$('#c-attr-list .attr-row').find((r) => r.querySelector('.attr-name').textContent === '上衣');
+  click(shirtRow().querySelector('.attr-more-btn'));
+  await waitFor('上衣的「更多」展开', () => !!shirtRow().parentElement.querySelector('.attr-more select.attr-group'));
+  const moveSelect = shirtRow().parentElement.querySelector('.attr-more select.attr-group');
+  check(
+    '下拉里列出了这张卡已有的分组',
+    Array.from(moveSelect.options).some((o) => o.value === '关系'),
+    Array.from(moveSelect.options).map((o) => o.value).join('/')
+  );
+  setValue(moveSelect, '关系');
+  await waitFor('上衣搬进「关系」', () => tabLabels().join() === '关系 2,未分组 1');
+  check('选中一个已有的分组就能把属性搬过去', listedNames().join(',') === '金币', JSON.stringify(listedNames()));
+
+  // 再搬回「未分组」：下拉里那个出口必须一直在 ——
+  // 少了它，属性一旦归了组就再也拿不出来了（纯下拉最容易丢的就是这条路）。
+  // 搬回去之后夹具回到原样，下面「游玩时状态面板」那一段的预期才不受影响。
+  click($$('#c-attr-tabs .attr-tab').find((b) => b.textContent.startsWith('关系')));
+  await waitFor('切到关系组', () => $$('#c-attr-list .attr-row').length === 2);
+  const backRow = () => $$('#c-attr-list .attr-row').find((r) => r.querySelector('.attr-name').textContent === '上衣');
+  // 「更多」的展开状态记在草稿上（_moreOpen），上面点开过一次，这里通常是开着的
+  if (!backRow().parentElement.querySelector('.attr-more select.attr-group')) {
+    click(backRow().querySelector('.attr-more-btn'));
+    await waitFor('上衣的「更多」展开', () => !!backRow().parentElement.querySelector('.attr-more select.attr-group'));
+  }
+  setValue(backRow().parentElement.querySelector('.attr-more select.attr-group'), '');
+  await waitFor('上衣退回未分组', () => tabLabels().join() === '关系 1,未分组 2');
+  check('下拉里选「未分组」就把它拿出来了', listedNames().join(',') === '好感度', JSON.stringify(listedNames()));
 
   click('#btn-save-char');
   await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
@@ -1390,6 +1472,242 @@ await scenario('角色属性：粘贴文本批量生成', async () => {
     '粘贴出来的属性也落盘了',
     !!saved && saved.attributes.length === 5 && saved.attributes.some((a) => a.name === '金币' && a.value === '1'),
     JSON.stringify(saved && saved.attributes)
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  场景 15：角色属性 —— 分组标签栏
+//
+//  属性在数据上仍是一维数组（分组记在每个字段自己的 group 上），
+//  分组只是视图键：点哪个标签就只铺哪一组，在某一组里加字段自动带这个分组。
+//  这个场景专门盯「视图分层」，落盘的形状由上面的场景 13 / 14 把关。
+// ---------------------------------------------------------------------------
+await scenario('角色属性：分组标签栏', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  setValue('#c-name', '分组测试角色');
+
+  const tabLabels = () => $$('#c-attr-tabs .attr-tab').map((b) => b.textContent);
+  const listedNames = () => $$('#c-attr-list .attr-name').map((n) => n.textContent);
+  const clickTab = (prefix) => {
+    const tab = $$('#c-attr-tabs .attr-tab').find((b) => b.textContent.startsWith(prefix));
+    if (!tab) throw new Error(`标签栏里没有「${prefix}」`);
+    click(tab);
+  };
+
+  // 空卡：总得有个地方落笔，所以默认就该有「未分组」这一桶
+  check(
+    '空卡默认只有一个「未分组」标签',
+    JSON.stringify(tabLabels()) === JSON.stringify(['未分组 0']),
+    JSON.stringify(tabLabels())
+  );
+
+  setValue('#c-attr-new', '金币');
+  click('#btn-add-attr');
+  await waitFor('金币出现', () => listedNames().includes('金币'));
+  check('标签上的计数跟着涨', tabLabels()[0] === '未分组 1', JSON.stringify(tabLabels()));
+
+  // 新建一个分组：回车确认，应该立刻切过去
+  const newTabInput = $('#c-attr-tabs .attr-tab-new');
+  check('标签栏末尾有「新建分组」入口', !!newTabInput);
+  setValue(newTabInput, '背包');
+  newTabInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await waitFor('切到新分组', () => tabLabels().some((t) => t.startsWith('背包')));
+  check(
+    '新建的空分组也在标签栏里，且排在未分组前面',
+    JSON.stringify(tabLabels()) === JSON.stringify(['背包 0', '未分组 1']),
+    JSON.stringify(tabLabels())
+  );
+  check('切到空分组后列表是空的', listedNames().length === 0, JSON.stringify(listedNames()));
+  // 空组光秃秃的会让人以为界面坏了 —— 得有一句话告诉他下一步干嘛
+  check(
+    '空分组里有引导文案',
+    !!$('#c-attr-list .attr-empty') && $('#c-attr-list .attr-empty').textContent.includes('背包'),
+    ($('#c-attr-list .attr-empty') || {}).textContent
+  );
+  // 组名和字段数拆成了两个节点（数字做成徽标），但整串得还是「名字 空格 数字」——
+  // 测试是按整串比对的，拆节点时最容易把那个空格弄丢
+  check(
+    '标签里的组名和计数是两个节点，中间的空格还在',
+    !!$('#c-attr-tabs .attr-tab-name') && !!$('#c-attr-tabs .attr-tab-count') &&
+      $('#c-attr-tabs .attr-tab').textContent === '背包 0',
+    JSON.stringify(($('#c-attr-tabs .attr-tab') || {}).textContent)
+  );
+
+  // 在「背包」这一页加字段：应该自动归到背包，不用再去「更多」里填分组
+  setValue('#c-attr-new', '道具');
+  click('#btn-add-attr');
+  await waitFor('道具出现', () => listedNames().includes('道具'));
+  check('在当前分组里加字段，自动带上这个分组', tabLabels()[0] === '背包 1', JSON.stringify(tabLabels()));
+
+  setValue('#c-attr-new', '上衣');
+  click('#btn-add-attr');
+  await waitFor('上衣出现', () => listedNames().includes('上衣'));
+  check('继续加还是这一组', tabLabels()[0] === '背包 2', JSON.stringify(tabLabels()));
+
+  // 切回未分组：只该看到金币
+  clickTab('未分组');
+  await waitFor('切回未分组', () => listedNames().length === 1);
+  check('切组之后只显示那一组的字段', listedNames().join(',') === '金币', JSON.stringify(listedNames()));
+
+  // 再切回背包：还是那两行，顺序也没变
+  clickTab('背包');
+  await waitFor('切回背包', () => listedNames().length === 2);
+  check('切回去还是那两行、顺序不变', listedNames().join(',') === '道具,上衣', JSON.stringify(listedNames()));
+
+  click('#btn-save-char');
+  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await sleep(150);
+
+  const saved = (await savedCharacters()).find((c) => c.name === '分组测试角色');
+  const byName = (n) => ((saved && saved.attributes) || []).find((a) => a.name === n) || {};
+  check('三个字段都存下来了', !!saved && saved.attributes.length === 3, JSON.stringify(saved && saved.attributes));
+  check(
+    '分组落在字段自己身上',
+    byName('道具').group === '背包' && byName('上衣').group === '背包',
+    JSON.stringify(saved && saved.attributes)
+  );
+  // 未分组的字段不写 group —— 数据形状要和以前完全一样，老卡的往返才不会变样
+  check('未分组的字段不写 group', !!saved && saved.attributes.length === 3 && byName('金币').group === undefined, JSON.stringify(byName('金币')));
+  check(
+    '编辑器的视图状态没被写进角色卡（_activeGroup / _extraGroups）',
+    !!saved &&
+      saved.attributes.every((a) => !('_activeGroup' in a) && !('_extraGroups' in a)),
+    JSON.stringify(saved && Object.keys(saved.attributes[0] || {}))
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  场景：角色属性 —— 分组的改名 / 解散 / 顺序稳定
+//
+//  分组以前只能靠「在某个字段的『更多』里填 group」间接建出来，建完就没有
+//  入口了 —— 改不了名，也解散不掉。另外标签栏按**字段在数组里的先后**排，
+//  于是空分组会被已经有字段的组顶到后面去，看着像在按字段数量排队。
+//  这个场景盯这两件事。
+// ---------------------------------------------------------------------------
+await scenario('角色属性：分组改名与解散', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  setValue('#c-name', '分组改名角色');
+
+  const tabLabels = () => $$('#c-attr-tabs .attr-tab').map((b) => b.textContent);
+  const listedNames = () => $$('#c-attr-list .attr-name').map((n) => n.textContent);
+  const clickTab = (prefix) => {
+    const tab = $$('#c-attr-tabs .attr-tab').find((b) => b.textContent.startsWith(prefix));
+    if (!tab) throw new Error(`标签栏里没有「${prefix}」`);
+    return click(tab);
+  };
+  const newGroup = (name) => {
+    const box = $('#c-attr-tabs .attr-tab-new');
+    setValue(box, name);
+    box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    return waitFor(`分组「${name}」出现`, () => tabLabels().some((t) => t.startsWith(name)));
+  };
+  const addAttr = (name) => {
+    setValue('#c-attr-new', name);
+    click('#btn-add-attr');
+    return waitFor(`属性「${name}」出现`, () => listedNames().includes(name));
+  };
+  const openGroupEdit = () => {
+    click($('#c-attr-tabs .attr-tab-edit'));
+    return waitFor('分组操作条出现', () => shown('#c-attr-group-edit'));
+  };
+  // 改名走 change（回车 / 失焦），而 setValue 只补一个 input —— 手动补齐
+  const renameTo = (name) => {
+    const box = $('#c-attr-group-edit input.attr-group-name');
+    setValue(box, name);
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  // --- 顺序：先建的空分组不该被「后建的、已经填了字段的组」顶下去 ---
+  await newGroup('状态');
+  await newGroup('关系');
+  await addAttr('好感度');
+  check(
+    '先建的分组留在原位，没被后面填了字段的组顶到后面',
+    JSON.stringify(tabLabels()) === JSON.stringify(['状态 0', '关系 1']),
+    JSON.stringify(tabLabels())
+  );
+
+  clickTab('状态');
+  await addAttr('体温');
+  check(
+    '回头给先建的那一组填字段，顺序仍然是创建顺序',
+    JSON.stringify(tabLabels()) === JSON.stringify(['状态 1', '关系 1']),
+    JSON.stringify(tabLabels())
+  );
+
+  // --- 改名：空分组改名不能把它改没了 ---
+  clickTab('状态');
+  await openGroupEdit();
+  check(
+    '操作条里带出了当前分组名',
+    $('#c-attr-group-edit input.attr-group-name').value === '状态',
+    $('#c-attr-group-edit input.attr-group-name').value
+  );
+  renameTo('心情');
+  await waitFor('改名生效', () => tabLabels().some((t) => t.startsWith('心情')));
+  check(
+    '改名后标签留在原来的位置（没跳到末尾）',
+    JSON.stringify(tabLabels()) === JSON.stringify(['心情 1', '关系 1']),
+    JSON.stringify(tabLabels())
+  );
+  check('改名后仍停在那一组，字段也还在', listedNames().join(',') === '体温', JSON.stringify(listedNames()));
+
+  // --- 改成已有的名字 = 并组 ---
+  clickTab('关系');
+  await openGroupEdit();
+  renameTo('心情');
+  await waitFor('并组完成', () => listedNames().length === 2);
+  check(
+    '改成已有的名字就是并组，被并掉的那个位置不占坑',
+    JSON.stringify(tabLabels()) === JSON.stringify(['心情 2']),
+    JSON.stringify(tabLabels())
+  );
+  check('两组的字段合到一起，一个都没丢', listedNames().join(',') === '好感度,体温', JSON.stringify(listedNames()));
+
+  // --- 解散：字段退回「未分组」，动之前先问一句 ---
+  // 并组/改名完成后操作条会自动收起来（免得留在那儿被误点第二次），
+  // 所以要重新点开「⋯」再拿里面的按钮。
+  await openGroupEdit();
+  click($('#c-attr-group-edit .btn-danger'));
+  await waitFor('确认弹窗出现', () => shown('#confirm-modal'));
+  check(
+    '确认弹窗把「属性会退回未分组」说清楚了',
+    byId('confirm-message').textContent.includes('未分组') && byId('confirm-message').textContent.includes('2'),
+    byId('confirm-message').textContent
+  );
+  click('#confirm-ok');
+  await waitFor('解散完成', () => tabLabels().length === 1 && tabLabels()[0] === '未分组 2');
+  check('解散之后属性退回「未分组」，一个都没少', listedNames().join(',') === '好感度,体温', JSON.stringify(listedNames()));
+
+  // --- 空分组直接删，不该弹确认 ---
+  await newGroup('临时');
+  await openGroupEdit();
+  click($('#c-attr-group-edit .btn-danger'));
+  await waitFor('空分组被删掉', () => tabLabels().join() === '未分组 2');
+  check('删空分组不弹确认（没什么可丢的）', !shown('#confirm-modal'));
+
+  // --- 视图状态别跟着落盘 ---
+  click('#btn-save-char');
+  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await sleep(150);
+
+  const saved = (await savedCharacters()).find((c) => c.name === '分组改名角色');
+  check('结果落盘：两个属性都在「未分组」', !!saved && saved.attributes.length === 2, JSON.stringify(saved && saved.attributes));
+  check(
+    '解散过的分组没有留在数据里（字段上不写 group）',
+    !!saved && saved.attributes.every((a) => a.group === undefined),
+    JSON.stringify(saved && saved.attributes)
+  );
+  check(
+    '创建顺序表也没被写进角色卡',
+    !!saved && saved.attributes.every((a) => !('_groupOrder' in a) && !('_groupEditOpen' in a)),
+    JSON.stringify(saved && Object.keys(saved.attributes[0] || {}))
   );
 });
 

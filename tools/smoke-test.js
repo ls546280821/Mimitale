@@ -1841,9 +1841,18 @@ app.whenReady().then(async () => {
   // 不用每次都临时加代码再删。
   // 用法：electron tools/smoke-test.js --no-sandbox --shot=settings
   const shotArg = (process.argv.find((a) => a.startsWith('--shot')) || '').split('=')[1];
+  // 再加 --shot-dark 就用夜间模式出图，文件名带 -dark 后缀。
+  // 暗色主题是另一套变量，只验白天等于只验了一半 —— 「浅色底 + 浅色字」
+  // 这类错误在白天截图里根本不会露头。
+  const shotDark = process.argv.includes('--shot-dark');
   if (shotArg) {
     try {
       win.show();
+      if (shotDark) {
+        // 点真实的主题按钮（只点按钮，不调内部函数）
+        await win.webContents.executeJavaScript(`document.querySelector('#btn-theme')?.click(); true`);
+        await new Promise((r) => setTimeout(r, 300));
+      }
       // 每个场景 = 打开哪个界面。只点真实按钮，不调内部函数。
       const DRIVERS = {
         settings: `
@@ -1871,7 +1880,216 @@ app.whenReady().then(async () => {
           const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
           if (btn) btn.click();
           await new Promise(r => setTimeout(r, 600));
-          const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`
+          const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 属性区的分组标签栏：新建一张卡，按真实交互铺出几个分组再截图 ——
+        // 空卡只有一个「未分组」标签，看不出分层的样子。
+        charAttrs: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+
+          document.querySelector('#btn-chars')?.click();
+          await nap(400);
+          document.querySelector('#btn-new-char')?.click();
+          await nap(500);
+
+          const nameBox = $('#c-name');
+          if (nameBox) { nameBox.value = '分组示例'; fire(nameBox, 'input'); }
+
+          const addTo = async (group, label, value) => {
+            if (group) {
+              const tabNew = $('#c-attr-tabs .attr-tab-new');
+              tabNew.value = group;
+              tabNew.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+              await nap(120);
+            }
+            const input = $('#c-attr-new');
+            input.value = label;
+            $('#btn-add-attr').click();
+            await nap(120);
+            const row = $$('#c-attr-list .attr-row').find(r => r.querySelector('.attr-name').textContent === label);
+            if (row && value) { const v = row.querySelector('.attr-value'); v.value = value; fire(v, 'input'); }
+          };
+
+          await addTo('关系', '好感度', '20');
+          await addTo('关系', '信任度', '0');
+          await addTo('关系', '亲密度', '0');
+          await addTo('背包', '金币', '9900');
+          await addTo('背包', '道具', '钥匙、手电筒');
+          await addTo('状态', '心情', '平静');
+          await addTo('状态', '体温', '36.5');
+
+          const rel = $$('#c-attr-tabs .attr-tab').find(b => b.textContent.startsWith('关系'));
+          if (rel) rel.click();
+          await nap(250);
+          const tabs = $('#c-attr-tabs');
+          if (tabs) tabs.scrollIntoView({ block: 'center' });
+          await nap(250);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 同上，但停在**空分组**上 —— 空态文案、计数徽标上的 0、
+        // 以及「卡身只剩一行提示」时的留白，只有截图能看出好不好看。
+        charAttrsEmpty: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+
+          document.querySelector('#btn-chars')?.click();
+          await nap(400);
+          document.querySelector('#btn-new-char')?.click();
+          await nap(500);
+
+          const nameBox = $('#c-name');
+          if (nameBox) { nameBox.value = '空分组示例'; fire(nameBox, 'input'); }
+
+          const addTo = async (group, label, value) => {
+            if (group) {
+              const tabNew = $('#c-attr-tabs .attr-tab-new');
+              tabNew.value = group;
+              tabNew.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+              await nap(120);
+            }
+            const input = $('#c-attr-new');
+            input.value = label;
+            $('#btn-add-attr').click();
+            await nap(120);
+            const row = $$('#c-attr-list .attr-row').find(r => r.querySelector('.attr-name').textContent === label);
+            if (row && value) { const v = row.querySelector('.attr-value'); v.value = value; fire(v, 'input'); }
+          };
+
+          await addTo('关系', '好感度', '20');
+          await addTo('关系', '信任度', '0');
+          await addTo('关系', '亲密度', '0');
+          // 建一个空分组并切过去（不加任何字段）
+          const tabNew = $('#c-attr-tabs .attr-tab-new');
+          tabNew.value = '背包';
+          tabNew.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          await nap(250);
+
+          const tabs = $('#c-attr-tabs');
+          if (tabs) tabs.scrollIntoView({ block: 'center' });
+          await nap(250);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 分组操作条（改名 / 解散）：从「⋯」点开的状态。
+        // 这个小面板的间距、按钮配色只有截图能核对。
+        charGroupEdit: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+
+          document.querySelector('#btn-chars')?.click();
+          await nap(400);
+          document.querySelector('#btn-new-char')?.click();
+          await nap(500);
+
+          const nameBox = $('#c-name');
+          if (nameBox) { nameBox.value = '分组管理示例'; fire(nameBox, 'input'); }
+
+          const newGroup = async (name) => {
+            const box = $('#c-attr-tabs .attr-tab-new');
+            box.value = name;
+            box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            await nap(140);
+          };
+          const addAttr = async (label, value) => {
+            const input = $('#c-attr-new');
+            input.value = label;
+            $('#btn-add-attr').click();
+            await nap(140);
+            const row = $$('#c-attr-list .attr-row').find(r => r.querySelector('.attr-name').textContent === label);
+            if (row && value) { const v = row.querySelector('.attr-value'); v.value = value; fire(v, 'input'); }
+          };
+
+          await newGroup('关系');
+          await addAttr('好感度', '20');
+          await addAttr('信任度', '0');
+          await newGroup('背包');
+          await addAttr('金币', '9900');
+          await newGroup('状态');
+
+          // 停在「状态」上，把操作条点开
+          const stateTab = $$('#c-attr-tabs .attr-tab').find(b => b.textContent.startsWith('状态'));
+          if (stateTab) stateTab.click();
+          await nap(200);
+          $('#c-attr-tabs .attr-tab-edit')?.click();
+          await nap(250);
+
+          const tabs = $('#c-attr-tabs');
+          if (tabs) tabs.scrollIntoView({ block: 'center' });
+          await nap(250);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 「更多」里的分组行：下拉态 + 「＋ 新建分组…」的临时输入框态。
+        // 两种形态排在一起才看得出高度对不对齐（这一行最容易和上面
+        // 「数值范围」那条错位）。
+        charGroupMove: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+
+          document.querySelector('#btn-chars')?.click();
+          await nap(400);
+          document.querySelector('#btn-new-char')?.click();
+          await nap(500);
+
+          const nameBox = $('#c-name');
+          if (nameBox) { nameBox.value = '分组搬运示例'; fire(nameBox, 'input'); }
+
+          const newGroup = async (name) => {
+            const box = $('#c-attr-tabs .attr-tab-new');
+            box.value = name;
+            box.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            await nap(140);
+          };
+          const clickTab = async (prefix) => {
+            const tab = $$('#c-attr-tabs .attr-tab').find(b => b.textContent.startsWith(prefix));
+            if (tab) tab.click();
+            await nap(160);
+          };
+          const addAttr = async (label, value) => {
+            const input = $('#c-attr-new');
+            input.value = label;
+            $('#btn-add-attr').click();
+            await nap(140);
+            const row = $$('#c-attr-list .attr-row').find(r => r.querySelector('.attr-name').textContent === label);
+            if (row && value) { const v = row.querySelector('.attr-value'); v.value = value; fire(v, 'input'); }
+          };
+          const rowOf = (label) => $$('#c-attr-list .attr-row').find(r => r.querySelector('.attr-name').textContent === label);
+
+          // ⚠️ 顺序有讲究：**先**往「未分组」里加两个（新卡默认就停在那一桶），
+          // **再**建「关系」并往里加 —— 反过来的话，建组会切走，
+          // 而这时「未分组」还不存在（bucketsOf 只在真有零散字段时才铺它），
+          // 于是字段会全掉进「关系」，夹具就和场景名对不上了。
+          await addAttr('金币', '9900');
+          await addAttr('上衣', '布衣');
+          await newGroup('关系');
+          await addAttr('好感度', '20');
+          await clickTab('未分组');
+
+          // 金币这一行：展开「更多」，露出分组下拉
+          const coin = rowOf('金币');
+          if (coin && !coin.parentElement.querySelector('.attr-more select.attr-group')) coin.querySelector('.attr-more-btn').click();
+          await nap(200);
+
+          // 再加一个字段，把它的那一行切到「＋ 新建分组…」的输入框态
+          await addAttr('上衣', '布衣');
+          const shirt = rowOf('上衣');
+          if (shirt && !shirt.parentElement.querySelector('.attr-more select.attr-group')) shirt.querySelector('.attr-more-btn').click();
+          await nap(220);
+          const shirt2 = rowOf('上衣');
+          const sel = shirt2 && shirt2.parentElement.querySelector('.attr-more select.attr-group');
+          if (sel) {
+            const newOpt = Array.from(sel.options).find(o => o.textContent.includes('新建分组'));
+            if (newOpt) { sel.value = newOpt.value; fire(sel, 'change'); }
+          }
+          await nap(260);
+
+          const panel = $('.attr-panel');
+          if (panel) panel.scrollIntoView({ block: 'center' });
+          await nap(250);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`
       };
       const driver = DRIVERS[shotArg];
       if (!driver) {
@@ -1879,10 +2097,25 @@ app.whenReady().then(async () => {
       } else {
         await win.webContents.executeJavaScript(`(async () => { ${driver}\n return true; })()`);
         await new Promise((r) => setTimeout(r, 700));
+        // 出图前把主题和几个关键底色打出来。截图最容易骗人的地方就是
+        // 「看着像暗色、其实没切过去」—— 那是白跑一趟，而且会让人照着
+        // 一张错图去调配色。这里直接问浏览器要算完的值，比肉眼看可靠。
+        const probe = await win.webContents.executeJavaScript(`(() => {
+          const bg = (sel) => { const n = document.querySelector(sel); return n ? getComputedStyle(n).backgroundColor : '(无)'; };
+          return {
+            theme: document.documentElement.getAttribute('data-theme') || 'light',
+            card: bg('.modal-card'),
+            panel: bg('.attr-panel'),
+            tabs: bg('.attr-tabs'),
+            value: bg('.attr-row input.attr-value')
+          };
+        })()`);
+        console.log(`  主题=${probe.theme} 弹窗底=${probe.card} 属性卡=${probe.panel} 标签栏=${probe.tabs} 值框=${probe.value}`);
         const dir = path.join(__dirname, 'shots');
         fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, `${shotArg}.png`), (await win.webContents.capturePage()).toPNG());
-        console.log(`  截图: tools/shots/${shotArg}.png`);
+        const shotName = `${shotArg}${shotDark ? '-dark' : ''}.png`;
+        fs.writeFileSync(path.join(dir, shotName), (await win.webContents.capturePage()).toPNG());
+        console.log(`  截图: tools/shots/${shotName}`);
       }
     } catch (err) {
       console.log('  截图失败:', (err && err.message) || err);

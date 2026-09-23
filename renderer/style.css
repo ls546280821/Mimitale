@@ -1532,64 +1532,223 @@ body {
 
 /* ------------------------------ 角色「属性」编辑区 ------------------------------
    属性 = 游玩时状态面板里的字段。这里只填初始值，进游戏后在面板里改的是当前值。
-   行样式刻意和游玩时的 .panel-row 长得像，让人一眼看出是同一个东西。 */
+   行样式刻意和游玩时的 .panel-row 长得像，让人一眼看出是同一个东西。
 
-.attr-add-row { display: flex; gap: 8px; }
+   整块做成一张「卡」：卡头是分组标签栏，卡身是这一组的字段 + 加字段那一行。
+   属性在数据上仍是一维数组（分组记在每个字段自己的 group 上），
+   标签栏只是视图键：点哪个，卡身就只铺哪一组。标签是**动态**铺出来的
+   （按字段上已有的分组名聚合），所以下面只定义「一个标签长什么样」。 */
 
-.attr-add-row input {
-  flex: 1 1 auto;
-  min-width: 0;
+.attr-panel {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--pre-bg);   /* 比弹窗底再深一档，读成「凹进去的一块」 */
+  overflow: hidden;            /* 卡头底色要贴住圆角，否则四角会露出直角 */
 }
 
-/* 快捷候选词：来自「设置 → 状态属性」，点一下就加一个属性 */
-.attr-quick {
+/* 卡头：分组标签栏 */
+.attr-tabs {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
-  margin-top: 8px;
+  padding: 8px 9px;
+  border-bottom: 1px solid var(--border);
+  background: var(--th-bg);    /* 再压一档，和卡身分开 */
 }
 
-.attr-quick-btn {
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  color: var(--text-muted, var(--text-faint));
+.attr-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
   cursor: pointer;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1;
   padding: 5px 9px;
   border-radius: 999px;
-  transition: all 0.15s;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.attr-quick-btn:hover {
-  border-color: var(--border-hover);
+.attr-tab:hover {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* 选中的标签要一眼认得出来 —— 一排圆角按钮里不拉开差距，
+   就不知道自己正站在哪一组，也看不出「下面这几行属于谁」 */
+.attr-tab.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+/* 组名后面的字段数：小一号、退到后面去 —— 它是旁注，不该和组名抢
+   同一级注意力；但它又是判断「有没有填漏」的依据，所以也不能省。 */
+.attr-tab-count {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--text-faint);
+  transition: background 0.15s, color 0.15s;
+}
+
+.attr-tab:hover .attr-tab-count { color: var(--text-dim); }
+
+/* 选中标签里的数字要跟着反色，否则蓝底上压一块灰底，看着像没选中 */
+.attr-tab.active .attr-tab-count {
+  background: rgba(255, 255, 255, 0.26);
+  color: #fff;
+}
+
+/* 「＋ 新建分组」：长得像一个标签，但它是个输入框。
+   平时只占一个标签的宽度不抢地方，聚焦时才拉开露出完整提示词。
+
+   ⚠️ 选择器必须写成 `.attr-tabs input.attr-tab-new`：通用那条
+   `input[type="text"]` 是 (0,1,1)，光写类名是 (0,1,0) —— 会被它的
+   `width: 100%` / `min-height: 40px` 盖掉。实测后果是输入框挤到第二行、
+   还铺满整个宽度，标签栏看着像坏了。 */
+.attr-tabs input.attr-tab-new {
+  flex: 0 0 auto;
+  width: 86px;
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  border: 1px dashed var(--border-hover);
+  background: transparent;
+  color: var(--text-faint);
+  transition: width 0.18s, border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.attr-tabs input.attr-tab-new:hover {
+  border-color: var(--accent);
   color: var(--accent);
 }
 
-/* 属性行的名字列宽。展开区（.attr-more）要靠它算左缩进，
-   所以定成变量 —— 直接写死 84 和 91 的话，改了名字列宽缩进就悄悄错位。 */
-.attr-list {
-  --attr-name-w: 84px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin-top: 8px;
+.attr-tabs input.attr-tab-new:focus {
+  width: 132px;
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--bg-input);
+  color: var(--text);
 }
 
-/* 一个属性 = 一行（名字/值/类型/更多）+ 可展开的「范围与变化规则」 */
+/* 「⋯ 管理这一组」（改名 / 解散）：靠 margin-left:auto 推到卡头最右边。
+   和标签拉开距离才不会被看成一个特殊标签 —— 它管的是**整组**，
+   不是又一个分组。没有它的时候（停在「未分组」上）这行会自然收短。
+
+   给它一圈边框：这是个新入口（以前改名 / 删除分组根本没有入口），
+   裸三个点太容易看漏。 */
+.attr-tab-edit {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-height: 26px;
+  border: 1px solid var(--border);
+  background: var(--bg-input);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 10px;
+  border-radius: 999px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.attr-tab-edit:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 展开着的时候要给存在感，否则看不出下面那条操作条是哪来的 */
+.attr-tab-edit.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+/* 分组操作条：改名输入框 + 解散按钮。贴在卡身最上面，
+   用一层浅底和下面的字段列表分开 —— 它改的是**整组**，不是某个字段。 */
+.attr-group-edit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+}
+
+.attr-group-edit-label {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* ⚠️ 带 [type="text"]（= (0,2,1)）：通用那条 `input[type="text"]` 是 (0,1,1)
+   且写在文件更后面，光写 `.attr-group-edit input` 会输给它，输入框会被顶成 40px 高。 */
+.attr-group-edit input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 12.5px;
+  border-radius: 7px;
+}
+
+.attr-group-edit .btn { flex: 0 0 auto; }
+
+/* 卡身：当前这一组的字段列表 + 加字段那一行 */
+.attr-body { padding: 9px 9px 10px; }
+
+/* 属性行的名字列宽。展开区（.attr-more）要靠它算左缩进，
+   所以定成变量 —— 直接写死 76 和 84 的话，改了名字列宽缩进就悄悄错位。 */
+.attr-list {
+  --attr-name-w: 76px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+/* 空组得有话可说 —— 刚建的分组点进去是一片空白，看着像坏了，
+   也找不到「从哪开始填」。 */
+.attr-empty {
+  padding: 12px 4px 14px;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* 一个属性 = 一行（名字/值/类型/更多）+ 可展开的「范围与变化规则」。
+   整项一起变色：鼠标落在值输入框上时，下面挂着的展开区也跟着亮，
+   一眼看出「这块是它的」；删除按钮也才有地方落。 */
 .attr-item {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
+  padding: 3px 4px;
+  border-radius: 7px;
+  transition: background 0.15s;
 }
 
-.attr-row { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.attr-item:hover { background: var(--bg-input); }
+
+.attr-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
 .attr-name {
   flex: 0 0 auto;
-  width: var(--attr-name-w, 84px);
-  font-size: 11.5px;
-  color: var(--text-faint);
+  width: var(--attr-name-w, 76px);
+  font-size: 12px;
+  color: var(--text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1599,59 +1758,69 @@ body {
 .attr-row input.attr-value {
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 26px;
-  padding: 3px 8px;
-  font-size: 12px;
-  border-radius: 6px;
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 12.5px;
+  border-radius: 7px;
 }
 
 /* 类型选择框：文本 / 数值 / 列表 */
 .attr-row select.attr-type {
   flex: 0 0 auto;
-  width: 62px;
-  min-height: 26px;
-  padding: 2px 4px;
+  width: 64px;
+  min-height: 28px;
+  padding: 2px 5px;
   font-size: 11.5px;
-  border-radius: 6px;
-  background: var(--bg-input);
-  color: var(--text-muted, var(--text-faint));
-  border: 1px solid var(--border);
-  cursor: pointer;
+  border-radius: 7px;
+  color: var(--text-dim);
 }
 
+/* 「更多」做成安静的次要按钮：它旁边就是个下拉框，
+   两个同款灰底方块摆一起会让人分不清哪个是按钮。 */
 .attr-row .attr-more-btn {
   flex: 0 0 auto;
-  border: 1px solid var(--border);
-  background: var(--bg-input);
-  color: var(--text-muted, var(--text-faint));
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-faint);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 11.5px;
   line-height: 1;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: 7px 8px;
+  border-radius: 7px;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
 .attr-row .attr-more-btn:hover {
-  border-color: var(--border-hover);
+  background: var(--bg-input);
+  border-color: var(--border);
   color: var(--accent);
 }
 
-/* 展开区：贴着上面那一行缩进，视觉上从属于它 */
-/* 展开区：从左缩进到值输入框的位置。
-   缩进 = 名字列宽 + 行内 gap（7px），靠变量算出来而不是手填 91px。 */
+/* 展开着的时候给它一点存在感，一眼看出这一行下面还挂着一块 */
+.attr-row .attr-more-btn.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* 展开区：用一条左侧引导线挂到上面那一行上，比纯缩进更像「属于它」。
+   缩进 = 名字列宽 + 行内 gap（8px），靠变量算出来而不是手填数字。 */
 .attr-more {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin: 0 0 3px calc(var(--attr-name-w, 84px) + 7px);
+  gap: 6px;
+  margin: 1px 0 3px calc(var(--attr-name-w, 76px) + 8px);
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
 }
 
-.attr-range {
+.attr-range,
+.attr-group-row {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
+/* 「更多」里那两种小行的灰标签：数值范围 / 分组。两处共用一套排版。 */
 .attr-range-label,
 .attr-range-sep {
   flex: 0 0 auto;
@@ -1661,13 +1830,14 @@ body {
 
 .attr-more input.attr-num {
   flex: 0 0 auto;
-  width: 68px;
-  min-height: 24px;
-  padding: 2px 6px;
+  width: 64px;
+  min-height: 26px;
+  padding: 3px 7px;
   font-size: 11.5px;
   border-radius: 6px;
 }
 
+/* 变化规则：整行铺满 */
 .attr-more input.attr-hint {
   width: 100%;
   min-width: 0;
@@ -1677,29 +1847,92 @@ body {
   border-radius: 6px;
 }
 
-.attr-more input.attr-group {
-  width: 100%;
+/* 分组下拉 / 「＋ 新建分组…」临时输入框。
+   ⚠️ 两条都要写足选择器（(0,2,1)）：通用那条 `input[type="text"], select`
+   是 (0,1,1) 而且写在文件更后面，光写 `.attr-more .attr-group`
+   照样会输给它的 min-height:40px / padding。 */
+.attr-more select.attr-group,
+.attr-more input.attr-group-new {
+  flex: 1 1 auto;
   min-width: 0;
+  width: auto;
   min-height: 26px;
   padding: 3px 8px;
   font-size: 11.5px;
   border-radius: 6px;
 }
 
+/* 下拉右边要给 CSS 画的小箭头留位置，否则长组名会顶到箭头底下 */
+.attr-more select.attr-group {
+  padding-right: 30px;
+  color: var(--text-dim);
+}
+
 /* .panel-del 平时是透明的，靠「悬停行」浮现 —— 但那只对 .panel-row 生效，
    属性区这一行是 .attr-row，得自己补一条，否则删除按钮永远看不见 */
 .attr-row:hover .panel-del { opacity: 1; }
+
+/* 加字段：卡身最下面一条，用虚线跟上面的字段列表分开 ——
+   「往上翻是已有的，往下写是新的」，不用再读一遍占位文案。 */
+.attr-add-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+/* ⚠️ 这里必须带 [type="text"]（= (0,2,1)）：通用那条 `input[type="text"]`
+   也是 (0,1,1)，而且写在文件更后面 —— 光写 `.attr-add-row input` 的话
+   它的 min-height:40px / padding:10px 14px 会把这一行顶得比上面的字段行高一截。 */
+.attr-add-row input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 30px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  border-radius: 7px;
+}
+
+/* 快捷候选词：来自「设置 → 状态属性」，点一下就加一个属性（进当前分组） */
+.attr-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.attr-quick-btn {
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 11.5px;
+  line-height: 1;
+  padding: 5px 10px;
+  border-radius: 999px;
+  transition: all 0.15s;
+}
+
+.attr-quick-btn:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
 
 /* 批量粘贴区：平时收着，点「粘贴文本」才展开 */
 .attr-paste {
   margin-top: 8px;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-input);
+  border-radius: 10px;
+  background: var(--pre-bg);
 }
 
-.attr-paste textarea {
+/* ⚠️ 带 id 写，别只写 `.attr-paste textarea`：那条是 (0,1,1)，
+   通用 textarea 也是 (0,1,1) 且写在更后面 —— min-height / font-size
+   会被静默盖掉（这两行以前就是死的）。 */
+#c-attr-paste textarea {
   width: 100%;
   min-height: 0;
   font-size: 12px;

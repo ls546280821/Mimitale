@@ -574,14 +574,37 @@
             </label>
 
             <!-- 属性：会变成游玩时「状态」面板里的字段。
-                 这里填的是初始值，进游戏后在面板里改的是那一局的当前值。 -->
+                 这里填的是初始值，进游戏后在面板里改的是那一局的当前值。
+
+                 数据上属性仍是一维数组（分组记在每个字段自己身上），
+                 分组只是**视图层**的聚合键：标签栏点哪个，下面就只显示哪一组。
+                 这样导出 / 导入 / 面板注入全都不用改，风险面小得多。 -->
             <div class="field field-stack">
               <span class="field-label">属性（状态面板）</span>
 
-              <div class="attr-add-row">
-                <input id="c-attr-new" type="text" spellcheck="false" placeholder="属性名，比如 金币" aria-label="新属性名" />
-                <button id="btn-add-attr" class="btn btn-ghost btn-sm" type="button">添加</button>
-                <button id="btn-attr-paste" class="btn btn-ghost btn-sm" type="button" title="把一段文本一次解析成多条属性">粘贴文本</button>
+              <!-- 整块做成一张卡：卡头是分组标签栏，卡身是这一组的字段 + 加字段那一行。
+                   平铺成一堆输入框的话，看不出哪些字段属于同一组，
+                   也看不出标签栏管的到底是哪一片。 -->
+              <div class="attr-panel">
+                <!-- 分组标签栏：由渲染层按字段上已有的分组名铺出来，不是写死的几块 ——
+                     分组名本来就是使用者自己定的。 -->
+                <div id="c-attr-tabs" class="attr-tabs" role="tablist" aria-label="属性分组"></div>
+
+                <div class="attr-body">
+                  <!-- 分组操作条：改名 + 解散。由渲染层铺，
+                       只在「⋯」被点开、且当前停在命名分组上时才露出来。 -->
+                  <div id="c-attr-group-edit" class="attr-group-edit hidden"></div>
+
+                  <div id="c-attr-list" class="attr-list" role="tabpanel" aria-label="当前分组的属性"></div>
+
+                  <!-- 加字段：加进**当前选中的那一组**，所以不用再手动填分组。
+                       占位文案由渲染层按当前分组改写，这里只留个默认值。 -->
+                  <div class="attr-add-row">
+                    <input id="c-attr-new" type="text" spellcheck="false" placeholder="属性名，比如 金币" aria-label="新属性名" />
+                    <button id="btn-add-attr" class="btn btn-ghost btn-sm" type="button">添加</button>
+                    <button id="btn-attr-paste" class="btn btn-ghost btn-sm" type="button" title="把一段文本一次解析成多条属性">粘贴文本</button>
+                  </div>
+                </div>
               </div>
 
               <!-- 批量粘贴：一行一项，比一条条手打快得多 -->
@@ -598,9 +621,6 @@
               </div>
 
               <div id="c-attr-quick" class="attr-quick"></div>
-              <div id="c-attr-list" class="attr-list"></div>
-              <!-- 属性「分组」输入框的下拉建议；内容由渲染层填（这张卡里已用过的分组名） -->
-              <datalist id="attr-group-suggest"></datalist>
 
               <span class="field-help">
                 这些属性会进游玩时的「状态」面板，每轮由程序注入给 AI，数值不会漂。<br />
