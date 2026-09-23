@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <title>如我所书</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ================= 左侧边栏 ================= -->
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span class="brand-name">♪ 如我所书</span>
+        <button id="btn-theme" class="icon-btn brand-theme" type="button" title="切换为夜间模式" aria-label="切换为夜间模式" aria-pressed="false">
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+          </svg>
+        </button>
+      </div>
+
+      <button id="btn-new" class="btn btn-primary btn-block" aria-label="创建新对话">＋ 新对话</button>
+
+      <div class="sidebar-label">历史会话</div>
+      <div id="convo-list" class="convo-list" role="list"></div>
+
+      <div class="sidebar-foot">
+        <button id="btn-chars" class="btn btn-ghost btn-block" aria-label="打开角色库">角色库</button>
+        <button id="btn-worldbooks" class="btn btn-ghost btn-block" aria-label="打开世界书">世界书</button>
+        <button id="btn-settings" class="btn btn-ghost btn-block" aria-label="打开设置">设置</button>
+        <button id="btn-folder" class="btn btn-ghost btn-block" aria-label="打开数据文件夹">打开数据文件夹</button>
+      </div>
+    </aside>
+
+    <!-- ================= 主对话区 ================= -->
+    <main class="main">
+      <!-- 视图一：聊天 -->
+      <section id="view-chat" class="view">
+      <header class="topbar">
+        <div class="topbar-title">
+          <h1 id="convo-title">新对话</h1>
+          <p id="convo-meta" class="meta">未配置</p>
+        </div>
+        <div class="topbar-actions">
+          <select id="model-switch" class="model-switch" title="切换当前会话使用的模型" aria-label="切换模型"></select>
+          <button id="btn-appearance" class="btn btn-ghost btn-sm" aria-label="打开对话窗口外观设置">外观</button>
+          <button id="btn-perspective" class="btn btn-ghost btn-sm" aria-label="打开视角设置">视角</button>
+          <button id="btn-memory" class="btn btn-ghost btn-sm" aria-label="打开记忆管理">记忆<span id="memory-count" class="memory-badge hidden"></span></button>
+          <button id="btn-copy-all" class="btn btn-ghost btn-sm" aria-label="复制整段对话">复制全文</button>
+          <button id="btn-export-convo" class="btn btn-ghost btn-sm" aria-label="把当前对话导出成 Markdown">导出</button>
+          <button id="btn-clear" class="btn btn-ghost btn-sm" aria-label="清空当前对话">清空对话</button>
+          <button id="btn-stop" class="btn btn-danger btn-sm hidden" aria-label="停止生成回复">停止生成</button>
+        </div>
+      </header>
+
+      <!-- 状态面板：世界模型的状态栏，可折叠，字段值可直接改。
+           收起后不消失，只留这一条细条 —— 这样随时有地方点开。 -->
+      <section id="panel-box" class="panel-box hidden" aria-label="当前状态面板">
+        <div id="panel-head" class="panel-head">
+          <button id="btn-panel-collapse" class="panel-toggle" type="button"
+                  title="收起 / 展开状态面板" aria-expanded="true" aria-controls="panel-fields">
+            <svg class="panel-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+            <span class="panel-title">当前状态</span>
+          </button>
+          <span id="panel-hint" class="panel-hint">每轮自动更新</span>
+          <button id="btn-panel-reset" class="btn btn-ghost btn-sm" type="button" title="清空面板（下一条带状态栏的回复会重新建立）">重置</button>
+        </div>
+        <div id="panel-fields" class="panel-fields"></div>
+      </section>
+
+      <section id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions"></section>
+
+      <footer class="composer">
+        <!-- 待发送的图片。加图之后出现在输入框上方，每张右上角有 × -->
+        <div id="attach-strip" class="attach-strip hidden" aria-label="待发送的图片"></div>
+        <!-- 「帮我想想」给出的几个下一步。点一下就当成你说的话发出去 -->
+        <div id="suggest-strip" class="suggest-strip hidden" aria-label="可以这样接话">
+          <div class="suggest-head">
+            <span class="suggest-title">可以这样接</span>
+            <button id="btn-suggest-close" class="suggest-close" type="button" title="收起" aria-label="收起建议">✕</button>
+          </div>
+          <div id="suggest-list" class="suggest-list"></div>
+        </div>
+        <div class="composer-box">
+          <button id="btn-attach" class="icon-btn attach-btn" type="button"
+                  title="加一张图（也可以直接粘贴或拖进来）" aria-label="添加图片">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <circle cx="9" cy="9" r="2" />
+              <path d="m21 15-4.5-4.5L3 21" />
+            </svg>
+          </button>
+          <textarea id="input" rows="2" placeholder="说点什么……（Shift + Enter 换行）" aria-label="输入消息"></textarea>
+          <button id="btn-send" class="btn btn-primary btn-send" aria-label="发送消息">发送</button>
+        </div>
+        <div class="composer-hint">
+          <span id="hint-text">Enter 发送 · Shift + Enter 换行</span>
+          <span id="usage-text"></span>
+        </div>
+      </footer>
+
+      </section>
+
+      <!-- 视图二：角色列表页 -->
+      <section id="view-chars" class="view hidden" aria-label="角色库">
+        <header class="page-head">
+          <div class="page-heading">
+            <h1 class="page-title">角色库</h1>
+            <p id="chars-page-sub" class="page-sub"></p>
+          </div>
+          <div class="page-actions">
+            <button id="btn-import-card" class="btn btn-ghost btn-sm" type="button">导入角色卡</button>
+            <button id="btn-new-char" class="btn btn-primary btn-sm" type="button">＋ 新建角色</button>
+          </div>
+        </header>
+
+        <div class="page-body">
+          <div id="char-page-grid" class="char-grid" role="list"></div>
+          <div id="char-page-empty" class="page-empty hidden">
+            <div class="page-empty-title">还没有角色</div>
+            <p class="page-empty-hint">
+              点右上角「导入角色卡」选一张酒馆的 PNG / JSON 卡，<br />
+              或者点「＋ 新建角色」自己写一个。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 视图三：世界书列表页 -->
+      <section id="view-worldbooks" class="view hidden" aria-label="世界书">
+        <header class="page-head">
+          <div class="page-heading">
+            <h1 class="page-title">世界书</h1>
+            <p id="wb-page-sub" class="page-sub"></p>
+          </div>
+          <div class="page-actions">
+            <button id="btn-import-lorebook" class="btn btn-ghost btn-sm" type="button">导入世界书</button>
+            <button id="btn-new-worldbook" class="btn btn-primary btn-sm" type="button">＋ 新建世界书</button>
+          </div>
+        </header>
+
+        <div class="page-body">
+          <div id="wb-page-grid" class="wb-grid" role="list"></div>
+          <div id="wb-page-empty" class="page-empty hidden">
+            <div class="page-empty-title">还没有世界书</div>
+            <p class="page-empty-hint">
+              点右上角「导入世界书」选一个酒馆的 lorebook JSON，<br />
+              或者点「＋ 新建世界书」自己写一个世界。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 提示条放在主区域内：这样它居中于对话区，而不是整个窗口。
+           故意放在两个视图外面，切换页面时提示不会跟着被藏起来。 -->
+      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+    </main>
+  </div>
+
+  <!-- ================= 设置弹窗 ================= -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="settings-title">设置</h2>
+          <p class="modal-sub">配置模型接口与对话行为</p>
+        </div>
+        <button id="btn-close-settings" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <section class="panel-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
+                <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+              </svg>
+            </span>
+            <div class="section-heading">
+              <div class="section-title">模型服务</div>
+              <div class="section-desc">可以添加多个服务商，随时切换</div>
+            </div>
+          </div>
+
+          <!-- 服务商切换标签 -->
+          <div id="provider-tabs" class="provider-tabs" role="tablist" aria-label="服务商"></div>
+
+          <div class="provider-add">
+            <button id="btn-add-provider" class="btn btn-ghost btn-sm" type="button" aria-expanded="false">＋ 添加服务商</button>
+          </div>
+          <div id="provider-presets" class="provider-presets hidden"></div>
+
+          <label class="field">
+            <span class="field-label">名称</span>
+            <input id="p-name" type="text" spellcheck="false" placeholder="例如 DeepSeek" aria-label="服务商名称" />
+          </label>
+
+          <label class="field">
+            <span class="field-label">接口地址</span>
+            <input id="p-baseurl" type="text" spellcheck="false" placeholder="https://api.deepseek.com" aria-label="接口地址" />
+            <span class="field-help">DeepSeek 填 https://api.deepseek.com；OpenAI 填 https://api.openai.com/v1。</span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">API Key</span>
+            <input id="p-apikey" type="password" spellcheck="false" placeholder="sk-..." aria-label="API Key" />
+            <span class="field-help">只保存在你自己电脑上，保存时会加密。</span>
+          </label>
+
+          <div class="field field-stack">
+            <div class="field-row">
+              <span class="field-label">可用模型</span>
+              <button id="btn-fetch-models" class="btn btn-ghost btn-sm" type="button" aria-label="从接口拉取模型列表">拉取可用模型</button>
+            </div>
+            <textarea id="p-models" rows="4" spellcheck="false" aria-label="模型列表" placeholder="一行一个模型名，例如：&#10;deepseek-chat&#10;deepseek-reasoner"></textarea>
+            <span class="field-help">一行一个模型。聊天窗口右上角的下拉框里可以随时切换。</span>
+          </div>
+
+          <div class="provider-actions">
+            <button id="btn-del-provider" class="btn btn-danger btn-sm" type="button">删除这个服务商</button>
+            <button id="btn-test" class="btn btn-ghost btn-sm" type="button">测试当前服务商</button>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+              </svg>
+            </span>
+            <div class="section-heading">
+              <div class="section-title">生成参数</div>
+              <div class="section-desc">控制回答的随机程度和长度</div>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">温度</span>
+              <input id="s-temp" type="number" min="0" max="2" step="0.1" />
+              <span class="field-help">越大越有创意，越小越稳定。0.7 通用。</span>
+            </label>
+            <label class="field">
+              <span class="field-label">回复上限</span>
+              <input id="s-maxtokens" type="number" min="64" max="32000" step="64" />
+              <span class="field-help">数字越大回复越长，也越费钱。</span>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </span>
+            <div class="section-heading">
+              <div class="section-title">人设</div>
+              <div class="section-desc">决定 AI 的性格和说话方式</div>
+            </div>
+          </div>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">你的名字</span>
+              <input id="s-username" type="text" spellcheck="false" placeholder="你" aria-label="你的名字" />
+              <span class="field-help">角色卡里的 <code>{{user}}</code> 会替换成它</span>
+            </label>
+            <label class="field">
+              <span class="field-label">带入轮数</span>
+              <input id="s-maxturns" type="number" min="1" max="200" step="1" aria-label="上下文轮数" />
+              <span class="field-help">每次发给模型的历史轮数，越大越记得久也越费钱</span>
+            </label>
+          </div>
+
+          <label class="field field-stack">
+            <span class="field-label">系统提示词</span>
+            <textarea id="s-system" rows="5" placeholder="你是……"></textarea>
+            <span class="field-help">
+              这一段决定了 AI 的性格和回答方式，可以随时改。<br />
+              绑定了角色卡的会话<b>不会</b>使用这里的内容，改用角色卡自己的设定。
+            </span>
+          </label>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="1" y="6" width="22" height="12" rx="6" />
+                <circle cx="16" cy="12" r="3" />
+              </svg>
+            </span>
+            <div class="section-heading">
+              <div class="section-title">行为</div>
+              <div class="section-desc">键盘习惯与上下文补充</div>
+            </div>
+          </div>
+
+          <label class="check">
+            <input id="s-sendonenter" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">Enter 直接发送</span>
+              <span class="check-desc">不勾选则 Enter 换行，改用 Ctrl + Enter 发送</span>
+            </span>
+          </label>
+
+          <label class="check">
+            <input id="s-showdate" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">把当前日期告诉 AI</span>
+              <span class="check-desc">模型本身不知道今天是几号，勾选后会注入当天日期</span>
+            </span>
+          </label>
+
+          <label class="check">
+            <input id="s-showusage" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">显示 token 使用量</span>
+              <span class="check-desc">在输入框右下角显示本次对话消耗的 token 数</span>
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">世界书递归深度</span>
+            <input id="s-wb-depth" type="number" min="0" max="5" step="1" aria-label="世界书递归深度" />
+            <span class="field-help">
+              勾了「递归」的世界书条目，命中后还能再带出别的条目，最多连锁几层。<br />
+              0 = 完全关掉递归。层数越多带进来的设定越多，<b>token 也越多</b>。
+            </span>
+          </label>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16M4 12h10M4 17h7" />
+              </svg>
+            </span>
+            <div class="section-heading">
+              <div class="section-title">状态属性</div>
+              <div class="section-desc">角色编辑器里「属性」的快捷候选词</div>
+            </div>
+          </div>
+
+          <label class="field field-stack">
+            <span class="field-label">常用属性</span>
+            <textarea id="s-commonattrs" rows="2" spellcheck="false" placeholder="金币, 生命, 体力, 时间, 地点"></textarea>
+            <span class="field-help">
+              逗号或换行分隔。在角色编辑器里点一下这些候选词，就会给角色加一个同名属性。<br />
+              只是省打字的候选清单，不限制你手写别的属性名。
+            </span>
+          </label>
+        </section>
+
+        <!-- 生图：和聊天是两套配置，默认留空 = 不启用 -->
+        <section class="panel-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="9" cy="9" r="2" />
+                <path d="m21 15-4.5-4.5L3 21" />
+              </svg>
+            </span>
+            <div class="section-heading">
+              <div class="section-title">生图</div>
+              <div class="section-desc">给剧情配插画。留空就是不启用</div>
+            </div>
+          </div>
+
+          <label class="field">
+            <span class="field-label">生图服务商</span>
+            <select id="s-image-provider" aria-label="生图服务商"></select>
+          </label>
+
+          <label class="field">
+            <span class="field-label">生图模型</span>
+            <select id="s-image-model" aria-label="生图模型"></select>
+            <span class="field-help">
+              列表跟着上面选的<b>生图服务商</b>走，用的是那个服务商的「可用模型」。<br />
+              里面没有你要的画图模型，就去上面「服务商」那一节把它加进模型列表（或点「拉取可用模型」）。
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">图片尺寸</span>
+            <select id="s-image-size" aria-label="图片尺寸"></select>
+            <span class="field-help">
+              可选项跟着上面选的<b>生图模型</b>走 —— 不同模型支持的尺寸不一样，
+              填错会被接口拒掉（智谱的 glm-image 只认固定的几个尺寸）。
+            </span>
+          </label>
+
+          <span class="field-help">
+            <b>生图和聊天是两个模型</b>，通常在<b>不同的端点</b>上（聊天走
+            <code>/chat/completions</code>，生图走 <code>/images/generations</code>），
+            所以这里单独配一组。<br />
+            服务商可以和聊天用同一个（同地址同 Key，只是换个模型），也可以另外加一个。<br />
+            目前只支持<b>同步返回图片</b>的接口（OpenAI 那套）；通义万相那种「先提交任务再轮询」的还不支持。<br />
+            配好之后，鼠标悬停在 AI 的回复上会多一个<b>「配图」</b>。
+          </span>
+        </section>
+
+        <!-- 语义检索：又是一组独立配置，走 /embeddings -->
+        <section class="panel-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </span>
+            <div class="section-heading">
+              <div class="section-title">语义检索</div>
+              <div class="section-desc">按「意思」把相关的旧内容和设定捞回来，而不是靠关键词</div>
+            </div>
+          </div>
+
+          <label class="check">
+            <input id="s-rag-enabled" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">启用语义检索</span>
+              <span class="check-desc">
+                每一轮会多调一次向量接口（要多花钱）。<b>第一次开的时候</b>还要给已有的
+                消息和世界书补索引，会分几轮慢慢补完。
+              </span>
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">向量服务商</span>
+            <select id="s-embedding-provider" aria-label="向量服务商"></select>
+          </label>
+
+          <label class="field">
+            <span class="field-label">向量模型</span>
+            <select id="s-embedding-model" aria-label="向量模型"></select>
+            <span class="field-help">
+              同样是跟着上面选的向量服务商走。常见的有 <code>text-embedding-3-small</code>、
+              <code>BAAI/bge-m3</code> 这类。
+            </span>
+          </label>
+
+          <span class="field-help">
+            向量模型也是<b>另外一组</b>（走 <code>/embeddings</code>），和聊天、生图都不相干。<br />
+            它解决的问题是：<b>世界书靠关键词命中</b>，你写了「十二泰坦」但对话里只说了
+            「那些神」，那条设定就永远出不来；语义检索能把它捞回来。<br />
+            向量存在 <code>vectors.json</code> 里（只在本机）。<b>换向量模型不会串味</b> ——
+            缓存键里带着模型名，不同模型的向量本来就不能比。
+          </span>
+        </section>
+      </div>
+
+      <footer class="modal-foot">
+        <span class="foot-hint">设置只保存在本机，改完记得点保存</span>
+        <div class="foot-actions">
+          <button id="btn-save-settings" class="btn btn-primary" type="button" aria-label="保存设置">保存</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 角色编辑弹窗 =================
+       这里只是「编辑某一个角色」的表单，角色列表在 #view-chars 那个页面里。 -->
+  <div id="chars-modal" class="modal hidden">
+    <div class="modal-card chars-card" role="dialog" aria-modal="true" aria-labelledby="chars-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="chars-title">编辑角色</h2>
+          <p id="chars-sub" class="modal-sub"></p>
+        </div>
+        <button id="btn-close-chars" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body chars-body">
+        <section class="char-main">
+          <div id="char-empty" class="char-empty">
+            <div class="char-empty-title">没有可编辑的角色</div>
+          </div>
+
+          <div id="char-form" class="char-form hidden">
+            <div class="char-head-row">
+              <div class="char-avatar-col">
+                <button id="char-avatar" class="char-avatar" type="button" title="点击更换头像" aria-label="更换头像">
+                  <span class="char-avatar-empty">点击上传</span>
+                </button>
+                <button id="btn-clear-avatar" class="btn btn-ghost btn-sm hidden" type="button">清除头像</button>
+              </div>
+              <div class="char-head-fields">
+                <label class="field">
+                  <span class="field-label">角色名</span>
+                  <input id="c-name" type="text" spellcheck="false" placeholder="例如 昔涟" aria-label="角色名" />
+                </label>
+                <label class="field">
+                  <span class="field-label">标签</span>
+                  <input id="c-tags" type="text" spellcheck="false" placeholder="分类用，例如：原神, 治愈" aria-label="标签" />
+                </label>
+              </div>
+            </div>
+
+            <!-- 身份：姓名就是上面的「角色名」，这里补另外三个。
+                 这四项会在世界里随剧情变（过一年年龄涨一岁、被改名），
+                 所以游玩世界书时会作为字段进状态面板。 -->
+            <div class="field-grid field-grid-3">
+              <label class="field">
+                <span class="field-label">年龄</span>
+                <input id="c-age" type="text" spellcheck="false" placeholder="例如 18" aria-label="年龄" />
+              </label>
+              <label class="field">
+                <span class="field-label">性别</span>
+                <select id="c-gender" aria-label="性别">
+                  <option value="">未设置</option>
+                  <option value="男">男</option>
+                  <option value="女">女</option>
+                  <option value="其他">其他</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field-label">种族</span>
+                <input id="c-race" type="text" spellcheck="false" placeholder="人类" aria-label="种族" />
+              </label>
+            </div>
+
+            <label class="field field-stack">
+              <span class="field-label">角色描述</span>
+              <textarea id="c-desc" rows="5" spellcheck="false" placeholder="这个角色是谁、长什么样、有什么经历……&#10;可以用 {{char}} 表示角色自己，{{user}} 表示你。"></textarea>
+            </label>
+
+            <div class="field-grid">
+              <label class="field field-stack">
+                <span class="field-label">性格</span>
+                <textarea id="c-personality" rows="3" spellcheck="false" placeholder="开朗、爱笑、有点冒失……"></textarea>
+              </label>
+              <label class="field field-stack">
+                <span class="field-label">场景</span>
+                <textarea id="c-scenario" rows="3" spellcheck="false" placeholder="你们正在哪里、干什么"></textarea>
+              </label>
+            </div>
+
+            <label class="field field-stack">
+              <span class="field-label">开场白</span>
+              <textarea id="c-first" rows="3" spellcheck="false" placeholder="第一句话。绑定角色时如果对话还是空的，会自动作为角色的开场消息插入。"></textarea>
+            </label>
+
+            <label class="field field-stack">
+              <span class="field-label">示例对话</span>
+              <textarea id="c-example" rows="4" spellcheck="false" placeholder="{{user}}: 你好&#10;{{char}}: 你好呀～今天感觉怎么样？"></textarea>
+              <span class="field-help">
+                照这个格式写几组，能明显提升扮演时的语气准确度。<br />
+                每行以 <code>{{user}}:</code> 或 <code>{{char}}:</code> 开头，用 <code>&lt;START&gt;</code> 分隔不同组。
+              </span>
+            </label>
+
+            <!-- 属性：会变成游玩时「状态」面板里的字段。
+                 这里填的是初始值，进游戏后在面板里改的是那一局的当前值。 -->
+            <div class="field field-stack">
+              <span class="field-label">属性（状态面板）</span>
+
+              <div class="attr-add-row">
+                <input id="c-attr-new" type="text" spellcheck="false" placeholder="属性名，比如 金币" aria-label="新属性名" />
+                <button id="btn-add-attr" class="btn btn-ghost btn-sm" type="button">添加</button>
+                <button id="btn-attr-paste" class="btn btn-ghost btn-sm" type="button" title="把一段文本一次解析成多条属性">粘贴文本</button>
+              </div>
+
+              <!-- 批量粘贴：一行一项，比一条条手打快得多 -->
+              <div id="c-attr-paste" class="attr-paste hidden">
+                <textarea id="c-attr-paste-text" rows="5" spellcheck="false"
+                          placeholder="一行一项，例如：&#10;金币：9900&#10;【上衣】：衬衫&#10;年龄 16"></textarea>
+                <div class="attr-paste-foot">
+                  <span class="field-help">
+                    认「<code>金币：9900</code>」「<code>【金币】：9900</code>」「<code>金币 9900</code>」这几种写法；<br />
+                    同名会覆盖值，认不出来的行自动跳过。
+                  </span>
+                  <button id="btn-attr-paste-apply" class="btn btn-primary btn-sm" type="button">解析并加入</button>
+                </div>
+              </div>
+
+              <div id="c-attr-quick" class="attr-quick"></div>
+              <div id="c-attr-list" class="attr-list"></div>
+              <!-- 属性「分组」输入框的下拉建议；内容由渲染层填（这张卡里已用过的分组名） -->
+              <datalist id="attr-group-suggest"></datalist>
+
+              <span class="field-help">
+                这些属性会进游玩时的「状态」面板，每轮由程序注入给 AI，数值不会漂。<br />
+                这里填的是<b>初始值</b>；进游戏之后在面板里改的是<b>这一局的当前值</b>，不会动到角色卡。
+              </span>
+
+              <!-- 剧情选项：每轮让 AI 给出几个可点选项，点一下就当玩家回复发出去。
+                   关掉时这个角色的会话就没有选项区。 -->
+              <div class="char-options-box">
+                <label class="check">
+                  <input id="c-options-on" type="checkbox" />
+                  <span>剧情选项（每轮给几个可点选项，点一下就当你说这句话发出去）</span>
+                </label>
+                <div id="c-options-config" class="c-options-config hidden">
+                  <label class="field">
+                    <span class="field-label">每轮给几个</span>
+                    <input id="c-options-count" type="number" min="1" max="6" step="1" value="3" />
+                  </label>
+                  <label class="field field-stack">
+                    <span class="field-label">额外要求（可选）</span>
+                    <input id="c-options-hint" type="text" spellcheck="false"
+                           placeholder="比如：语气轻松些、总有一条冒险的选择" />
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- 角色自带的世界书：导入带 character_book 的角色卡时会自动绑上，
+                 也可以在这里手动绑定。开关关掉后，这张角色无论单独聊天、
+                 还是被绑进某个世界当角色，都不会带入它自己的世界书。 -->
+            <div id="c-worldbook-box" class="char-worldbook-box">
+              <div class="cwb-head">
+                <span class="field-label">自带世界书</span>
+                <button id="c-wb-add-btn" class="btn btn-ghost btn-sm" type="button">＋ 绑定</button>
+              </div>
+              <div id="c-wb-list" class="cwb-list"></div>
+              <label class="check" id="c-wb-switch">
+                <input id="c-wb-enabled" type="checkbox" checked />
+                <span class="check-text">
+                  <span class="check-title">启用自带的世界书</span>
+                  <span class="check-desc" id="c-wb-desc"></span>
+                </span>
+              </label>
+              <p class="field-help" id="c-wb-hint"></p>
+            </div>
+
+            <details class="char-advanced">
+              <summary>高级选项（可以不管）</summary>
+
+              <label class="field field-stack">
+                <span class="field-label">角色专属系统提示词</span>
+                <textarea id="c-system" rows="3" spellcheck="false" placeholder="留空则使用通用扮演规则"></textarea>
+                <span class="field-help">填了会用它取代「设置」里的全局人设。</span>
+              </label>
+
+              <label class="field field-stack">
+                <span class="field-label">对话后指令</span>
+                <textarea id="c-post" rows="2" spellcheck="false" placeholder="放在整段对话最后，用来强调格式或语气要求"></textarea>
+              </label>
+
+              <label class="field field-stack">
+                <span class="field-label">作者备注</span>
+                <textarea id="c-notes" rows="2" spellcheck="false" placeholder="只给你自己看，不会发给模型"></textarea>
+              </label>
+            </details>
+          </div>
+        </section>
+      </div>
+
+      <footer class="modal-foot">
+        <span id="char-foot-hint" class="foot-hint">角色卡只保存在你自己电脑上</span>
+        <div class="foot-actions">
+          <button id="btn-export-char" class="btn btn-ghost" type="button" title="存成 PNG 卡（酒馆可直接导入）或 JSON">导出</button>
+          <button id="btn-del-char" class="btn btn-danger" type="button">删除角色</button>
+          <button id="btn-save-char" class="btn btn-primary" type="button">保存角色</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 世界书弹窗 ================= -->
+  <div id="worldbooks-modal" class="modal hidden">
+    <div class="modal-card worldbook-card" role="dialog" aria-modal="true" aria-labelledby="worldbooks-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="worldbooks-title">世界书</h2>
+          <p class="modal-sub">一条条目 = 一组关键词 + 一段设定；关键词命中才会注入提示词</p>
+        </div>
+        <button id="btn-close-worldbooks" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭世界书">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body worldbook-body">
+        <!-- 中：条目列表 -->
+        <section class="wb-entries">
+          <div id="wb-entries-empty" class="wb-empty">左边选一本书，或新建一本</div>
+          <div id="wb-entries-wrap" class="wb-entries-wrap hidden">
+            <div class="wb-entries-head">
+              <div class="wb-entries-title">
+                <input id="wb-name" type="text" spellcheck="false" placeholder="世界书名称" aria-label="世界书名称" />
+                <div id="wb-entry-count" class="wb-count"></div>
+              </div>
+              <div class="wb-entries-actions">
+                <button id="btn-preview-wb" class="btn btn-ghost btn-sm" type="button">预览命中</button>
+                <button id="btn-new-entry" class="btn btn-ghost btn-sm" type="button">＋ 条目</button>
+                <button id="btn-del-worldbook" class="btn btn-danger btn-sm" type="button">删除本书</button>
+              </div>
+            </div>
+
+            <!-- 本书角色：从角色库复制进来的独立副本。
+                 和角色库里的那个角色互相独立，改哪边都不影响另一边。 -->
+            <div class="wb-chars">
+              <div class="wb-chars-head">
+                <span class="field-label">本书角色</span>
+                <div class="wb-chars-actions">
+                  <button id="btn-add-wb-chars" class="btn btn-ghost btn-sm" type="button">＋ 从角色库加入</button>
+                  <button id="btn-new-wb-char" class="btn btn-ghost btn-sm" type="button">＋ 新建</button>
+                </div>
+              </div>
+              <div id="wb-char-list" class="wb-char-list"></div>
+            </div>
+
+            <!-- 开场白：进这个世界时自动作为第一条消息 -->
+            <label class="field field-stack wb-opening-field">
+              <span class="field-label">开场白</span>
+              <textarea id="wb-opening" rows="3" spellcheck="false" placeholder="进这个世界时自动作为第一条消息。留空则让 AI 按设定现生成一段开局。"></textarea>
+            </label>
+
+            <div id="wb-entry-list" class="wb-entry-list"></div>
+          </div>
+        </section>
+
+        <!-- 右：条目编辑 -->
+        <section class="wb-main">
+          <div id="wb-form-empty" class="wb-empty">选中一条条目后在这里编辑</div>
+
+          <div id="wb-form" class="wb-form hidden">
+            <label class="field field-stack">
+              <span class="field-label">条目名称</span>
+              <input id="wb-e-title" type="text" spellcheck="false" placeholder="例如：小镇广场" />
+            </label>
+
+            <label class="field field-stack">
+              <span class="field-label">关键词</span>
+              <input id="wb-e-keys" type="text" spellcheck="false" placeholder="逗号分隔，例如：广场, 喷泉, 告示牌" />
+              <span class="field-help">
+                对话里出现任意一个就注入。中文按子串匹配，英文按单词匹配。<br />
+                写成 <code>/正则/</code> 也可以。勾选「常驻」则不需要关键词。
+              </span>
+            </label>
+
+            <label class="field field-stack">
+              <span class="field-label">内容</span>
+              <textarea id="wb-e-content" rows="12" spellcheck="false" placeholder="关键词命中时要塞给模型的设定。写成一个能独立看懂的段落。"></textarea>
+            </label>
+
+            <!-- 次要字段折起来，把高度让给「内容」这个真正要长时间写的框 -->
+            <details class="wb-advanced">
+              <summary>更多选项（插入顺序、概率、附加条件）</summary>
+
+              <div class="field-grid">
+                <label class="field field-stack">
+                  <span class="field-label">插入顺序</span>
+                  <input id="wb-e-order" type="number" min="0" max="9999" step="1" value="100" />
+                  <span class="field-help">数字大的更靠后，影响更大。</span>
+                </label>
+                <label class="field field-stack">
+                  <span class="field-label">触发概率 %</span>
+                  <input id="wb-e-prob" type="number" min="0" max="100" step="1" value="100" />
+                  <span class="field-help">100 = 必中。调低可做随机事件。</span>
+                </label>
+              </div>
+
+              <label class="field field-stack">
+                <span class="field-label">附加关键词（可选）</span>
+                <input id="wb-e-keys2" type="text" spellcheck="false" placeholder="留空则忽略" />
+              </label>
+
+              <label class="field">
+                <span class="field-label">附加条件</span>
+                <select id="wb-e-logic">
+                  <option value="AND_ANY">同时命中任意一个</option>
+                  <option value="AND_ALL">同时命中全部</option>
+                  <option value="NOT_ANY">这些词都不出现</option>
+                  <option value="NOT_ALL">这些词不同时出现</option>
+                </select>
+              </label>
+            </details>
+
+            <div class="wb-checks">
+              <label class="check">
+                <input id="wb-e-constant" type="checkbox" />
+                <span class="check-text">
+                  <span class="check-title">常驻条目</span>
+                  <span class="check-desc">不需要关键词，每轮都注入</span>
+                </span>
+              </label>
+              <label class="check">
+                <input id="wb-e-recursive" type="checkbox" />
+                <span class="check-text">
+                  <span class="check-title">递归</span>
+                  <span class="check-desc">
+                    这条命中后，把它的正文也拿去做下一轮匹配 —— 正文里提到的词能再带出别的条目，
+                    一路连锁（最多几层在「设置 → 行为」里调）<br />
+                    <b>会明显增加 token</b>，只给「总览 / 索引」这类条目开
+                  </span>
+                </span>
+              </label>
+              <label class="check">
+                <input id="wb-e-enabled" type="checkbox" checked />
+                <span class="check-text">
+                  <span class="check-title">启用这条条目</span>
+                </span>
+              </label>
+            </div>
+
+            <div class="wb-form-foot">
+              <button id="btn-del-entry" class="btn btn-danger btn-sm" type="button">删除条目</button>
+              <button id="btn-save-entry" class="btn btn-primary btn-sm" type="button">保存条目</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="modal-foot">
+        <span id="wb-foot-hint" class="foot-hint">世界书只保存在你自己电脑上</span>
+        <div class="foot-actions">
+          <button id="btn-export-wb" class="btn btn-ghost" type="button" title="导出成酒馆能直接导入的 JSON">导出</button>
+          <button id="btn-close-worldbooks-2" class="btn btn-ghost" type="button">关闭</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 视角设置弹窗 ================= -->
+  <div id="perspective-modal" class="modal hidden">
+    <div class="modal-card perspective-card" role="dialog" aria-modal="true" aria-labelledby="perspective-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="perspective-title">视角设置</h2>
+          <p class="modal-sub">决定 AI 用什么角度看这个世界；设置跟着会话走</p>
+        </div>
+        <button id="btn-close-perspective" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭视角设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <label class="field field-stack">
+          <span class="field-label">叙述模式</span>
+          <select id="p-narration" aria-label="叙述模式">
+            <option value="standard">标准 —— 只写对话和动作</option>
+            <option value="inner">内心描写 —— 每轮附上角色的真实心理</option>
+            <option value="god">上帝视角 —— 正文 + 心理 + 旁白</option>
+          </select>
+          <span class="field-help">
+            选好后会自动把格式要求加进提示词。「【心理】」「【旁白】」会被渲染成独立样式块，
+            和正文区分开。
+          </span>
+        </label>
+
+        <label class="field field-stack">
+          <span class="field-label">推进节奏</span>
+          <select id="p-pace" aria-label="推进节奏">
+            <option value="step">一步一步 —— 走到需要你做决定的地方就停下</option>
+            <option value="brisk">快节奏 —— 允许一轮里多推进一些</option>
+          </select>
+          <span class="field-help">
+            「一步一步」会明确要求 AI <b>不替你决定、不替你说、不把一整段过程演完</b>。<br />
+            世界模型建议保持这个模式 —— 否则你说一句「去酒馆玩游戏」，
+            AI 可能把游戏赢完、NPC 的反应也全写完，你只剩看的份。
+          </span>
+        </label>
+
+        <label class="check">
+          <input id="p-gm" type="checkbox" />
+          <span class="check-text">
+            <span class="check-title">GM 模式（主持人视角）</span>
+            <span class="check-desc">
+              开启后 AI 扮演整个世界和所有 NPC，用第三人称描写环境，你是故事主角。<br />
+              适合大世界模型：关掉时 AI 只会扮演单个角色，被「始终以第一人称」限制住。
+            </span>
+          </span>
+        </label>
+
+        <p class="field-help perspective-note">
+          这些设置都会写进发给模型的消息里，<strong>不影响已经生成的回答</strong>；改完从下一条回复开始生效。
+        </p>
+      </div>
+
+      <footer class="modal-foot">
+        <span class="foot-hint">设置跟着当前会话保存</span>
+        <div class="foot-actions">
+          <button id="btn-close-perspective-2" class="btn btn-ghost" type="button">关闭</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 对话窗口外观 =================
+       只管怎么显示，不碰发给 AI 的内容。改完立即生效。 -->
+  <div id="appearance-modal" class="modal hidden">
+    <div class="modal-card appearance-card" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="appearance-title">对话窗口</h2>
+          <p class="modal-sub">只影响聊天区怎么显示，不影响发给 AI 的内容</p>
+        </div>
+        <button id="btn-close-appearance" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭对话窗口设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <label class="field field-stack">
+          <span class="field-label">正文字号</span>
+          <div class="appearance-row">
+            <input id="appearance-fontsize" type="range" min="12" max="22" step="1" aria-label="正文字号" />
+            <span id="appearance-fontsize-value" class="appearance-value">14px</span>
+          </div>
+          <span class="field-help">聊天内容的字体大小（12–22px）。标题、表格、心理/旁白会跟着一起缩放。</span>
+        </label>
+
+        <div class="field field-stack">
+          <span class="field-label">加粗字的颜色</span>
+          <div class="appearance-row">
+            <input id="appearance-boldcolor" type="color" value="#409eff" aria-label="选择加粗字颜色" />
+            <input id="appearance-boldcolor-text" type="text" spellcheck="false"
+                   placeholder="留空 = 跟随主题。也可以自己填 #e06c75" aria-label="加粗字颜色（十六进制）" />
+            <button id="btn-boldcolor-reset" class="btn btn-ghost btn-sm" type="button">默认</button>
+          </div>
+          <span class="field-help">
+            回复里 <code>**加粗**</code> 的文字用这个颜色 —— 光加粗不够显眼时，给它上个色。<br />
+            <code>==高亮==</code> 有自己的样式，不受这里影响。
+          </span>
+        </div>
+
+        <div class="field field-stack">
+          <span class="field-label">对话窗口背景图</span>
+          <div class="appearance-row">
+            <button id="btn-pick-bg" class="btn btn-ghost btn-sm" type="button">选择图片</button>
+            <button id="btn-clear-bg" class="btn btn-ghost btn-sm" type="button">清除</button>
+          </div>
+          <div id="appearance-bg-preview" class="appearance-bg-preview hidden"></div>
+          <span class="field-help">
+            铺在消息区（气泡是实心的，所以文字照样清楚）。<br />
+            图片会先压到最长边 1920 再存进设置文件，只保存在你自己电脑上。
+          </span>
+        </div>
+      </div>
+
+      <footer class="modal-foot">
+        <span class="foot-hint">改完立即生效，不用点保存</span>
+        <div class="foot-actions">
+          <button id="btn-close-appearance-2" class="btn btn-ghost" type="button">关闭</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 记忆管理弹窗 ================= -->
+  <div id="memory-modal" class="modal hidden">
+    <div class="modal-card memory-card" role="dialog" aria-modal="true" aria-labelledby="memory-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="memory-title">记忆</h2>
+          <p class="modal-sub">较早的对话会压成摘要常驻上下文，这样聊多久都不会忘了开局</p>
+        </div>
+        <button id="btn-close-memory" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭记忆管理">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <div class="memory-status">
+          <span id="memory-summary-line" class="memory-stat"></span>
+          <span id="memory-pending-line" class="memory-stat"></span>
+        </div>
+
+        <div class="memory-actions">
+          <button id="btn-summarize-now" class="btn btn-primary btn-sm" type="button">立即压缩较早的对话</button>
+          <button id="btn-memory-clear" class="btn btn-danger btn-sm" type="button">清空全部摘要</button>
+        </div>
+
+        <p class="field-help">
+          摘要由 AI 生成，等于把原文「背下来」；它一直占用上下文，所以写得越简洁越好。<br />
+          每段都能改，也能重新生成。改摘要不影响原对话，原文始终留在消息记录里。
+        </p>
+
+        <div id="memory-list" class="memory-list"></div>
+
+        <!-- 存档点：把当前这一整段对话存一份，走岔了能整个退回来 -->
+        <section class="panel-section checkpoint-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" />
+                <path d="M17 21v-8H7v8M7 3v5h8" />
+              </svg>
+            </span>
+            <div class="section-heading">
+              <div class="section-title">存档点</div>
+              <div class="section-desc">把当前这段对话整个存一份，以后随时退回来</div>
+            </div>
+          </div>
+
+          <div class="memory-actions">
+            <button id="btn-save-checkpoint" class="btn btn-ghost btn-sm" type="button">存一个档</button>
+          </div>
+
+          <p class="field-help">
+            存档 = 把现在的消息记录整个复制一份（含状态面板）。<br />
+            读档会把对话<b>还原成存档时的样子</b>，之后聊的内容会没了 —— 所以读档前会先确认。<br />
+            想「走另一条剧情线又不想丢掉现在这条」，用消息上的<b>「分支」</b>更好。
+          </p>
+
+          <div id="checkpoint-list" class="checkpoint-list"></div>
+        </section>
+      </div>
+
+      <footer class="modal-foot">
+        <span id="memory-foot-hint" class="foot-hint">摘要只保存在你自己电脑上</span>
+        <div class="foot-actions">
+          <button id="btn-close-memory-2" class="btn btn-ghost" type="button">关闭</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 进入世界：先创建你自己的角色 ================= -->
+  <div id="player-modal" class="modal hidden">
+    <div class="modal-card player-card" role="dialog" aria-modal="true" aria-labelledby="player-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="player-title">创建你的角色</h2>
+          <p id="player-sub" class="modal-sub"></p>
+        </div>
+        <button id="btn-close-player" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body player-body">
+        <!-- 用角色卡当自己：选完自动把名字/设定填到下面，属性也会带进状态面板。
+             角色库为空时整块隐藏（renderPlayerCharOptions 里控制）。 -->
+        <label class="field field-stack" id="player-char-field">
+          <span class="field-label">用角色库里的人物当自己（可选）</span>
+          <select id="player-char" aria-label="选择角色卡"></select>
+          <span id="player-char-preview" class="player-char-preview hidden"></span>
+          <span class="field-help">
+            选一张角色卡，名字和设定会自动填到下面（<b>还能改</b>）；<br />
+            这张卡的「属性」也会一起带进状态面板。
+          </span>
+        </label>
+
+        <label class="field field-stack">
+          <span class="field-label">你的名字</span>
+          <input id="player-name" type="text" spellcheck="false" placeholder="例如 旅行者" />
+          <span class="field-help">这个世界里的人会这么称呼你，也会替换掉 <code>{{user}}</code>。</span>
+        </label>
+
+        <label class="field field-stack">
+          <span class="field-label">你的设定</span>
+          <textarea id="player-profile" rows="7" spellcheck="false" placeholder="你是谁、长什么样、什么来头、会什么……&#10;例如：来自异世界的旅人，背着一把用旧的长剑，对这个世界几乎一无所知，但学得很快。"></textarea>
+          <span class="field-help">
+            这段会作为「玩家角色」注入提示词，让 GM 知道主角是谁。<br />
+            留空也行，那样就只用名字。
+          </span>
+        </label>
+      </div>
+
+      <footer class="modal-foot">
+        <span class="foot-hint">进入世界后会自动打开 GM 模式</span>
+        <div class="foot-actions">
+          <button id="btn-cancel-player" class="btn btn-ghost" type="button">取消</button>
+          <button id="btn-start-play" class="btn btn-primary" type="button">开始游玩</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 从角色库多选加入世界书 ================= -->
+  <div id="wb-char-picker" class="modal hidden">
+    <div class="modal-card wb-picker-card" role="dialog" aria-modal="true" aria-labelledby="wb-char-picker-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="wb-char-picker-title">从角色库加入</h2>
+          <p class="modal-sub">加入的是副本，之后两边各改各的，互不影响</p>
+        </div>
+        <button id="btn-close-wb-char-picker" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+      <div class="modal-body wb-picker-body">
+        <div id="wb-char-picker-list" class="wb-picker-list"></div>
+      </div>
+      <footer class="modal-foot">
+        <span id="wb-char-picker-hint" class="foot-hint"></span>
+        <div class="foot-actions">
+          <button id="btn-cancel-wb-char-picker" class="btn btn-ghost" type="button">取消</button>
+          <button id="btn-confirm-wb-char-picker" class="btn btn-primary" type="button">加入</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 通用确认弹窗 ================= -->
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-card confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <div class="confirm-body">
+        <h3 id="confirm-title">确认</h3>
+        <p id="confirm-message"></p>
+      </div>
+      <div class="confirm-foot">
+        <button id="confirm-cancel" class="btn btn-ghost" type="button">取消</button>
+        <button id="confirm-ok" class="btn btn-primary" type="button">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 面板字段的类型/范围/变化规则。主进程 require 的是同一个文件，
+       所以「范围怎么夹」两边跑的是同一份代码。
+       必须是普通 script（不能是 type="module"）：那是个 CommonJS 文件，
+       当 ES module 加载会报「没有具名导出」。它自己会把接口挂到 window.PanelFields。 -->
+  <script src="../main/panel-fields.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "mimitale",
+  "productName": "Mimitale",
+  "version": "1.0.0",
+  "description": "Mimitale - 一个简单的桌面对话 AI（Electron + OpenAI 兼容 API）",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "smoke": "electron --no-sandbox tools/smoke-test.js",
+    "diag": "electron --no-sandbox tools/diag-page.js"
+  },
+  "devDependencies": {
+    "electron": "^44.4.3"
+  }
+}

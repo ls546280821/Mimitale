@@ -1,0 +1,31 @@
+# 依赖
+node_modules/
+
+# 安装依赖时使用的本地缓存（沙箱/镜像安装会产生）
+.npm-cache/
+.electron-cache/
+
+# 打包输出（electron-builder 默认目录）
+dist/
+out/
+
+# 本地数据：正常情况下这些文件在 %APPDATA%\Mimitale\，不在项目里。
+# 这里再挡一层，防止有人把数据文件拷进项目目录后被误提交。
+config.json
+conversations.json
+characters.json
+
+# 编辑器 / 系统临时文件
+*.bak
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 冒烟测试的截图产物（--shot=<场景> 生成，用来肉眼核对界面）
+tools/shots/
+
+# WorkBuddy 的会话记忆目录（不属于项目代码）
+.workbuddy/

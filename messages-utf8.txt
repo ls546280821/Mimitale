@@ -1,0 +1,63 @@
+# Mimitale 启动器 / 诊断脚本的中文提示词
+# ============================================================================
+# 编码要求：本文件必须是 UTF-8（带不带 BOM 都可以）。
+# 启动脚本会用「显式 UTF-8 解码器」读取它，所以不受系统区域设置影响。
+#
+# 格式：每行  KEY|中文文本
+#   - 以 # 开头的是注释，会被忽略
+#   - 空行会被忽略
+#   - 文本里可以写 {CODE} 占位符，会被替换成实际的退出码
+#   - 文件缺失或读不到时，启动脚本会自动退回英文提示，仍然能正常运行
+#
+# 不要改动等号左边的 KEY，那是脚本用来查表的。
+# ============================================================================
+
+# ---------- 找不到 Node.js ----------
+NODE_MISSING|[错误] 没有检测到 Node.js。
+NODE_MISSING_1|请先安装 Node.js（选 LTS 版本）： https://nodejs.org
+NODE_MISSING_2|安装时保持默认选项一路下一步，装完后重启一次电脑
+NODE_MISSING_3|（让 PATH 生效），再重新运行本启动器。
+
+# ---------- npm 缺失 ----------
+NPM_MISSING|[错误] 找到了 node，但找不到 npm。Node.js 可能没装完整，建议重新安装。
+
+# ---------- 目录不对 ----------
+NO_PACKAGE|[错误] 当前文件夹里没有 package.json。
+NO_PACKAGE_1|已尝试的目录：
+NO_PACKAGE_2|请把本启动器和 main.js、package.json 放在同一个文件夹里。
+
+# ---------- 首次安装依赖 ----------
+FIRST_RUN|首次运行，需要下载 Electron 运行环境（大约 100MB），请耐心等待。
+FIRST_RUN_1|如果进度卡住超过 5 分钟，按 Ctrl + C 中断，换一个网络重试，
+FIRST_RUN_2|或者按下面的提示配置国内镜像。
+
+# ---------- 安装失败 ----------
+INSTALL_FAILED|[错误] 依赖安装失败（npm 退出码：{CODE}）。
+INSTALL_TIPS|常见原因和处理办法：
+INSTALL_TIP1|  1) 网络慢或被墙 —— 先设国内镜像再重试：
+INSTALL_TIP1A|       npm config set registry https://registry.npmmirror.com
+INSTALL_TIP1B|       npm config set ELECTRON_MIRROR https://npmmirror.com/mirrors/electron/
+INSTALL_TIP2|  2) 公司网络需要代理 —— 先按公司要求配好 npm 代理。
+INSTALL_TIP3|  3) 杀毒软件拦截 —— 暂时关闭后退回重试。
+INSTALL_OK|依赖安装完成。
+
+# ---------- 启动 ----------
+STARTING|正在启动 Mimitale……
+STARTING_1|（这个黑窗口是 Mimitale 的运行日志，不要关掉它；
+STARTING_2|  关掉它，Mimitale 也会一起退出。）
+
+# ---------- 异常退出 ----------
+EXIT_ERR|[错误] Mimitale 退出了，返回码：{CODE}
+EXIT_TIPS|想看更详细的报错，请在本文件夹里依次执行：
+EXIT_TIPS_1|    set MIMITALE_OPEN_DEVTOOLS=1
+EXIT_TIPS_2|    npm start
+EXIT_TIPS_3|然后把弹出的开发者工具里 Console 一栏的红色报错发出来。
+EXIT_OK|Mimitale 已正常退出。
+
+# ---------- 其他 ----------
+NO_MSG_FILE|[提示] 没找到 messages-utf8.txt，本次只显示英文提示（不影响功能）。
+PRESS_ENTER|按回车键关闭这个窗口
+VERSION|Node.js 版本：
+NPM_PATH|npm 路径：
+WORKDIR|工作目录：
+GUIDE|安装与使用说明见 使用说明.md
