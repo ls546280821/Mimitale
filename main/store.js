@@ -12,58 +12,11 @@ const { app, safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
-//  历史数据目录名：应用改过名，数据目录就跟着变，靠这份名单做一次性迁移。
-//  越近的旧名字排越前 —— 每个目录都会试一遍，各自补齐新目录里缺的文件。
-//    Cyrene  = 最初的名字
-//    Barbara = 中间一版的名字
-const LEGACY_APP_NAMES = ['Barbara', 'Cyrene'];
-
 const { normalizeCharacter } = require('./characters.js');
 const { createWorldbookNormalizer } = require('./worldbook-store.js');
 
 function userDataFile(name) {
   return path.join(app.getPath('userData'), name);
-}
-
-/**
- * 一次性数据迁移：应用改过几次名（Cyrene → Barbara → Mimitale），
- * 数据目录跟着变成 %APPDATA%\Mimitale。
- * 从每个旧目录里把「新目录还没有的」文件复制过来，
- * 这样改名不会让用户丢掉设置和聊天记录。
- *
- * 注意：**只复制不覆盖** —— 用户在新目录里已经有过的东西一律不动。
- */
-function migrateLegacyData() {
-  try {
-    const newDir = app.getPath('userData');
-
-    for (const legacy of LEGACY_APP_NAMES) {
-      const legacyDir = path.join(path.dirname(newDir), legacy);
-
-      // 名字没变（或路径相同）就当没有这个旧目录
-      if (path.resolve(newDir) === path.resolve(legacyDir)) continue;
-      if (!fs.existsSync(legacyDir)) continue;
-
-      if (!fs.existsSync(newDir)) fs.mkdirSync(newDir, { recursive: true });
-
-      const migrated = [];
-      for (const name of ['config.json', 'conversations.json', 'characters.json', 'worldbooks.json']) {
-        const from = path.join(legacyDir, name);
-        const to = path.join(newDir, name);
-        // 只在「旧的有、新的没有」时复制，绝不覆盖用户的新数据
-        if (fs.existsSync(from) && !fs.existsSync(to)) {
-          fs.copyFileSync(from, to);
-          migrated.push(name);
-        }
-      }
-
-      if (migrated.length) {
-        console.log(`[迁移] 已把旧版「${legacy}」的数据复制到新目录:`, migrated.join(', '));
-      }
-    }
-  } catch (err) {
-    console.error('[迁移] 旧数据迁移失败（不影响使用）:', err.message);
-  }
 }
 
 let writeQueue = Promise.resolve();
@@ -357,7 +310,6 @@ function saveVectors(store) {
 
 module.exports = {
   userDataFile,
-  migrateLegacyData,
   writeJson,
   writeJsonNow,
   loadJsonWithFallback,

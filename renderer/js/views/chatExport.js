@@ -38,12 +38,8 @@ function base64Utf8(text) {
 
 /**
  * 导出用的角色卡（酒馆 v2 规范）。
- * 自家多出来的字段（年龄/性别/种族/属性）塞进 extensions.barbara ——
+ * 自家多出来的字段（年龄/性别/种族/属性）塞进 extensions.mimitale ——
  * 规范里 extensions 就是给各家放私有数据的，酒馆会原样保留，我们自己也能读回来。
- *
- * ⚠️ `extensions.barbara` 这个键名**不要**跟着应用改名走。
- * 它是**已经写进用户文件的数据格式**：改名前导出的卡里就是这个键，
- * 一改就读不回年龄/性别/种族/属性了。要改必须同时保留对旧键的读取。
  *
  * character_book：这张卡绑定的世界书（导入时自动绑上的那本）。
  * 导出时一起带走，别人拿到这张卡就能直接用上它的背景设定 ——
@@ -73,7 +69,7 @@ function characterCardPayload(character) {
       creator: '',
       character_version: '',
       extensions: {
-        barbara: {
+        mimitale: {
           age: character.age || '',
           gender: character.gender || '',
           race: character.race || '',

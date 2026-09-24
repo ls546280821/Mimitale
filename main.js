@@ -14,7 +14,6 @@
 
 const { app, BrowserWindow } = require('electron');
 
-const { migrateLegacyData } = require('./main/store.js');
 const { createWindow, getMainWindow } = require('./main/window.js');
 const { registerIpc } = require('./main/ipc.js');
 
@@ -32,7 +31,6 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
-    migrateLegacyData();
     registerIpc();
     createWindow();
 

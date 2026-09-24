@@ -22,10 +22,7 @@ let mainWindow = null;
 const WINDOW_BG = { light: '#f7f9fc', dark: '#1a1d23' };
 
 const DEV_MODE =
-  process.argv.includes('--dev') ||
-  process.env.MIMITALE_OPEN_DEVTOOLS === '1' ||
-  process.env.BARBARA_OPEN_DEVTOOLS === '1' ||
-  process.env.CYRENE_OPEN_DEVTOOLS === '1';
+  process.argv.includes('--dev') || process.env.MIMITALE_OPEN_DEVTOOLS === '1';
 
 let devWatcher = null;
 let devReloadTimer = null;

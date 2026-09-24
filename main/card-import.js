@@ -176,12 +176,12 @@ function characterFromCard(card, avatar, source, fallbackName, makeWorldbookId) 
   const recognizable = d.name || d.char_name || d.description || d.first_mes || d.personality;
   if (!recognizable) return null;
 
-  // 自己导出的卡会把年龄/性别/种族/属性放在 extensions.barbara
-  // ⚠️ 这个键名是**冻结的数据格式**（跟应用改名前叫 Barbara 有关），
-  // 不能跟着应用改名走 —— 改了就认不出改名前导出的卡。详见 chatExport.js 里的说明。
+  // 自己导出的卡会把年龄/性别/种族/属性放在 extensions.mimitale ——
+  // 这是我们自己的私有扩展位（酒馆规范里 extensions 就是留给各家塞自己东西的，
+  // 别的软件按规范会原样忽略这段）。
   const ext =
-    d.extensions && typeof d.extensions === 'object' && d.extensions.barbara && typeof d.extensions.barbara === 'object'
-      ? d.extensions.barbara
+    d.extensions && typeof d.extensions === 'object' && d.extensions.mimitale && typeof d.extensions.mimitale === 'object'
+      ? d.extensions.mimitale
       : {};
 
   // 开场白：先按标准字段取；这一批都没有才去翻 v3 变体的 chat_history。
@@ -190,15 +190,15 @@ function characterFromCard(card, avatar, source, fallbackName, makeWorldbookId) 
     d.first_mes || d.first_message || d.greeting || d.char_greeting || firstMesFromChatHistory(d);
 
   // 属性（状态面板模板）有两个来源，优先级从高到低：
-  //   1. extensions.barbara.attributes —— 我们自己导出去的卡，是权威形状
+  //   1. extensions.mimitale.attributes —— 我们自己导出去的卡，是权威形状
   //   2. extensions.status_template    —— 别的站点的「互动模板」，映射过来
   // 自己导的卡两者不会同时有；别的站点导的卡只有后者。
-  const barbaraAttrs = Array.isArray(ext.attributes) ? ext.attributes : [];
+  const ownAttrs = Array.isArray(ext.attributes) ? ext.attributes : [];
   const templateAttrs =
-    barbaraAttrs.length || !d.extensions || typeof d.extensions !== 'object'
+    ownAttrs.length || !d.extensions || typeof d.extensions !== 'object'
       ? []
       : attributesFromStatusTemplate(d.extensions.status_template);
-  const attributes = barbaraAttrs.length ? barbaraAttrs : templateAttrs;
+  const attributes = ownAttrs.length ? ownAttrs : templateAttrs;
 
   const character = normalizeCharacter(
     {
@@ -214,7 +214,7 @@ function characterFromCard(card, avatar, source, fallbackName, makeWorldbookId) 
       postHistoryInstructions: d.post_history_instructions,
       creatorNotes: d.creator_notes || d.creatorcomment,
       tags: d.tags,
-      // 自己导出去的卡会把年龄/性别/种族放在 extensions.barbara，
+      // 自己导出去的卡会把年龄/性别/种族放在 extensions.mimitale，
       // 这里读回来，导出再导入才是一个闭环（别的软件按规范会原样忽略这段）
       age: ext.age,
       gender: ext.gender,

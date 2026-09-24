@@ -106,17 +106,13 @@ Add-Line ''
 
 # ---------- encoding sanity check ----------
 Add-Line '--- Encoding check ---'
-# The launcher has been renamed twice (Cyrene -> Barbara -> Mimitale);
-# check whichever one is present so the report stays useful either way.
-foreach ($name in 'Start-Mimitale.ps1', 'Start-Cyrene.ps1') {
-  $ps1 = Join-Path $scriptRoot $name
-  if (Test-Path -LiteralPath $ps1) {
-    $bytes = [System.IO.File]::ReadAllBytes($ps1)
-    $nonAscii = 0
-    foreach ($b in $bytes) { if ($b -gt 127) { $nonAscii++ } }
-    Add-Line ($name + ' bytes    : ' + $bytes.Length)
-    Add-Line ($name + ' non-ASCII: ' + $nonAscii + '  (must be 0)')
-  }
+$ps1 = Join-Path $scriptRoot 'Start-Mimitale.ps1'
+if (Test-Path -LiteralPath $ps1) {
+  $bytes = [System.IO.File]::ReadAllBytes($ps1)
+  $nonAscii = 0
+  foreach ($b in $bytes) { if ($b -gt 127) { $nonAscii++ } }
+  Add-Line ('Start-Mimitale.ps1 bytes    : ' + $bytes.Length)
+  Add-Line ('Start-Mimitale.ps1 non-ASCII: ' + $nonAscii + '  (must be 0)')
 }
 $msg = Join-Path $scriptRoot 'messages-utf8.txt'
 if (Test-Path -LiteralPath $msg) {
@@ -144,24 +140,6 @@ if (Test-Path -LiteralPath $dataDir) {
   Add-Line '(Mimitale has never started successfully on this machine)'
 }
 Add-Line ''
-
-# ---------- legacy data folders (pre-rename) ----------
-# The app has been renamed twice (Cyrene -> Barbara -> Mimitale); old data can
-# still be sitting in either folder. Listing both makes "did the migration
-# run?" answerable from this report alone.
-foreach ($legacy in 'Barbara', 'Cyrene') {
-  Add-Line ('--- legacy data folder: ' + $legacy + ' (pre-rename) ---')
-  $legacyDir = Join-Path $env:APPDATA $legacy
-  if (Test-Path -LiteralPath $legacyDir) {
-    Add-Line ('Exists: ' + $legacyDir)
-    Get-ChildItem -LiteralPath $legacyDir -File -ErrorAction SilentlyContinue |
-      ForEach-Object { Add-Line ('  ' + $_.Name + '  (' + $_.Length + ' bytes)') }
-    Add-Line '(This data is copied to the Mimitale folder on first launch.)'
-  } else {
-    Add-Line ('Does not exist: ' + $legacyDir)
-  }
-  Add-Line ''
-}
 
 Add-Line '================ end ================'
 
