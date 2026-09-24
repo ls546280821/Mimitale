@@ -61,8 +61,10 @@ export function startWorldPlay() {
 
   // 状态面板：先种「你自己」的身份和属性（主角的数值优先），再种本书角色的。
   // 同名以先出现的为准，所以自己卡上的「金币」不会被书里的盖掉。
-  seedIdentity(convo, name, pickedCard);
-  if (pickedCard) seedPanelFromCharacters(convo, [pickedCard]);
+  // 归属（owner）：你自己的身份和卡标成 'player'（在「我的状态」卡里看，
+  // 不挤在「当前状态」面板里）；书里角色的各归各的 id。
+  seedIdentity(convo, name, pickedCard, 'player');
+  if (pickedCard) seedPanelFromCharacters(convo, [pickedCard], 'player');
   seedPanelFromCharacters(convo, worldbookCharacters(book));
 
   // 开场：书里写了就用书里的；没写就让模型按设定现生成一段

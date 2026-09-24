@@ -2181,6 +2181,85 @@ app.whenReady().then(async () => {
           const panel = $('.attr-panel');
           if (panel) panel.scrollIntoView({ block: 'center' });
           await nap(250);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 状态卡（只读态）：点面板栏「我」的头像打开「我的状态」卡。
+        // 卡片位置/层级/进度条/文字排版这些都是纯视觉的，DOM 断言看不出来。
+        stateCard: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+
+          // 优先「冒烟测试世界」（那里的玩家状态最全），没有就找第一个有头像的会话
+          let chosen = $$('#convo-list .convo-item').find(it => {
+            const t = it.querySelector('.convo-title');
+            return t && t.textContent.trim() === '冒烟测试世界';
+          });
+          if (!chosen) {
+            for (const it of $$('#convo-list .convo-item')) {
+              it.click();
+              await nap(400);
+              if ($$('#panel-cast .panel-avatar').length) { chosen = it; break; }
+            }
+          }
+          if (chosen) { chosen.click(); await nap(500); }
+
+          const box = $('#panel-box');
+          if (box && box.classList.contains('collapsed')) { $('#btn-panel-collapse')?.click(); await nap(300); }
+
+          const avatars = $$('#panel-cast .panel-avatar');
+          const mine = avatars.find(b => b.dataset.owner === 'player') || avatars[0];
+          if (mine) { mine.click(); await nap(320); }
+
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 状态卡（编辑态）：同一张卡点「编辑」之后的样子 —— 值变输入框、
+        // 右边出现删除、底部出现「＋ 添加」。输入框的边框/内边距最容易
+        // 被通用 input 规则盖掉，必须看真图。
+        stateCardEdit: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+
+          let chosen = $$('#convo-list .convo-item').find(it => {
+            const t = it.querySelector('.convo-title');
+            return t && t.textContent.trim() === '冒烟测试世界';
+          });
+          if (!chosen) {
+            for (const it of $$('#convo-list .convo-item')) {
+              it.click();
+              await nap(400);
+              if ($$('#panel-cast .panel-avatar').length) { chosen = it; break; }
+            }
+          }
+          if (chosen) { chosen.click(); await nap(500); }
+
+          const box = $('#panel-box');
+          if (box && box.classList.contains('collapsed')) { $('#btn-panel-collapse')?.click(); await nap(300); }
+
+          const avatars = $$('#panel-cast .panel-avatar');
+          const mine = avatars.find(b => b.dataset.owner === 'player') || avatars[0];
+          if (mine) { mine.click(); await nap(320); }
+
+          const eb = $('#state-cards .state-card .sc-edit');
+          if (eb) { eb.click(); await nap(360); }
+
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 面板**收起态**下的头像行：收起后再把入口藏起来就谁也找不到了，
+        // 所以这一行要一直在（并排进细条里，不撑成两行）。
+        panelCast: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+
+          const items = $$('#convo-list .convo-item');
+          const target = items.find(it => {
+            const t = it.querySelector('.convo-title');
+            return t && t.textContent.trim().startsWith('选项测试');
+          });
+          if (target) { target.click(); await nap(550); }
+
+          const box = $('#panel-box');
+          if (box && !box.classList.contains('collapsed')) { $('#btn-panel-collapse')?.click(); await nap(320); }
+
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`
       };
       const driver = DRIVERS[shotArg];

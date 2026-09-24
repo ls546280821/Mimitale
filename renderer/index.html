@@ -81,6 +81,9 @@
           <span id="panel-hint" class="panel-hint">每轮自动更新</span>
           <button id="btn-panel-reset" class="btn btn-ghost btn-sm" type="button" title="清空面板（下一条带状态栏的回复会重新建立）">重置</button>
         </div>
+        <!-- 本局有状态的人：我 + 出现的角色卡。点头像打开那张状态卡（AI 现编的
+              NPC 不进这里，场景也不进）。 -->
+        <div id="panel-cast" class="panel-cast" aria-label="本局角色状态卡入口"></div>
         <div id="panel-fields" class="panel-fields"></div>
       </section>
 
@@ -114,6 +117,10 @@
           <span id="usage-text"></span>
         </div>
       </footer>
+
+      <!-- 状态卡：可拖动的浮动卡片，点「我」的头像或面板栏的头像打开。
+           默认只读（文本展示），点卡片上的「编辑」才变成可改。 -->
+      <div id="state-cards" class="state-cards"></div>
 
       </section>
 

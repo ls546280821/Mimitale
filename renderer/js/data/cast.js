@@ -17,12 +17,14 @@ import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import {
   characterForConvo,
+  characterById,
   convoWorldbookIds,
   worldbookById,
   worldbookCharacters,
   WORLDBOOK_SCAN_DEPTH,
   recursiveDepthSetting
 } from './library.js';
+import { convoPanelFields, panelFieldOwner } from './panel.js';
 
 /** {{user}} 的替换值（全局默认名） */
 export function userName() {
@@ -93,6 +95,71 @@ export function convoPlayer(convo) {
 export function convoUserName(convo) {
   const player = convoPlayer(convo);
   return player && player.name ? player.name : userName();
+}
+
+/**
+ * 按 id 找一张角色卡 —— 先查角色库，再查本会话绑定的世界书里的「本书角色」。
+ *
+ * 状态面板字段的 owner 存的是「卡 id」：单角色聊天存角色库那张卡、玩世界书存
+ * 世界书里那份副本。两种都要能找回名字和头像，所以查找要覆盖两处。
+ */
+export function findCardById(convo, id) {
+  const target = String(id || '').trim();
+  if (!target) return null;
+
+  const direct = characterById(target);
+  if (direct) return direct;
+
+  for (const bookId of convoWorldbookIds(convo)) {
+    const book = worldbookById(bookId);
+    const found = book
+      ? worldbookCharacters(book).find((c) => c && c.id === target)
+      : null;
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * 「当前状态」栏上要显示哪些人：我（玩家）+ 本局状态面板里出现过的角色卡。
+ *
+ * 为什么不把 AI 现编的 NPC 也列上：它们没有卡、没有头像，见一个列一个会挤爆。
+ * 场景（owner 为空）也不列 —— 它不是「某个人」。我永远排第一个，即使还没种过
+ * 字段也要在，这样随时能点开给自己加状态。
+ *
+ * 返回 [{ owner, kind, name, avatar }]，owner 直接喂给 openStateCard。
+ */
+export function panelEntities(convo) {
+  if (!convo) return [];
+
+  const out = [];
+  const seen = new Set();
+
+  const player = convoPlayer(convo);
+  const playerCard = player && player.characterId ? characterById(player.characterId) : null;
+  out.push({
+    owner: 'player',
+    kind: 'player',
+    name: convoUserName(convo),
+    avatar: (playerCard && playerCard.avatar) || ''
+  });
+  seen.add('player');
+
+  for (const name of convoPanelFields(convo)) {
+    const owner = panelFieldOwner(convo, name);
+    if (!owner || seen.has(owner)) continue;
+    seen.add(owner);
+
+    const card = findCardById(convo, owner);
+    out.push({
+      owner,
+      kind: 'character',
+      name: (card && card.name) || owner,
+      avatar: (card && card.avatar) || ''
+    });
+  }
+
+  return out;
 }
 
 /**

@@ -175,6 +175,18 @@ export function optionsInstruction(convo) {
     '选项之间要明显不同（不同的态度、做法或对象），不要是同一件事的不同说法。'
   ];
   if (spec.hint) lines.push(`额外要求：${spec.hint}`);
+
+  // 上一轮已经给过的选项，这轮别照抄 —— 局面没怎么变的时候模型会「原地打转」，
+  // 一遍遍给出同一批选项（实测：不写这句，玩家连看几轮都是同样的三个）。
+  // 「换一批」之所以能换出新东西，就是因为它显式要求避开上一批，这里补上同一句。
+  const previous = (Array.isArray(convo.options) ? convo.options : []).filter(Boolean);
+  if (previous.length) {
+    lines.push(
+      `上一轮已经给过：${previous.map((t) => `「${t}」`).join('、')}。` +
+        '这次给明显不同的新选项，不要重复上一轮的（局面有推进就更该换）。'
+    );
+  }
+
   return lines.join('\n');
 }
 

@@ -29,6 +29,7 @@ import { buildMessageImages, illustrateMessage } from './chatImages.js';
 import { suggestNextActions, pickOption, rerollOptions, closeOptions } from './suggestionsUi.js';
 import { switchVariant, editMessage, regenerateFrom, continueLastMessage } from './composer.js';
 import { removeMessage, branchFromMessage } from './convoActions.js';
+import { openStateCard } from './stateCard.js';
 
 /** 正在生成开局的那个会话 id；同一时间只允许一个 */
 let openingBusyId = null;
@@ -157,6 +158,24 @@ function messageNode(message, index, character, labels, ctx) {
     avatar.title = speaker.name;
   } else {
     avatar.textContent = isError ? '!' : isUser ? '我' : assistantLabel.slice(0, 1);
+  }
+
+  // 点「我」的头像 → 打开我的状态卡（浮动卡片，默认只读）。
+  // AI 那侧不挂：它的消息里既有角色又有场景描写，点开「算谁的」说不清；
+  // 而且角色/场景的状态卡从顶部面板栏的头像进更明确。
+  if (isUser) {
+    avatar.classList.add('clickable');
+    avatar.title = '查看我的状态';
+    avatar.setAttribute('role', 'button');
+    avatar.setAttribute('tabindex', '0');
+    avatar.setAttribute('aria-label', '查看我的状态');
+    avatar.addEventListener('click', () => openStateCard('player'));
+    avatar.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openStateCard('player');
+      }
+    });
   }
 
   const body = document.createElement('div');

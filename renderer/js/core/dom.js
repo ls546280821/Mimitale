@@ -43,9 +43,12 @@ export const el = {
   panelBox: $('panel-box'),
   panelHead: $('panel-head'),
   panelFields: $('panel-fields'),
+  panelCast: $('panel-cast'),
   panelHint: $('panel-hint'),
   btnPanelCollapse: $('btn-panel-collapse'),
   btnPanelReset: $('btn-panel-reset'),
+  // 状态卡（点「我」/角色的头像打开的浮动卡片）
+  stateCards: $('state-cards'),
   // 对话窗口外观
   btnAppearance: $('btn-appearance'),
   appearanceModal: $('appearance-modal'),

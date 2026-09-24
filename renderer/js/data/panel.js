@@ -177,6 +177,11 @@ export function panelGroupNames(convo) {
 /** 分组标题正则：`—— 组名 ——`。中文全角破折号，两边可有空格。 */
 const GROUP_HEADER_RE = /^——\s*([^—\n]{1,24})\s*——$/;
 
+// 状态块抬头：程序注入的是 ASCII 的 `[当前状态]`（见 formatPanelForPrompt），
+// 模型照抄回来时可能原样带 ASCII 方括号，也可能写成全角 `【当前状态】`。
+// 两者都是给模型看的块标题，不是正文，正文里留着很突兀。
+const STATUS_HEADER_RE = /^[\[【]\s*当前状态\s*[\]】]$/;
+
 /**
  * 从一段文本里剥掉分组小标题（`—— 组名 ——`）。
  * 只剥 knownGroups 里列出的组名 —— 正文里「—— 他顿了顿 ——」这种破折号引语
@@ -219,12 +224,70 @@ export function stripOptionsLine(text) {
 }
 
 /**
- * 助手消息的正文该怎么给模型/界面看：状态栏行、分组小标题、剧情选项行都剥掉。
- * 三者都是程序读的中间产物 —— 值已经由面板权威注入，选项已经变成按钮，
- * 分组标题是给模型看的排版提示，正文里留着只会像漏网之鱼一样突兀地挂在那儿。
+ * 从一段文本里剥掉「[当前状态] / 【当前状态】」抬头。
+ * 它是程序注入的状态块标题（模型照抄回来时也会带一行），和状态栏行一样是
+ * 给模型看的排版提示 —— 值已经由面板权威持有，正文里再留这个标题只会突兀。
+ */
+export function stripStatusHeader(text) {
+  const source = String(text || '');
+  if (!source.trim()) return source;
+  const out = source.split('\n').filter((rawLine) => !STATUS_HEADER_RE.test(rawLine.trim()));
+  return collapseBlankLines(out.join('\n')).trim();
+}
+
+/**
+ * 助手消息的正文该怎么给模型/界面看：状态块抬头、状态栏行、分组小标题、
+ * 剧情选项行都剥掉。四者都是程序读的中间产物 —— 值已经由面板权威注入，
+ * 选项已经变成按钮，抬头和分组标题是给模型看的排版提示，正文里留着只会像
+ * 漏网之鱼一样突兀地挂在那儿。
  */
 export function cleanAssistantText(text, panelFields, knownGroups) {
-  return stripOptionsLine(stripPanelGroupHeaders(stripPanelLines(text, panelFields), knownGroups));
+  return stripStatusHeader(
+    stripOptionsLine(stripPanelGroupHeaders(stripPanelLines(text, panelFields), knownGroups))
+  );
+}
+
+/**
+ * 状态块的一行长什么样（流式阶段用它判断「状态块从这一行开始」）。
+ * 都是程序注入的固定格式，模型照抄回来时行首一定长这样：
+ *   · 【字段】：值          字段行（剧情选项行也是这个形状）
+ *   · 【当前状态】          全角写法的块抬头
+ *   · [当前状态]            ASCII 写法的块抬头（程序注入的就是这个）
+ *   · —— 组名 ——          分组小标题
+ *   · 剧情选项：…           漏掉方括号的选项行
+ */
+function isStatusBlockLine(line) {
+  const t = line.trim();
+  if (!t) return false;
+  if (t.startsWith('【')) return true;
+  if (t.startsWith('——')) return true;
+  if (t.startsWith('[当前状态')) return true;
+  if (t.startsWith('剧情选项')) return true;
+  return false;
+}
+
+/**
+ * 流式阶段的显示文本：把末尾的「状态块」整体砍掉，只留正文。
+ *
+ * 为什么不用 cleanAssistantText：它在流式阶段会**抖动**。每 token 重算时，
+ * 半截的字段行（【时间】还没写到冒号）匹配不上正则，会闪一两帧再被剥掉 ——
+ * 字段多的时候一行闪一次，气泡就上下抖。
+ *
+ * 这里改成「从第一个状态行起整体截断」：状态行一旦认出就从那行砍断，
+ * 砍断点只进不退，正文（前半段）逐 token 稳定增长，不会忽长忽短。
+ * 收尾重绘（renderMessages）仍走 cleanAssistantText 做精确剥除，
+ * 所以这里宁可多砍一点也没关系 —— 反正状态块是模型最后输出的、永远在末尾。
+ */
+export function cutTrailingStatusBlock(text) {
+  const lines = String(text || '').split('\n');
+  let cut = lines.length;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (isStatusBlockLine(lines[i])) {
+      cut = i;
+      break;
+    }
+  }
+  return lines.slice(0, cut).join('\n');
 }
 
 export function convoPanelFields(convo) {
@@ -265,16 +328,20 @@ export function normalizePanelDefs(value) {
     const def = normalizePanelField({ ...raw, name, value: '' });
     if (!def) continue;
     // normalizePanelField 对没有意义的定义只回 type:'text' 且没有范围/hint，
-    // 这种和「没有定义」等价，不用存
+    // 这种和「没有定义」等价，不用存。但**分组（group）和归属（owner）本身是有意义的**——
+    // 「状态栏」里的时间/地点/心情都是纯文本、没有范围/hint，全靠 group 才
+    // 不被拆散成零散字段；玩家的字段全靠 owner 才能从面板里拆出来单独看。
+    // 漏掉的话，重启后这些字段会被 normalize 丢光分组/归属信息、散回「未分组」。
     const hasRange = typeof def.min === 'number' || typeof def.max === 'number';
-    if (def.type === 'text' && !def.hint && !hasRange) continue;
+    if (def.type === 'text' && !def.hint && !hasRange && !def.group && !def.owner) continue;
 
     out[name] = {
       type: def.type,
       ...(typeof def.min === 'number' ? { min: def.min } : {}),
       ...(typeof def.max === 'number' ? { max: def.max } : {}),
       ...(def.hint ? { hint: def.hint } : {}),
-      ...(def.group ? { group: def.group } : {})
+      ...(def.group ? { group: def.group } : {}),
+      ...(def.owner ? { owner: def.owner } : {})
     };
     count += 1;
   }
@@ -285,6 +352,15 @@ export function normalizePanelDefs(value) {
 export function convoPanelDef(convo, name) {
   const def = convoPanelDefs(convo)[name];
   return def && typeof def === 'object' ? def : null;
+}
+
+/**
+ * 字段属于谁：'player' = 玩家自己；某个角色卡 id = 那个角色；空 = 场景/不归属。
+ * 用来把「我的状态」从面板里拆出去单独看（面板只显示 owner != 'player' 的）。
+ */
+export function panelFieldOwner(convo, name) {
+  const owner = (convoPanelDef(convo, name) || {}).owner;
+  return typeof owner === 'string' && owner ? owner : '';
 }
 
 /**
@@ -568,14 +644,15 @@ export function appendPanelFields(convo, pairs) {
     const def = normalizePanelField({ ...raw, name });
     if (!def) continue;
 
-    // 范围/hint/分组记到会话上（只有真的有内容才记，免得存一堆空壳）
-    if (def.type !== 'text' || def.hint || def.group) {
+    // 范围/hint/分组/归属记到会话上（只有真的有内容才记，免得存一堆空壳）
+    if (def.type !== 'text' || def.hint || def.group || def.owner) {
       defs[name] = {
         type: def.type,
         ...(typeof def.min === 'number' ? { min: def.min } : {}),
         ...(typeof def.max === 'number' ? { max: def.max } : {}),
         ...(def.hint ? { hint: def.hint } : {}),
-        ...(def.group ? { group: def.group } : {})
+        ...(def.group ? { group: def.group } : {}),
+        ...(def.owner ? { owner: def.owner } : {})
       };
     }
 
@@ -594,13 +671,28 @@ export function appendPanelFields(convo, pairs) {
   return true;
 }
 
-/** 把角色卡上的「属性」种进会话的状态面板（连类型/范围/hint 一起） */
-export function seedPanelFromCharacters(convo, list) {
+/**
+ * 把角色卡上的「属性」种进会话的状态面板（连类型/范围/hint 一起）。
+ *
+ * ownerFor 决定这批字段归谁（'player' = 玩家，默认 = 这张卡自己的 id）：
+ *   · 角色聊天：seedPanelFromCharacters(convo, [next]) —— 归绑定角色（next.id）。
+ *   · 玩世界书：玩家自己的卡 seedPanelFromCharacters(convo, [card], 'player')，
+ *     书里角色 seedPanelFromCharacters(convo, bookChars) —— 各归各的 id。
+ */
+export function seedPanelFromCharacters(convo, list, ownerFor) {
   if (!convo || !Array.isArray(list)) return false;
 
   const pairs = [];
   for (const character of list) {
-    for (const attr of characterAttrs(character)) pairs.push(attr);
+    const owner =
+      typeof ownerFor === 'function'
+        ? ownerFor(character)
+        : ownerFor != null
+          ? String(ownerFor)
+          : (character && character.id) || '';
+    for (const attr of characterAttrs(character)) {
+      pairs.push(owner ? { ...attr, owner } : attr);
+    }
   }
   return appendPanelFields(convo, pairs);
 }
@@ -621,18 +713,18 @@ export function seedPanelFromCharacters(convo, list) {
  * 跟「状态栏 / 关系 / 背包」这些随剧情变化的动态状态分开 —— 身份是角色的
  * 固定属性，不该跟时间地点好感度混在一起。分组只是视图键，数据仍是一维数组。
  */
-export function seedIdentity(convo, name, character) {
+export function seedIdentity(convo, name, character, owner) {
   const pairs = [];
   const trimmed = String(name || '').trim();
-  if (trimmed) pairs.push({ name: '姓名', value: trimmed, group: IDENTITY_GROUP });
+  if (trimmed) pairs.push({ name: '姓名', value: trimmed, group: IDENTITY_GROUP, owner });
 
   if (character) {
     const age = String(character.age || '').trim();
     const gender = String(character.gender || '').trim();
     const race = String(character.race || '').trim();
-    if (age) pairs.push({ name: '年龄', value: age, group: IDENTITY_GROUP });
-    if (gender) pairs.push({ name: '性别', value: gender, group: IDENTITY_GROUP });
-    if (race) pairs.push({ name: '种族', value: race, group: IDENTITY_GROUP });
+    if (age) pairs.push({ name: '年龄', value: age, group: IDENTITY_GROUP, owner });
+    if (gender) pairs.push({ name: '性别', value: gender, group: IDENTITY_GROUP, owner });
+    if (race) pairs.push({ name: '种族', value: race, group: IDENTITY_GROUP, owner });
   }
 
   return appendPanelFields(convo, pairs);

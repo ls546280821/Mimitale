@@ -140,6 +140,12 @@ function normalizePanelField(raw) {
   const group = String(raw.group == null ? '' : raw.group).trim().slice(0, MAX_GROUP_TITLE);
   if (group) field.group = group;
 
+  // 归属：这个字段属于谁。'player' = 玩家自己；某个角色卡 id = 那个角色；
+  // 空 = 场景/不归属（默认，就是以前那种全归角色卡的状态栏）。
+  // 用它把「我的状态」从面板里拆出去单独看（见 views/stateCard.js）。
+  const owner = String(raw.owner == null ? '' : raw.owner).trim().slice(0, 40);
+  if (owner) field.owner = owner;
+
   return field;
 }
 

@@ -41,10 +41,13 @@ import {
   convoPanelDef,
   convoPanelFields,
   panelFieldGroup,
+  panelFieldOwner,
   setPanelField
 } from '../data/panel.js';
+import { panelEntities } from '../data/cast.js';
 import { onRefresh, refreshAll } from './refresh.js';
 import { renderHeader } from './header.js';
+import { openStateCard } from './stateCard.js';
 
 let panelVisible = false; // 面板展开状态（当前会话）
 let panelVisibilityConvoId = null; // 上面这个状态属于哪个会话
@@ -90,16 +93,50 @@ function attachPanelEditor(convo, name, input) {
   });
 }
 
+/**
+ * 面板顶上的「本局有谁」头像行：我 + 本局出现过的角色卡。点头像开那张状态卡。
+ *
+ * 只列状态面板里真的出现过字段的人（AI 现编的 NPC 没卡、不在这里）。
+ * 玩家（我）永远在第一个 —— 即使还没种过字段，也要能点开给自己加状态。
+ */
+function renderPanelCast(convo) {
+  const host = el.panelCast;
+  if (!host) return;
+  clear(host);
+  if (!convo) return;
+
+  for (const ent of panelEntities(convo)) {
+    const btn = h('button', {
+      type: 'button',
+      class: 'panel-avatar',
+      title: `查看「${ent.name}」的状态`,
+      ariaLabel: `查看「${ent.name}」的状态`,
+      onClick: () => openStateCard(ent.owner)
+    });
+    btn.dataset.owner = ent.owner;
+    if (ent.avatar) btn.appendChild(h('img', { src: ent.avatar, alt: '' }));
+    else btn.textContent = ent.owner === 'player' ? '我' : ent.name.slice(0, 1);
+    host.appendChild(btn);
+  }
+}
+
 export function renderPanel() {
   const convo = activeConvo();
-  const fields = convo ? convoPanelFields(convo) : [];
-  // 面板只管状态字段 —— 剧情选项挂在聊天区最新一条 AI 回复的气泡下面
-  // （chatMessages.js 画，suggestionsUi.js 接动作），这里不再重复一份。
-  const hasPanel = fields.length > 0;
+  const allFields = convo ? convoPanelFields(convo) : [];
+  // 角色卡种进来的字段（身份/关系/状态栏/背包…）**搬进了各自的状态卡**
+  // （见 views/stateCard.js），面板不再重复显示 —— 否则同一批字段在面板和
+  // 角色卡里各来一份。面板只留「认不出归属」的字段：owner 为空的那些，
+  // 也就是 AI 自己冒出来、卡里又没声明的零散状态（它们没有卡可以收）。
+  const fields = allFields.filter((n) => panelFieldOwner(convo, n) === '');
+  // 面板只要「有任何一个字段」就露出来 —— 哪怕正文是空的（头像行要留着，
+  // 否则没法从面板点头像开状态卡）。
+  const hasPanel = allFields.length > 0;
 
   // 收起后不整块藏起来，只留标题那一条 —— 否则「能点开」这件事就没人看得见了
   el.panelBox.classList.toggle('hidden', !hasPanel);
   el.panelBox.classList.toggle('collapsed', !panelVisible);
+
+  renderPanelCast(convo);
 
   if (!hasPanel) {
     el.panelFields.innerHTML = '';
@@ -110,13 +147,24 @@ export function renderPanel() {
 
   const panel = convoPanel(convo);
   const filled = fields.filter((n) => String(panel[n] || '').trim()).length;
-  el.panelHint.textContent = `${filled}/${fields.length} 项已填`;
+  // 正文通常是空的（角色字段都在卡片里）—— 提示条直接指路，别让人对着一片空白猜。
+  el.panelHint.textContent = fields.length ? `${filled}/${fields.length} 项已填` : '点头像看各人状态';
 
   // 面板里某个输入框正在编辑时不要重建 DOM，否则光标和输入内容会被打断
   const editing = currentPanelTextarea();
   if (editing && el.panelFields.querySelector(`[data-field="${CSS.escape(editing.name)}"]`)) return;
 
   clear(el.panelFields);
+
+  if (!fields.length) {
+    el.panelFields.appendChild(
+      h('div', {
+        class: 'panel-empty',
+        text: '各人的状态点上面的头像看 —— 这里只放 AI 自己加的、认不出归属的字段。'
+      })
+    );
+    return;
+  }
 
   // 按分组铺：每个分组自己一块（标题 + 该组的字段），没分组的字段直接铺在
   // 顶层、不额外加标题 —— 老会话没有分组，看到的和以前一模一样。

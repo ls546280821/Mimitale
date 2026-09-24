@@ -50,7 +50,13 @@ import { persistLibrary, markWorldbooksLoaded } from './data/persist.js';
 import { currentEndpoint } from './data/providers.js';
 import { convoUserName, speakerName } from './data/cast.js';
 import { characters, worldbooks } from './data/library.js';
-import { normalizePanelDefs } from './data/panel.js';
+import {
+  normalizePanelDefs,
+  cleanAssistantText,
+  convoPanelFields,
+  panelGroupNames,
+  cutTrailingStatusBlock
+} from './data/panel.js';
 import { createConvo } from './data/conversations.js';
 
 import { onRefresh } from './views/refresh.js';
@@ -59,6 +65,7 @@ import { initPerspectiveUi } from './views/perspectiveUi.js';
 import { closePlayerModal, applyPlayerCharChoice } from './views/player.js';
 import { initMemoryUi } from './views/memoryUi.js';
 import { initPanelUi } from './views/panelUi.js';
+import { initStateCards } from './views/stateCard.js';
 import { initWorldbookList, renderWorldbookPage } from './views/worldbookList.js';
 import { initSettings, setEditingProvider, openSettings, closeSettings } from './views/settings.js';
 import { initAppearance, applyChatAppearance, closeAppearanceModal } from './views/appearance.js';
@@ -116,6 +123,9 @@ function registerRefreshListeners() {
   initPanelUi(); // → onRefresh(syncPanelVisibilityForConvo) + onRefresh(renderPanel)
   initMemoryUi(); // → onRefresh(renderMemoryIndicator)
   onRefresh(renderMessages);
+  // 浮动状态卡（点「我」/角色的头像打开）。登记在消息之后：它读的是同一份面板数据，
+  // 顺序不影响结果，跟着消息后面画一遍即可。
+  initStateCards(); // → onRefresh(renderStateCards)
   onRefresh(refreshLibraryPage);
   // 世界书列表页要「点编辑 = 打开世界书编辑器」，而编辑器开关属于入口层的编排
   // （要设 editingWorldbookId，那是编辑器弹窗的状态）。所以注入进去。
@@ -291,8 +301,9 @@ function bindEvents() {
   });
 
   // 主进程推来的流式增量
-  // chunkTarget 缓存「这次流式输出该往哪个节点里写」，按 requestId 判断是否失效
-  let chunkTarget = { requestId: null, node: null };
+  // chunkTarget 缓存「这次流式输出该往哪个节点里写」，按 requestId 判断是否失效。
+  // base / delta 用来拼流式阶段的显示文本（见下面的注释）。
+  let chunkTarget = { requestId: null, node: null, base: '', delta: '' };
 
   api.onChunk(({ requestId, text }) => {
     if (requestId !== state.requestId) return;
@@ -307,13 +318,30 @@ function bindEvents() {
     // 在消息列表里查一次 DOM，长对话下这些查询加起来也不少。
     if (chunkTarget.requestId !== requestId) {
       const index = convo.messages.length - 1;
+      // 本次流式开始前这条消息已有的正文（继续时 = 上一轮的原文，可能带旧状态块）。
+      // 它是完整的，用 cleanAssistantText 精确剥掉旧状态块，得到干净正文 base。
+      const before = assistant.content.slice(0, assistant.content.length - text.length);
       chunkTarget = {
         requestId,
-        node: el.messages.querySelector(`.msg[data-index="${index}"] .msg-content`)
+        node: el.messages.querySelector(`.msg[data-index="${index}"] .msg-content`),
+        base: cleanAssistantText(before, convoPanelFields(convo), [...panelGroupNames(convo)]),
+        delta: ''
       };
     }
 
-    streamPainter.push(chunkTarget.node, assistant.content);
+    // 流式阶段的显示 = 干净的历史正文（base）+ 本轮新文本（delta，砍掉末尾状态块）。
+    //
+    // 为什么不能直接 cleanAssistantText(assistant.content)：它在流式阶段会**抖动** ——
+    // 每 token 重算时，半截的字段行（【时间】还没写到冒号）匹配不上正则，
+    // 会闪一两帧再被剥掉，字段多的时候一行闪一次，气泡就上下抖。
+    //
+    // 为什么砍的是 delta 而不是整段：继续（continue）时 assistant.content 里躺着
+    // 上一轮的状态块，直接整段「从第一个状态行砍」会把夹在中间的正文也误砍。
+    // 所以 base 用 cleanAssistantText 剥旧状态块（保留夹在中间的正文），
+    // 本轮新增的 delta 用 cutTrailingStatusBlock 从第一个状态行起整体截断（不闪）。
+    chunkTarget.delta += text;
+    const display = chunkTarget.base + cutTrailingStatusBlock(chunkTarget.delta);
+    streamPainter.push(chunkTarget.node, display);
   });
 
   api.onReasoning(({ requestId, text }) => {

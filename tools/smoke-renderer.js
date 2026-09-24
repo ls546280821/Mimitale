@@ -687,100 +687,78 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   await waitFor('切到聊天视图', () => shown('#view-chat'));
 
   await waitFor('状态面板出现', () => shown('#panel-box'));
-  const panelRows = $$('#panel-fields .panel-row');
-  const panelNames = panelRows.map((r) => r.querySelector('.panel-name').textContent);
-  check('面板里出现了角色属性', panelNames.includes('金币') && panelNames.includes('上衣'), JSON.stringify(panelNames));
-  check('带范围的数值属性也在面板里', panelNames.includes('好感度'), JSON.stringify(panelNames));
 
-  // 分组：填了分组的字段，面板上会多出一块（标题 + 该组字段）
-  const groupTitles = $$('#panel-fields .panel-group-title').map((n) => n.textContent);
-  check('面板上出现了分组标题', groupTitles.includes('关系'), JSON.stringify(groupTitles));
-  // 身份四项（姓名/年龄/性别/种族）也归到了「身份」分组，所以一共两块：
-  // 「关系」（角色属性里的分组）+「身份」（seedIdentity 种的）。
-  check('身份四项归进独立的「身份」分组（共 2 个分组块）', groupTitles.length === 2 && groupTitles.includes('身份'), JSON.stringify(groupTitles));
-  {
-    // 分组块里只装它自己那组的字段
-    const group = $$('#panel-fields .panel-group').find(
-      (g) => g.querySelector('.panel-group-title').textContent === '关系'
-    );
-    const inGroup = group ? Array.from(group.querySelectorAll('.panel-row .panel-name')).map((n) => n.textContent) : [];
-    check('分组块里装着这一组的字段', inGroup.join(',') === '好感度', JSON.stringify(inGroup));
-    // 没分组的字段留在顶层，没被吸进分组块
-    const strayInGroup = $$('#panel-fields .panel-group').some((g) =>
-      Array.from(g.querySelectorAll('.panel-name')).some((n) => n.textContent === '金币')
-    );
-    check('没分组的字段没被吸进分组块', !strayInGroup);
-  }
-  {
-    // 身份四项应该整整齐齐待在「身份」分组块里
-    const idGroup = $$('#panel-fields .panel-group').find(
-      (g) => g.querySelector('.panel-group-title').textContent === '身份'
-    );
-    const idFields = idGroup
-      ? Array.from(idGroup.querySelectorAll('.panel-row .panel-name')).map((n) => n.textContent)
-      : [];
-    check(
-      '「身份」分组块里装着姓名/年龄/性别/种族',
-      idFields.join(',') === '姓名,年龄,性别,种族',
-      JSON.stringify(idFields)
-    );
-  }
-
-  // 数值字段的「/100」被拆成后缀显示，输入框里只剩分子
-  {
-    const favorRow = panelRows.find((r) => r.querySelector('.panel-name').textContent === '好感度');
-    check(
-      '数值字段显示成「分子 + /满值后缀」',
-      !!favorRow && !!favorRow.querySelector('.panel-unit') && favorRow.querySelector('.panel-unit').textContent === '/100',
-      favorRow ? `unit=${favorRow.querySelector('.panel-unit') && favorRow.querySelector('.panel-unit').textContent} value=${favorRow.querySelector('.panel-value').value}` : '没找到'
-    );
-    check(
-      '输入框里只有分子（分母挪到后缀了）',
-      !!favorRow && favorRow.querySelector('.panel-value').value === '20',
-      favorRow ? favorRow.querySelector('.panel-value').value : '没找到'
-    );
-    // 他那边的数值字段是「带范围的进度条」——这里验真有进度条且比例对
-    const bar = favorRow && favorRow.querySelector('.panel-bar');
-    check('数值字段有进度条', !!bar, favorRow ? favorRow.innerHTML.slice(0, 120) : '没找到');
-    if (bar) {
-      const fill = bar.querySelector('.panel-bar-fill');
-      check(
-        '进度条比例对（20/100 → 20%）',
-        fill.style.width === '20%',
-        `width=${fill.style.width}`
-      );
-      check(
-        '进度条带了无障碍的数值信息',
-        bar.getAttribute('aria-valuenow') === '20' && bar.getAttribute('aria-valuemax') === '100',
-        JSON.stringify({ now: bar.getAttribute('aria-valuenow'), max: bar.getAttribute('aria-valuemax') })
-      );
-    }
-    check(
-      '文本字段没有进度条',
-      !panelRows.find((r) => r.querySelector('.panel-name').textContent === '金币').querySelector('.panel-bar')
-    );
-  }
-
-  const goldRow = panelRows.find((r) => r.querySelector('.panel-name').textContent === '金币');
+  // 角色字段现在**不在面板里**了 —— 都搬进了角色状态卡（同一天的新设计：
+  // 面板只留「认不出归属」的字段，角色卡种进来的一律进各自的卡）
+  const panelNames = $$('#panel-fields .panel-name').map((n) => n.textContent);
   check(
-    '面板里的值是角色卡上的初始值',
-    !!goldRow && goldRow.querySelector('input').value === '100',
-    goldRow ? goldRow.querySelector('input').value : '没找到「金币」那一行'
+    '角色的属性不再挤在面板里（搬进了状态卡）',
+    !panelNames.includes('金币') && !panelNames.includes('好感度') && !panelNames.includes('姓名'),
+    JSON.stringify(panelNames)
   );
+  check(
+    '面板正文不是一片空白（给了指路的话）',
+    (($('#panel-fields .panel-empty') || {}).textContent || '').includes('头像'),
+    ($('#panel-fields') || {}).textContent
+  );
+
+  // --- 点面板栏上的角色头像 → 打开角色状态卡 ---
+  if (byId('panel-box').classList.contains('collapsed')) {
+    click('#btn-panel-collapse');
+    await sleep(160);
+  }
+  const charAvatar = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner !== 'player');
+  check('面板栏上有角色的头像', !!charAvatar);
+  click(charAvatar);
+  await waitFor('角色状态卡出现', () => $$('#state-cards .state-card').some((c) => c.dataset.owner !== 'player'));
+
+  const charCard = () => $$('#state-cards .state-card').find((c) => c.dataset.owner !== 'player');
+  const cardNames = () => Array.from(charCard().querySelectorAll('.sc-name')).map((n) => n.textContent);
+  const cardRows = () => Array.from(charCard().querySelectorAll('.sc-row'));
+  const cardRowOf = (field) => cardRows().find((r) => r.querySelector('.sc-name').textContent === field);
+  const cardValue = (field) => {
+    const row = cardRowOf(field);
+    return row ? row.querySelector('.sc-value').textContent : null;
+  };
+
+  check('状态卡里出现了角色属性', cardNames().includes('金币') && cardNames().includes('上衣'), JSON.stringify(cardNames()));
+  check('带范围的数值属性也在卡里', cardNames().includes('好感度'), JSON.stringify(cardNames()));
+
+  // 分组跟着一起搬过来（顺序 = 面板里那套：身份 → 关系 → 没分组的）
+  const cardSeq = Array.from(charCard().querySelectorAll('.sc-body > *')).map((n) =>
+    n.classList.contains('sc-group-title') ? `#${n.textContent}` : n.querySelector('.sc-name').textContent
+  );
+  check(
+    '分组小标题和字段按组排好',
+    cardSeq.join(',') === '#身份,姓名,年龄,性别,种族,#关系,好感度,金币,上衣',
+    JSON.stringify(cardSeq)
+  );
+  // 数值行：值显示成「20/100」，带进度条
+  {
+    const favorRow = cardRowOf('好感度');
+    const bar = favorRow && favorRow.querySelector('.sc-bar');
+    check('数值字段有进度条', !!bar, favorRow ? favorRow.outerHTML.slice(0, 140) : '没找到');
+    check('数值显示成「分子/满值」', cardValue('好感度') === '20/100', String(cardValue('好感度')));
+    check(
+      '进度条比例对（20/100 → 20%）',
+      !!bar && bar.querySelector('.sc-bar-fill').style.width === '20%',
+      bar ? bar.querySelector('.sc-bar-fill').style.width : '没找到'
+    );
+    const gold = cardRowOf('金币');
+    check('文本字段没有进度条', !gold || !gold.querySelector('.sc-bar'));
+  }
+
+  check('卡里的值是角色卡上的初始值', cardValue('金币') === '100', String(cardValue('金币')));
 
   // 单角色对话（角色库点「聊天」）也得把身份四项带上 ——
   // 这一条当初漏了，结果 16 岁的角色被 AI 回复成 21 岁
-  check('单角色对话也把身份种进了面板', ['姓名', '年龄', '性别', '种族'].every((n) => panelNames.includes(n)), JSON.stringify(panelNames));
-  const identityValue = (field) => {
-    const row = panelRows.find((r) => r.querySelector('.panel-name').textContent === field);
-    return row ? row.querySelector('input').value : null;
-  };
+  check('身份四项也在这张卡里', ['姓名', '年龄', '性别', '种族'].every((n) => cardNames().includes(n)), JSON.stringify(cardNames()));
   check(
     '身份取的是角色卡上的值',
-    identityValue('年龄') === '18' && identityValue('性别') === '女' && identityValue('种族') === '精灵',
-    JSON.stringify({ 年龄: identityValue('年龄'), 性别: identityValue('性别'), 种族: identityValue('种族') })
+    cardValue('年龄') === '18' && cardValue('性别') === '女' && cardValue('种族') === '精灵',
+    JSON.stringify({ 年龄: cardValue('年龄'), 性别: cardValue('性别'), 种族: cardValue('种族') })
   );
-  check('姓名取的是角色名', identityValue('姓名') === '属性测试角色', String(identityValue('姓名')));
+  check('姓名取的是角色名', cardValue('姓名') === '属性测试角色', String(cardValue('姓名')));
 
   // --- 4) 发一条：注入给模型的消息里必须真的带上面板 ---
   // 断言在宿主侧做（要看 chat:send 的 payload），这里只负责发出去
@@ -789,18 +767,14 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   await waitFor('收到回复', () => $('#messages').textContent.includes('冒烟测试回复'), 8000);
 
   // --- 5) 超范围的数值要被夹回来 ---
-  // 在面板里手填一个越界值（模拟模型写了 150/100），失焦即落盘。
-  click('#btn-panel-collapse');
-  await waitFor('面板展开', () => $$('#panel-fields .panel-row').length > 0);
+  // 在卡片的编辑态里手填一个越界值（模拟模型写了 150/100），失焦即落盘。
+  click(charCard().querySelector('.sc-edit'));
+  await waitFor('卡切到编辑态', () => !!charCard().querySelector('input.sc-input'));
 
-  const favorInput = $$('#panel-fields .panel-row')
-    .map((r) => r.querySelector('.panel-value'))
-    .find((i) => i && i.dataset.field === '好感度');
-  check('面板里有「好感度」输入框', !!favorInput);
+  const favorInput = cardRowOf('好感度').querySelector('input.sc-input');
+  check('卡里能改「好感度」', !!favorInput);
 
   if (favorInput) {
-    // 输入框里只有分子（分母是外面的 /100 后缀），所以这里填「150」——
-    // 保存时要把分母拼回成 150/100，再按范围夹成 100/100。
     setValue(favorInput, '150');
     favorInput.dispatchEvent(new Event('blur', { bubbles: true }));
     await sleep(250);
@@ -808,34 +782,38 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     const convos = await window.mimitale.getConversations();
     const active = convos.conversations.find((c) => c.id === convos.activeId);
     check(
-      '面板：只填分子也保留分母，越界值被夹回上限（150 → 100/100）',
+      '越界值被夹回上限（150 → 100/100）',
       !!active && active.panel && active.panel['好感度'] === '100/100',
       JSON.stringify(active && active.panel)
     );
     check(
-      '面板：字段定义跟着会话一起存下来了（有范围才夹得住）',
+      '字段定义跟着会话一起存下来了（有范围才夹得住）',
       !!active && !!active.panelDefs && !!active.panelDefs['好感度'] && active.panelDefs['好感度'].max === 100,
       JSON.stringify(active && active.panelDefs)
     );
     check(
-      '面板：分组也跟着定义存下来了',
+      '分组也跟着定义存下来了',
       !!active && !!active.panelDefs['好感度'] && active.panelDefs['好感度'].group === '关系',
       JSON.stringify(active && active.panelDefs && active.panelDefs['好感度'])
     );
 
-    // 范围内、以及非数字的值不该被动
+    // 范围内的值不该被动
     setValue(favorInput, '60');
     favorInput.dispatchEvent(new Event('blur', { bubbles: true }));
     await sleep(250);
     const convos2 = await window.mimitale.getConversations();
     const active2 = convos2.conversations.find((c) => c.id === convos2.activeId);
     check(
-      '面板：范围内的值不动（60 → 60/100）',
+      '范围内的值不动（60 → 60/100）',
       !!active2 && active2.panel['好感度'] === '60/100',
       JSON.stringify(active2 && active2.panel['好感度'])
     );
+  }
 
-    // 收拾现场：下一个场景假定面板是**收起**状态（它自己验「默认收起」）
+  // 收拾现场：把卡关掉、面板收起 —— 下一个场景假定面板是**收起**状态（它自己验「默认收起」）
+  const closeCharCard = charCard().querySelector('.sc-close');
+  if (closeCharCard) click(closeCharCard);
+  if (!byId('panel-box').classList.contains('collapsed')) {
     click('#btn-panel-collapse');
     await sleep(150);
   }
@@ -1489,25 +1467,49 @@ await scenario('进入世界：用角色卡当自己', async () => {
   setValue('#player-name', '改过的名字');
   check('选了之后名字仍然可改', byId('player-name').value === '改过的名字');
 
-  // --- 开始游玩：面板里要出现这张卡的属性 ---
+  // --- 开始游玩：你自己的状态挪进「我的状态」卡，面板只留角色/世界的 ---
   click('#btn-start-play');
   await waitFor('进入世界', () => shown('#view-chat') && !shown('#player-modal'));
   await waitFor('状态面板出现', () => shown('#panel-box'));
 
   const panelNames = $$('#panel-fields .panel-name').map((n) => n.textContent);
-  const panelValue = (field) => {
-    const row = $$('#panel-fields .panel-row').find((r) => r.querySelector('.panel-name').textContent === field);
-    return row ? row.querySelector('input').value : null;
+  check(
+    '玩家自己的属性从「当前状态」里拆出去了',
+    !panelNames.includes('金币') && !panelNames.includes('上衣') && !panelNames.includes('姓名'),
+    JSON.stringify(panelNames)
+  );
+
+  // 面板栏上有「我」的头像；面板默认收起，先展开再点
+  if (byId('panel-box').classList.contains('collapsed')) {
+    click('#btn-panel-collapse');
+    await sleep(120);
+  }
+  const myAvatar = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner === 'player');
+  check('面板栏上有「我」的头像', !!myAvatar);
+  click(myAvatar);
+  await waitFor('我的状态卡出现', () => !!$('#state-cards .state-card[data-owner="player"]'));
+
+  const cardNames = $$('#state-cards .state-card[data-owner="player"] .sc-name').map((n) => n.textContent);
+  const cardValue = (field) => {
+    const row = $$('#state-cards .state-card[data-owner="player"] .sc-row').find(
+      (r) => r.querySelector('.sc-name').textContent === field
+    );
+    return row ? row.querySelector('.sc-value').textContent : null;
   };
 
-  check('玩家角色卡的属性种进了面板', panelNames.includes('金币') && panelNames.includes('上衣'), JSON.stringify(panelNames));
+  check('「我的状态」卡里有用角色卡种下的属性', cardNames.includes('金币') && cardNames.includes('上衣'), JSON.stringify(cardNames));
+  check('身份四件套也在这张卡里', ['姓名', '年龄', '性别', '种族'].every((n) => cardNames.includes(n)), JSON.stringify(cardNames));
+  check('姓名用的是你改过的名字', cardValue('姓名') === '改过的名字', String(cardValue('姓名')));
+  check(
+    '年龄/性别/种族来自角色卡',
+    cardValue('年龄') === '18' && cardValue('性别') === '女' && cardValue('种族') === '精灵',
+    JSON.stringify({ 年龄: cardValue('年龄'), 性别: cardValue('性别'), 种族: cardValue('种族') })
+  );
+  check('值来自角色卡的初始值', cardValue('金币') === '100', String(cardValue('金币')));
 
-  // 身份四件套也要进面板 —— 世界里时间会走、剧情会推，这些都会变
-  check('身份四件套也在面板里', ['姓名', '年龄', '性别', '种族'].every((n) => panelNames.includes(n)), JSON.stringify(panelNames));
-  check('姓名用的是你改过的名字', panelValue('姓名') === '改过的名字', String(panelValue('姓名')));
-  check('年龄/性别/种族来自角色卡', panelValue('年龄') === '18' && panelValue('性别') === '女' && panelValue('种族') === '精灵', JSON.stringify({ 年龄: panelValue('年龄'), 性别: panelValue('性别'), 种族: panelValue('种族') }));
-
-  check('值来自角色卡的初始值', panelValue('金币') === '100', String(panelValue('金币')));
+  // 收掉这张卡，别影响后面的场景
+  const closeMyCard = $('#state-cards .state-card[data-owner="player"] .sc-close');
+  if (closeMyCard) click(closeMyCard);
 
   // 会话里记下了「你用哪张卡当自己」，而且以你改过的名字为准
   await sleep(200); // persistConversations 是防抖的
@@ -2756,6 +2758,143 @@ await scenario('面板：身份分组的兜底', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  场景 22b：归一化定义表不能丢掉「分组」信息
+//
+//  这是**真 bug 的回归测试**：normalizePanelDefs 以前把「type=text 且没有
+//  范围/hint」的定义当成「没意义」直接丢掉。但「状态栏」里的时间/地点/心情
+//  正是这种纯文本、没有范围/hint 的字段，它们的 group 是唯一的归属依据。
+//  重启后读盘走 normalizePanelDefs，group 一丢，这几个字段就散回「未分组」。
+// ---------------------------------------------------------------------------
+await scenario('面板：归一化不丢分组', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/panel.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('panel 模块能动态加载', false, (err && err.message) || String(err));
+  }
+
+  if (mod && typeof mod.normalizePanelDefs === 'function') {
+    check('normalizePanelDefs 能从真模块里拿到', true);
+
+    // 种进去之后、写盘再读回来的形状：纯文本字段只有 type + group，没有范围/hint
+    const defs = mod.normalizePanelDefs({
+      时间: { type: 'text', group: '状态栏' },
+      地点: { type: 'text', group: '状态栏' },
+      心情: { type: 'text', group: '状态栏' },
+      好感度: { type: 'meter', min: 0, max: 100, group: '关系' }
+    });
+
+    check(
+      '纯文本字段的 group 被保留（时间/地点/心情都还在「状态栏」里）',
+      defs['时间'] && defs['时间'].group === '状态栏' &&
+        defs['地点'] && defs['地点'].group === '状态栏' &&
+        defs['心情'] && defs['心情'].group === '状态栏',
+      JSON.stringify(defs)
+    );
+    check('带范围的数值字段照常保留（含 group）', defs['好感度'] && defs['好感度'].group === '关系', JSON.stringify(defs['好感度']));
+
+    // 反过来：确实没意义的纯文本定义（连 group 都没有）还是该丢掉
+    const empty = mod.normalizePanelDefs({ 随便: { type: 'text' } });
+    check('没有 group 的空定义仍然被丢掉', !('随便' in empty), JSON.stringify(empty));
+  }
+});
+
+// ---------------------------------------------------------------------------
+//  场景 22c：流式阶段把「当前状态」那段砍掉（不抖）+ 抬头也剥掉
+//
+//  这是**用户体验问题的回归测试**。面板是收尾时（syncConvoPanel）才解析赋值的，
+//  所以流式过程中模型正在吐的状态栏原文还躺在正文里。以前气泡会先整块冒出
+//  「【当前状态】」「—— 状态栏 ——」「【时间】：夜晚」再在收尾被剥掉，忽长忽短。
+//
+//  修法分两半：
+//    · 流式显示用 cutTrailingStatusBlock —— 从第一个状态行起**整体截断**、只进不退，
+//      半截字段行不会闪（用 cleanAssistantText 的话，半截行匹配不上正则会闪一下）。
+//    · cleanAssistantText 额外剥掉「[当前状态] / 【当前状态】」抬头（收尾渲染用）。
+// ---------------------------------------------------------------------------
+await scenario('流式：当前状态那段在显示前就砍掉', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/panel.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('panel 模块能动态加载', false, (err && err.message) || String(err));
+  }
+
+  if (mod && typeof mod.cutTrailingStatusBlock === 'function') {
+    const streamed = [
+      '*她抬头看向你，眼睛闪着期待。*',
+      '',
+      '[当前状态]',
+      '—— 状态栏 ——',
+      '【时间】：夜晚',
+      '【地点】：图书馆四楼',
+      '【心情】：烦躁',
+      '',
+      '—— 关系 ——',
+      '【好感度】：63/100',
+      '',
+      '【剧情选项】：问她要不要一起走 / 帮她还书 / 假装没看见'
+    ].join('\n');
+
+    // --- 流式显示：从状态块起整体截断，正文保留 ---
+    const shown = mod.cutTrailingStatusBlock(streamed);
+    check('流式显示只剩正文（动作描写还在）', shown.includes('她抬头看向你'), shown);
+    check(
+      '状态块整个被砍掉（抬头/分组/字段/选项都不在）',
+      !shown.includes('当前状态') && !shown.includes('—— 状态栏 ——') &&
+        !shown.includes('【时间】') && !shown.includes('【好感度】') && !shown.includes('剧情选项'),
+      shown
+    );
+
+    // --- 半截字段行也不该闪：只要行首是【，哪怕还没写到冒号，也照样被砍 ---
+    const partial = mod.cutTrailingStatusBlock('*正文*\n\n【时间】：夜');
+    check('半截字段行（【时间】：夜）也被砍掉，不会闪一下', partial.trim() === '*正文*', JSON.stringify(partial));
+
+    // --- 收尾渲染：cleanAssistantText 也要剥掉抬头 ---
+    const fields = ['时间', '地点', '心情', '好感度'];
+    const groups = ['状态栏', '关系'];
+    const final = mod.cleanAssistantText(streamed, fields, groups);
+    check('收尾渲染只剩正文', final.includes('她抬头看向你'), final);
+    check(
+      '抬头「[当前状态]」被剥掉',
+      !final.includes('当前状态') && !final.includes('[当前状态]') && !final.includes('【当前状态】'),
+      final
+    );
+    check(
+      '字段行 / 分组小标题 / 剧情选项都被剥掉',
+      !final.includes('【时间】') && !final.includes('—— 关系 ——') && !final.includes('剧情选项'),
+      final
+    );
+
+    // --- 继续（continue）场景：base + delta 的组合，别把夹在中间的正文误砍 ---
+    // 继续时 assistant.content 已经躺着上一轮的状态块，onChunk 里是
+    // `base(cleanAssistantText 剥旧状态块) + cutTrailingStatusBlock(本轮 delta)`。
+    // 这里模拟两次继续后的原文：两个旧状态块之间夹着正文，必须都保住。
+    const continuedBefore = [
+      '*第一轮正文。*',
+      '',
+      '[当前状态]',
+      '【时间】：夜晚',
+      '',
+      '*继续后的正文。*',
+      '',
+      '[当前状态]',
+      '【时间】：深夜'
+    ].join('\n');
+    const base = mod.cleanAssistantText(continuedBefore, fields, groups);
+    const delta = '\n\n*再继续的正文。*\n\n【时间】：凌晨';
+    const composed = base + mod.cutTrailingStatusBlock(delta);
+    check(
+      '继续时旧状态块被剥掉、夹在中间的正文都保住、本轮状态块被砍',
+      composed.includes('第一轮正文') && composed.includes('继续后的正文') &&
+        composed.includes('再继续的正文') && !composed.includes('当前状态') && !composed.includes('【时间】'),
+      composed
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
 //  场景 23：正文剥分组小标题（—— 身份 —— / —— 状态栏 ——）
 //
 //  模型照着注入的格式输出状态栏时，会把「—— 组名 ——」小标题也一起抄进正文。
@@ -2859,6 +2998,207 @@ await scenario('选项：字母标签容错', async () => {
   // 模型把示例整个照抄（全是字母）→ 没有可用选项 → 空数组（保持上一轮的）
   const placeholder = mod.extractOptionsFromText('【剧情选项】：A / B / C');
   check('全是占位字母时返回空（保持上一轮选项）', placeholder.length === 0, JSON.stringify(placeholder));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 25：普通回复的选项指令也要「避开上一批」
+//
+//  用户反馈：剧情选项「卡住」，同一批 3 个选项连着出现好几次，但「换一批」回来的
+//  是对的。根因是「换一批」的指令里显式要求避开上一批，普通回复的 optionsInstruction
+//  没有 —— 局面没怎么变时模型会原地打转，一遍遍给同样的选项。这里锁住这个修复。
+// ---------------------------------------------------------------------------
+await scenario('选项：普通回复也要避开上一批', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/suggestions.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('suggestions 模块能动态加载', false, (err && err.message) || String(err));
+  }
+
+  if (mod && typeof mod.optionsInstruction === 'function') {
+    const convo = {
+      optionsSpec: { count: 3, hint: '' },
+      options: ['先喝汤，别接她这句话', '说上次是觉得她只切一小块太亏了', '把煎蛋夹到她碗里，一句话不说']
+    };
+    const text = mod.optionsInstruction(convo);
+    check(
+      '上一轮有选项时，指令里要求避开它们',
+      text.includes('上一轮已经给过') && text.includes('先喝汤，别接她这句话') && text.includes('不要重复上一轮的'),
+      text
+    );
+
+    const empty = mod.optionsInstruction({ optionsSpec: { count: 3, hint: '' }, options: [] });
+    check('上一轮没有选项时不画蛇添足', !empty.includes('上一轮已经给过'), empty);
+
+    const none = mod.optionsInstruction({ optionsSpec: null, options: [] });
+    check('没开剧情选项时不注入', none === '', JSON.stringify(none));
+  }
+});
+
+// ---------------------------------------------------------------------------
+//  场景 26：状态卡（点「我」的头像 / 面板栏头像打开）
+//
+//  这张卡是「查看别人的状态」的入口：默认**只读**（纯文本展示），点「编辑」才
+//  把值变成输入框。覆盖：聊天里点「我」的头像能开、面板栏的头像行、
+//  只读↔编辑切换、改值落盘、加字段 / 删字段。
+// ---------------------------------------------------------------------------
+await scenario('状态卡：点头像查看与编辑', async () => {
+  const worldItem = $$('#convo-list .convo-item').find((it) => {
+    const t = it.querySelector('.convo-title');
+    return t && t.textContent.trim() === '冒烟测试世界';
+  });
+  check('找到「冒烟测试世界」会话', !!worldItem);
+  if (worldItem) click(worldItem);
+  await waitFor('切到世界会话', () => shown('#view-chat'));
+  await sleep(300);
+
+  const myCard = () => $('#state-cards .state-card[data-owner="player"]');
+
+  // --- 聊天里点「我」的头像 → 开我的状态卡 ---
+  const myAvatar = $$('#messages .msg.user .msg-avatar')[0];
+  check('用户消息的头像挂上了「可点」标记', !!myAvatar && myAvatar.classList.contains('clickable'));
+  if (myAvatar) click(myAvatar);
+  await waitFor('我的状态卡出现', () => !!myCard());
+
+  check(
+    '卡片默认是只读的（值是文本，没有输入框）',
+    $$('#state-cards .state-card[data-owner="player"] .sc-value').length > 0 &&
+      $$('#state-cards .state-card[data-owner="player"] input.sc-input').length === 0,
+    JSON.stringify({ 值: $$('#state-cards .state-card[data-owner="player"] .sc-value').length, 输入框: $$('#state-cards .state-card[data-owner="player"] input.sc-input').length })
+  );
+  check(
+    '卡里有玩家角色卡种下的属性',
+    $$('#state-cards .state-card[data-owner="player"] .sc-name').some((n) => n.textContent === '金币'),
+    JSON.stringify($$('#state-cards .state-card[data-owner="player"] .sc-name').map((n) => n.textContent))
+  );
+
+  // --- 点「编辑」→ 值变成输入框 ---
+  click(myCard().querySelector('.sc-edit'));
+  await waitFor('编辑态出现输入框', () => $$('#state-cards .state-card[data-owner="player"] input.sc-input').length > 0);
+  check('编辑态下按钮变成「完成」', myCard().querySelector('.sc-edit').textContent.trim() === '完成', myCard().querySelector('.sc-edit').textContent);
+
+  // --- 改一个值 → 落到会话面板上 ---
+  const ageRow = $$('#state-cards .state-card[data-owner="player"] .sc-row').find(
+    (r) => r.querySelector('.sc-name').textContent === '年龄'
+  );
+  const ageInput = ageRow.querySelector('input.sc-input');
+  setValue(ageInput, '19');
+  ageInput.dispatchEvent(new Event('blur', { bubbles: true }));
+  await sleep(300);
+  let cv = await window.mimitale.getConversations();
+  let wc = cv.conversations.find((c) => c.title === '冒烟测试世界');
+  check('卡片里改的值落到了会话面板上', !!wc && wc.panel['年龄'] === '19', wc ? String(wc.panel['年龄']) : 'null');
+
+  // --- 加一个字段 ---
+  setValue($('#state-cards .state-card[data-owner="player"] .sc-new'), '心情');
+  click($('#state-cards .state-card[data-owner="player"] .sc-add-btn'));
+  await waitFor('新字段出现', () =>
+    $$('#state-cards .state-card[data-owner="player"] .sc-name').some((n) => n.textContent === '心情')
+  );
+  await sleep(200);
+  cv = await window.mimitale.getConversations();
+  wc = cv.conversations.find((c) => c.title === '冒烟测试世界');
+  check(
+    '新字段归到玩家名下（owner=player）',
+    !!wc && !!wc.panelDefs['心情'] && wc.panelDefs['心情'].owner === 'player',
+    JSON.stringify(wc && wc.panelDefs['心情'])
+  );
+
+  // --- 删掉它 ---
+  const moodRow = $$('#state-cards .state-card[data-owner="player"] .sc-row').find(
+    (r) => r.querySelector('.sc-name').textContent === '心情'
+  );
+  check('新字段行里有删除按钮', !!moodRow && !!moodRow.querySelector('.sc-del'));
+  click(moodRow.querySelector('.sc-del'));
+  await sleep(250);
+  check(
+    '删掉之后卡里就没了',
+    !$$('#state-cards .state-card[data-owner="player"] .sc-name').some((n) => n.textContent === '心情'),
+    JSON.stringify($$('#state-cards .state-card[data-owner="player"] .sc-name').map((n) => n.textContent))
+  );
+
+  // --- 面板栏：我（+ 角色）的头像都在，点角色头像开那张卡 ---
+  if (byId('panel-box').classList.contains('collapsed')) {
+    click('#btn-panel-collapse');
+    await sleep(150);
+  }
+  const castOwners = $$('#panel-cast .panel-avatar').map((b) => b.dataset.owner);
+  check('面板栏上第一个头像是「我」', castOwners[0] === 'player', JSON.stringify(castOwners));
+
+  // --- ✕ 收掉我那张卡 ---
+  click(myCard().querySelector('.sc-close'));
+  await sleep(150);
+  check('点 ✕ 把卡收掉了', !myCard());
+
+  // --- 绑了角色的会话：头像行是「我 + 那个角色」，点角色头像开它的卡 ---
+  const charConvo = $$('#convo-list .convo-item').find((it) => {
+    const t = it.querySelector('.convo-title');
+    return t && t.textContent.trim().startsWith('选项测试');
+  });
+  if (charConvo) {
+    click(charConvo);
+    await sleep(400);
+    if (byId('panel-box').classList.contains('collapsed')) {
+      click('#btn-panel-collapse');
+      await sleep(150);
+    }
+    const owners = $$('#panel-cast .panel-avatar').map((b) => b.dataset.owner);
+    check(
+      '绑了角色的会话里「我」和那个角色都在头像行上',
+      owners.includes('player') && owners.length >= 2,
+      JSON.stringify(owners)
+    );
+
+    const charBtn = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner !== 'player');
+    if (charBtn) {
+      const charOwner = charBtn.dataset.owner;
+      const charCard = () => $(`#state-cards .state-card[data-owner="${CSS.escape(charOwner)}"]`);
+      click(charBtn);
+      await waitFor('角色状态卡出现', () => !!charCard());
+      check('点角色头像能开那个角色的卡', !!charCard());
+      check('角色卡里也有字段', $$(`#state-cards .state-card[data-owner="${CSS.escape(charOwner)}"] .sc-name`).length > 0);
+      click(charCard().querySelector('.sc-close'));
+      await sleep(150);
+    }
+
+    // --- 玩家卡里加一个「角色已经占了」的名字 → 提示要说清是谁占的 ---
+    // 字段名全局唯一（面板注入给模型的是「【名字】：值」，同名模型分不出是谁的），
+    // 所以单角色聊天里「姓名/性别」这类名字是加不进玩家卡的。
+    // ⚠️ 以前这里只查「整张面板有没有这个名字」，于是玩家卡明明没有也会报
+    //    「已经有了」—— 用户会懵（「我没加啊」）。现在必须说清是**角色**占了。
+    const playerBtn = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner === 'player');
+    if (playerBtn) {
+      click(playerBtn);
+      await sleep(250);
+      click($('#state-cards .state-card[data-owner="player"] .sc-edit'));
+      await sleep(250);
+
+      setValue($('#state-cards .state-card[data-owner="player"] .sc-new'), '姓名');
+      click($('#state-cards .state-card[data-owner="player"] .sc-add-btn'));
+      await sleep(150);
+      const toast = byId('toast');
+      check(
+        '加角色已占用的名字时，提示说的是「角色那边占了」而不是干巴巴的「已经有了」',
+        !!toast && toast.textContent.includes('角色那边占了') && toast.textContent.includes('我的姓名'),
+        toast ? toast.textContent : '(没有提示)'
+      );
+      check(
+        '同名字段确实没有被加进去',
+        !$$('#state-cards .state-card[data-owner="player"] .sc-name').some((n) => n.textContent === '姓名'),
+        JSON.stringify($$('#state-cards .state-card[data-owner="player"] .sc-name').map((n) => n.textContent))
+      );
+
+      // 按提示换个不冲突的名字就能加上
+      setValue($('#state-cards .state-card[data-owner="player"] .sc-new'), '我的姓名');
+      click($('#state-cards .state-card[data-owner="player"] .sc-add-btn'));
+      await waitFor(
+        '换个名字就加上了',
+        () => $$('#state-cards .state-card[data-owner="player"] .sc-name').some((n) => n.textContent === '我的姓名')
+      );
+      check('换个名字就能加成（提示给的活路走得通）', true);
+    }
+  }
 });
 
 return { results, notes, hoverProbe };

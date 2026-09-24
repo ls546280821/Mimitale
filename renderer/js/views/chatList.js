@@ -133,7 +133,7 @@ export async function applyCharacterChoice(characterId) {
   // 角色卡上声明过「属性」和「身份四项」就种进状态面板 —— AI 第一轮就知道
   // 这个角色是谁、要维护哪些字段，不用等它自己碰巧输出一个「【金币】：100」
   // （漏了身份那四项时，模型不知道年龄，会把 16 岁写成 21 岁）
-  seedIdentity(convo, next.name, next);
+  seedIdentity(convo, next.name, next, next.id);
   seedPanelFromCharacters(convo, [next]);
 
   // 剧情选项：角色卡上开了就跟着这个会话生效。用的是**复制**而不是引用 ——
