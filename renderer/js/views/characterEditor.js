@@ -43,7 +43,7 @@ import { currentWorldbook, renderWorldbookChars } from './worldbook.js';
 import { renderWorldbookPage } from './worldbookList.js';
 import { renderCharacterPage } from './characterList.js';
 import { renderCharAttrs, initCharAttrsUi } from './charAttributes.js';
-import { attachAutoGrow, syncAutoGrowAll } from '../ui/auto-grow.js';
+import { attachAutoGrow, syncAutoGrowAll, autoGrow } from '../ui/auto-grow.js';
 
 // ---------------------------------------------------------------------------
 //  长文本框：自动增高 + 拖拽高度记忆
@@ -73,6 +73,157 @@ function wireAutoGrow() {
   for (const [node, key] of longTextAreas()) {
     attachAutoGrow(node, { key: `charform:${key}` });
   }
+}
+
+// ---------------------------------------------------------------------------
+//  长文本字段：字数角标 + 「放大编辑」浮层
+//
+//  五个框的高度上限压到 160px 之后（auto-grow 的 GROW_MAX），框矮了，
+//  「里面到底写了多少」得有个一眼能看到的信号 —— 角标干这个。
+//  真要写一大段，字段行的 ↗ 按钮弹一个近乎全屏的浮层，舒展开写。
+//
+//  浮层里改动**实时写回**主表单框（input 一来一回），不存在「取消」：
+//  表单本身就是草稿语义，保存角色之前一切都可改。这样做的好处是
+//  任何时刻关掉浮层（Esc / 点空白 / ✕）内容都不会丢。
+// ---------------------------------------------------------------------------
+
+/** 一个长文本框的字数角标节点（id 约定：<textarea id>-count） */
+function charCountNode(textarea) {
+  return textarea ? document.getElementById(`${textarea.id}-count`) : null;
+}
+
+/** 刷新一个框的角标。找不到角标（比如别的页面的 textarea）就静默跳过 */
+function updateCharCount(textarea) {
+  const badge = charCountNode(textarea);
+  if (!badge) return;
+  const n = (textarea.value || '').length;
+  badge.textContent = `${n.toLocaleString()} 字`;
+}
+
+/** 刷新全部五个框的角标（fillCharForm 回填之后用） */
+function syncAllCharCounts() {
+  for (const [node] of longTextAreas()) updateCharCount(node);
+}
+
+// 放大浮层（挂在 body 上，和世界书选择浮层一个套路：动态建、用完删）
+let expandLayerEl = null;
+// 浮层对应的主表单框：实时同步的落点
+let expandSource = null;
+// Esc 的捕获监听器（关浮层时要摘掉）
+let expandKeyHandler = null;
+
+/**
+ * 打开放大编辑浮层。
+ * @param {HTMLTextAreaElement} textarea 主表单里的长文本框
+ * @param {string} label 字段名（浮层标题）
+ */
+function openExpandLayer(textarea, label) {
+  if (!textarea || expandLayerEl) return;
+  closeExpandLayer();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'char-expand';
+
+  const card = document.createElement('div');
+  card.className = 'char-expand-card';
+
+  // --- 头：字段名 + 实时字数 + 关闭 ---
+  const head = document.createElement('div');
+  head.className = 'char-expand-head';
+
+  const title = document.createElement('span');
+  title.className = 'char-expand-title';
+  title.textContent = label || '编辑';
+
+  const meta = document.createElement('span');
+  meta.className = 'char-expand-meta';
+  meta.textContent = `${(textarea.value || '').length.toLocaleString()} 字`;
+
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'icon-btn';
+  close.title = '收起（Esc）';
+  close.setAttribute('aria-label', '收起放大编辑');
+  close.innerHTML =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>';
+
+  head.append(title, meta, close);
+
+  // --- 正文：一个铺满卡片的大文本框 ---
+  const big = document.createElement('textarea');
+  big.className = 'char-expand-text';
+  big.spellcheck = false;
+  big.value = textarea.value || '';
+  big.setAttribute('aria-label', `放大编辑${label || ''}`);
+
+  // --- 脚：说明 + 完成 ---
+  const foot = document.createElement('div');
+  foot.className = 'char-expand-foot';
+
+  const hint = document.createElement('span');
+  hint.className = 'field-help';
+  hint.textContent = '改动实时写回表单，随时 Esc 收起，不会丢内容。';
+
+  const done = document.createElement('button');
+  done.type = 'button';
+  done.className = 'btn btn-primary btn-sm';
+  done.textContent = '完成';
+
+  foot.append(hint, done);
+  card.append(head, big, foot);
+  overlay.appendChild(card);
+
+  // 实时同步：浮层里每敲一下都写回主框。
+  // 程序改 .value 不触发 input，主框的自动增高不会自己动 —— 手动补一次。
+  big.addEventListener('input', () => {
+    textarea.value = big.value;
+    updateCharCount(textarea);
+    autoGrow(textarea);
+    meta.textContent = `${big.value.length.toLocaleString()} 字`;
+  });
+
+  function shut() {
+    closeExpandLayer();
+    textarea.focus();
+  }
+  close.addEventListener('click', shut);
+  done.addEventListener('click', shut);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) shut();
+  });
+
+  // Esc 只关浮层，不许把底下的编辑器弹窗一起关掉。
+  // main.js 的全局 Esc 处理是**冒泡阶段**的 document 监听 ——
+  // 这里用**捕获阶段**先拦下：stopPropagation 之后事件到不了那边。
+  expandKeyHandler = (event) => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    shut();
+  };
+  document.addEventListener('keydown', expandKeyHandler, true);
+
+  document.body.appendChild(overlay);
+  expandLayerEl = overlay;
+  expandSource = textarea;
+
+  // 光标落到末尾：放大进来的人多半是要接着写，不是要从头改
+  big.focus();
+  const end = big.value.length;
+  big.setSelectionRange(end, end);
+}
+
+/** 关掉放大浮层（幂等）。内容早已实时同步，这里只收拾 DOM 和监听 */
+function closeExpandLayer() {
+  if (expandKeyHandler) {
+    document.removeEventListener('keydown', expandKeyHandler, true);
+    expandKeyHandler = null;
+  }
+  if (expandLayerEl) {
+    expandLayerEl.remove();
+    expandLayerEl = null;
+  }
+  expandSource = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +332,9 @@ function updateCharEditorScopeUi() {
 }
 
 export async function closeCharsModal() {
+  // 放大浮层还开着的话先收掉 —— 它挂在 body 上，编辑器关了它就悬空了
+  closeExpandLayer();
+
   // 新建的角色还没保存：关掉就等于放弃，先问一句，免得辛苦填的设定白写
   if (isCharDraft()) {
     const typed = el.c.name.value.trim();
@@ -377,6 +531,8 @@ function fillCharForm(character) {
   // 长文本框的最后一步：到这儿弹窗才是可见的（上面那些调用方刚摘掉 .hidden），
   // 这时候量高度才量得准。见上面那段注释 —— 在隐藏状态下量会永远得到 84px。
   syncAutoGrowAll(longTextAreas().map((pair) => pair[0]));
+  // 角标也一样：值是程序塞进去的，得显式刷一次
+  syncAllCharCounts();
 }
 
 /** 剧情选项的配置区：开关关着就整块收起来（省得看着以为在生效） */
@@ -928,6 +1084,21 @@ export function initCharacterEditor(injected) {
 
   // 剧情选项的开关：只切配置区的显示，值在保存时才写回角色卡
   if (el.c.optionsOn) el.c.optionsOn.addEventListener('change', renderOptionsConfig);
+
+  // 字数角标：手动输入时刷新（回填路径在 fillCharForm 里统一刷过）
+  el.charForm.addEventListener('input', (event) => {
+    if (event.target instanceof HTMLTextAreaElement) updateCharCount(event.target);
+  });
+
+  // 「放大编辑」按钮：五个字段共用一个委托，按钮上带 data-expand 指到对应框
+  el.charForm.addEventListener('click', (event) => {
+    const btn = event.target.closest('.char-expand-btn');
+    if (!btn) return;
+    const textarea = document.getElementById(btn.dataset.expand || '');
+    if (!textarea) return;
+    const label = btn.closest('.field-head')?.querySelector('.field-label')?.textContent || '';
+    openExpandLayer(textarea, label);
+  });
 
   el.charsModal.addEventListener('click', (event) => {
     if (event.target === el.charsModal) closeCharsModal();

@@ -533,11 +533,11 @@
                  所以游玩世界书时会作为字段进状态面板。 -->
             <div class="field-grid field-grid-3">
               <label class="field">
-                <span class="field-label">年龄</span>
+                <span class="field-label" data-icon="hourglass">年龄</span>
                 <input id="c-age" type="text" spellcheck="false" placeholder="例如 18" aria-label="年龄" />
               </label>
               <label class="field">
-                <span class="field-label">性别</span>
+                <span class="field-label" data-icon="venus">性别</span>
                 <select id="c-gender" aria-label="性别">
                   <option value="">未设置</option>
                   <option value="男">男</option>
@@ -546,33 +546,82 @@
                 </select>
               </label>
               <label class="field">
-                <span class="field-label">种族</span>
+                <span class="field-label" data-icon="users">种族</span>
                 <input id="c-race" type="text" spellcheck="false" placeholder="人类" aria-label="种族" />
               </label>
             </div>
 
-            <label class="field field-stack">
-              <span class="field-label">角色描述</span>
+            <!-- 五个长文本字段共用一套结构：field-head = 字段名 + 字数角标 + 放大编辑。
+                 label 上的 for 是**必须的**：head 里那个放大按钮也是可标注元素，
+                 不用 for 钉死关联的话，label 的隐式关联会指到按钮上 ——
+                 点「角色描述」四个字就等于点了放大。 -->
+            <label class="field field-stack" for="c-desc">
+              <span class="field-head">
+                <span class="field-label" data-icon="user">角色描述</span>
+                <span class="field-count" id="c-desc-count">0 字</span>
+                <button class="icon-btn icon-btn-sm char-expand-btn" type="button" data-expand="c-desc"
+                        title="放大编辑（在大窗口里写）" aria-label="放大编辑角色描述">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                  </svg>
+                </button>
+              </span>
               <textarea id="c-desc" rows="5" spellcheck="false" placeholder="这个角色是谁、长什么样、有什么经历……&#10;可以用 {{char}} 表示角色自己，{{user}} 表示你。"></textarea>
             </label>
-			
-			<label class="field field-stack">
-			  <span class="field-label">性格</span>
-			  <textarea id="c-personality" rows="3" spellcheck="false" placeholder="开朗、爱笑、有点冒失……"></textarea>
-			</label>
-			
-			<label class="field field-stack">
-			  <span class="field-label">场景</span>
-			  <textarea id="c-scenario" rows="3" spellcheck="false" placeholder="你们正在哪里、干什么"></textarea>
-			</label>
 
-            <label class="field field-stack">
-              <span class="field-label">开场白</span>
+            <label class="field field-stack" for="c-personality">
+              <span class="field-head">
+                <span class="field-label" data-icon="smile">性格</span>
+                <span class="field-count" id="c-personality-count">0 字</span>
+                <button class="icon-btn icon-btn-sm char-expand-btn" type="button" data-expand="c-personality"
+                        title="放大编辑（在大窗口里写）" aria-label="放大编辑性格">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                  </svg>
+                </button>
+              </span>
+              <textarea id="c-personality" rows="3" spellcheck="false" placeholder="开朗、爱笑、有点冒失……"></textarea>
+            </label>
+
+            <label class="field field-stack" for="c-scenario">
+              <span class="field-head">
+                <span class="field-label" data-icon="map-pin">场景</span>
+                <span class="field-count" id="c-scenario-count">0 字</span>
+                <button class="icon-btn icon-btn-sm char-expand-btn" type="button" data-expand="c-scenario"
+                        title="放大编辑（在大窗口里写）" aria-label="放大编辑场景">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                  </svg>
+                </button>
+              </span>
+              <textarea id="c-scenario" rows="3" spellcheck="false" placeholder="你们正在哪里、干什么"></textarea>
+            </label>
+
+            <label class="field field-stack" for="c-first">
+              <span class="field-head">
+                <span class="field-label" data-icon="message-circle">开场白</span>
+                <span class="field-count" id="c-first-count">0 字</span>
+                <button class="icon-btn icon-btn-sm char-expand-btn" type="button" data-expand="c-first"
+                        title="放大编辑（在大窗口里写）" aria-label="放大编辑开场白">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                  </svg>
+                </button>
+              </span>
               <textarea id="c-first" rows="3" spellcheck="false" placeholder="第一句话。绑定角色时如果对话还是空的，会自动作为角色的开场消息插入。"></textarea>
             </label>
 
-            <label class="field field-stack">
-              <span class="field-label">示例对话</span>
+            <label class="field field-stack" for="c-example">
+              <span class="field-head">
+                <span class="field-label" data-icon="messages-square">示例对话</span>
+                <span class="field-count" id="c-example-count">0 字</span>
+                <button class="icon-btn icon-btn-sm char-expand-btn" type="button" data-expand="c-example"
+                        title="放大编辑（在大窗口里写）" aria-label="放大编辑示例对话">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                  </svg>
+                </button>
+              </span>
               <textarea id="c-example" rows="4" spellcheck="false" placeholder="{{user}}: 你好&#10;{{char}}: 你好呀～今天感觉怎么样？"></textarea>
               <span class="field-help">
                 照这个格式写几组，能明显提升扮演时的语气准确度。<br />
@@ -587,7 +636,7 @@
                  分组只是**视图层**的聚合键：标签栏点哪个，下面就只显示哪一组。
                  这样导出 / 导入 / 面板注入全都不用改，风险面小得多。 -->
             <div class="field field-stack">
-              <span class="field-label">属性（状态面板）</span>
+              <span class="field-label" data-icon="sliders">属性（状态面板）</span>
 
               <!-- 官方「互动模板」：一键种入预设分组（状态栏 / 关系 / 背包）和默认字段，
                    字段可再改名 / 修改 / 删除。放在整块最上面，一眼就能看到。 -->
@@ -668,7 +717,7 @@
                  还是被绑进某个世界当角色，都不会带入它自己的世界书。 -->
             <div id="c-worldbook-box" class="char-worldbook-box">
               <div class="cwb-head">
-                <span class="field-label">自带世界书</span>
+                <span class="field-label" data-icon="book">自带世界书</span>
                 <button id="c-wb-add-btn" class="btn btn-ghost btn-sm" type="button">＋ 绑定</button>
               </div>
               <div id="c-wb-list" class="cwb-list"></div>

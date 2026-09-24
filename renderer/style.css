@@ -1753,7 +1753,10 @@ body {
      而且无论等多久都不收敛（不是「等过渡跑完」的事）。
      自动增高本来就该是**瞬时**的 —— 一边打字一边看高度慢慢爬，
      反而像卡了。真要看过渡，只保留 max-height（它不参与这个过程）。 */
-  max-height: 460px;
+  /* 第二道闸：auto-grow 的上限是 160px，但手动拖高不受它管 ——
+     这里把「连拖带顶」的总高度封在 240px，五个框全拖满也不会把表单顶爆。
+     更长的内容走字段行的「放大编辑」浮层。 */
+  max-height: 240px;
   /* 右下角的斜纹把手：纯装饰，真正的拖拽靠浏览器自带的 resize */
   background-image: linear-gradient(
     135deg,
@@ -1776,6 +1779,135 @@ body {
    一跳一跳不是。这里保留一条最小规则：聚焦的框描边加粗，让「在改哪个」看得清。 */
 .char-form .field-stack > textarea:focus {
   border-color: var(--accent, var(--border-strong, var(--border)));
+}
+
+/* ------------------------------ 长文本字段：字数角标 + 放大编辑 ------------------------------
+   五个长文本框的高度上限压低之后（auto-grow 的 GROW_MAX = 160px），
+   框矮了，「里面写了多少」得有个信号 —— field-head 右边的角标干这个。
+   ↗ 按钮弹一个近乎全屏的浮层，长内容在那儿写。
+
+   field-head 里的 field-label 不再是 .field 的直接子级，
+   上面的 `.field.field-stack > .field-label { padding-top: 0 }` 匹配不上它 ——
+   这里补一条同语义的规则，不然标签会被通用规则顶下去一截。 */
+.char-form .field-stack > .field-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 0;
+}
+
+.char-form .field-stack > .field-head .field-label { padding-top: 0; }
+
+/* 字段名左边的小图标：形状集中在 ui/icons.js（data-icon 声明式挂载），
+   这里只定尺寸和对齐。颜色走主题色 var(--accent)，换主题/配色自动跟着走。
+   图标是 field-label 的第一个 inline 子元素，vertical-align 让它和文字
+   基线对齐，不必给 label 改 flex 布局（那会打乱 grid 里 label 和输入框
+   的顶部对齐）。 */
+.field-label > .field-icon {
+  width: 15px;
+  height: 15px;
+  vertical-align: -2px;
+  margin-right: 6px;
+  color: var(--accent);
+  flex: none;
+}
+
+.char-form .field-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums; /* 字数在跳的时候别让整行文字跟着抖 */
+}
+
+.char-expand-btn {
+  margin-left: auto;           /* 推到行尾：左边是「字段名 角标」 */
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+
+.char-expand-btn:hover { color: var(--text); background: var(--bg-input); }
+
+/* 放大编辑浮层：挂在 body 上、盖在角色编辑弹窗之上（chars-modal 是 60，
+   确认框 70 —— 本来就该压着编辑器、又被确认框压着）。 */
+.char-expand {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(12, 16, 24, 0.45);
+}
+
+.char-expand-card {
+  width: 100%;
+  max-width: 760px;
+  height: min(82vh, 720px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lg);
+}
+
+.char-expand-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.char-expand-title { font-size: 13px; font-weight: 500; color: var(--text); }
+
+.char-expand-meta {
+  flex: 1 1 auto;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 大文本框：高度交给 flex 铺满，不要再抢边框和圆角。
+   选择器给到两个类（(0,2,0)）—— 通用 textarea 规则是 (0,0,1)、
+   `textarea:focus` 是 (0,1,1) 且在文件更后面，只写一个类会被它们盖掉
+   （属性区那条「看着挺具体、实际平局还输」的教训就是这来的）。 */
+.char-expand-card > .char-expand-text {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  resize: none;               /* 高度由卡片定，不需要把手 */
+  font-size: 13.5px;
+  line-height: 1.7;           /* 长文在里面写，行距放松一点 */
+  box-shadow: none;
+}
+
+.char-expand-card > .char-expand-text:focus {
+  border: none;
+  box-shadow: none;
+}
+
+.char-expand-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* 脚部那条说明不在 .field 里，通用的 .field > .field-help 管不到它，得自带样式 */
+.char-expand-foot .field-help {
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-faint);
 }
 
 /* ------------------------------ 角色「属性」编辑区 ------------------------------

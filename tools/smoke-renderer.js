@@ -310,8 +310,13 @@ await scenario('角色编辑器：长文本框自动增高', async () => {
   );
   check(
     '长高有上限，不会把表单顶爆',
-    hLong <= 470,
-    `实际 ${hLong}px（期望 <=470px）`
+    hLong <= 200,
+    `实际 ${hLong}px（期望 <=200px）`
+  );
+  check(
+    '超上限的内容走框内滚动（表单总长恒定）',
+    example.scrollHeight > example.clientHeight + 10,
+    `scrollHeight ${example.scrollHeight} vs clientHeight ${example.clientHeight}`
   );
 
   // 手动拖过之后就锁定：再输入内容也不该被自动改回去。
@@ -332,6 +337,74 @@ await scenario('角色编辑器：长文本框自动增高', async () => {
   click('#confirm-ok');
   await waitFor('编辑器关闭', () => !shown('#chars-modal'));
   await sleep(150);
+});
+
+// ---------------------------------------------------------------------------
+//  场景 5.6：角色编辑器 —— 字数角标 + 「放大编辑」浮层
+//
+//  角标：框压矮之后「写了多少」得一眼能看到（输入和回填两条路都要刷）。
+//  浮层：↗ 按钮弹大窗口，改动**实时写回**主框 —— Esc / ✕ / 点空白关掉
+//  都不许丢内容；Esc 还只关浮层，不许把底下的编辑器一起带走。
+//
+//  ⚠️ Esc 派发到浮层的 textarea 上让它冒泡（真实按键的 target 就是
+//  聚焦的元素）。直接派发到 document 的话，target 是 document 自己，
+//  捕获/冒泡监听会按注册顺序跑 —— main.js 的全局 Esc 先注册先执行，
+//  就成了「关掉整个编辑器」，测的不是同一条路径。
+// ---------------------------------------------------------------------------
+await scenario('角色编辑器：字数角标与放大编辑', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+
+  const desc = byId('c-desc');
+  const badge = byId('c-desc-count');
+  check('字段行上有字数角标', !!badge);
+  check('空字段的角标是 0 字', !!badge && badge.textContent === '0 字', badge && badge.textContent);
+
+  setValue(desc, '四两句话');
+  await sleep(60);
+  check('输入后角标跟着变', badge.textContent === '4 字', badge.textContent);
+
+  // --- 打开放大浮层 ---
+  const expandBtn = document.querySelector('.char-expand-btn[data-expand="c-desc"]');
+  check('字段行上有放大按钮', !!expandBtn);
+  click(expandBtn);
+  await waitFor('放大浮层出现', () => !!document.querySelector('.char-expand'));
+
+  const layer = document.querySelector('.char-expand');
+  const big = layer.querySelector('.char-expand-text');
+  check('浮层里带出了主框的内容', big.value === '四两句话', big.value);
+  check('浮层标题是字段名', layer.querySelector('.char-expand-title').textContent === '角色描述');
+
+  // --- 在浮层里输入：实时写回主框 + 角标 ---
+  setValue(big, '放大层里写的长内容');
+  await sleep(60);
+  check('浮层输入实时写回主框', desc.value === '放大层里写的长内容', desc.value);
+  check('主框角标同步更新', badge.textContent === '9 字', badge.textContent);
+
+  // --- Esc 只关浮层，不把编辑器一起关掉 ---
+  big.focus();
+  big.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await sleep(80);
+  check('Esc 收起了放大浮层', !document.querySelector('.char-expand'));
+  check('Esc 没有连编辑器一起关掉', shown('#chars-modal'));
+  check('关掉浮层后主框内容还在', desc.value === '放大层里写的长内容', desc.value);
+
+  // --- 再开一次，这次走「完成」按钮 ---
+  click(expandBtn);
+  await waitFor('放大浮层再次出现', () => !!document.querySelector('.char-expand'));
+  const layer2 = document.querySelector('.char-expand');
+  const doneBtn = Array.from(layer2.querySelectorAll('button')).find((b) => b.textContent.trim() === '完成');
+  click(doneBtn);
+  await sleep(80);
+  check('点「完成」收起浮层', !document.querySelector('.char-expand'));
+
+  click('#btn-close-chars');
+  await waitFor('弹出放弃确认框', () => shown('#confirm-modal'));
+  click('#confirm-ok');
+  await waitFor('编辑器关闭', () => !shown('#chars-modal'));
+  await sleep(120);
 });
 
 // ---------------------------------------------------------------------------

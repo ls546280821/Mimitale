@@ -1992,6 +1992,33 @@ app.whenReady().then(async () => {
           if (desc) desc.scrollIntoView({ block: 'start' });
           await nap(300);
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 放大编辑浮层：塞一段够长的描述再点 ↗，看浮层的头/正文/脚排得怎么样。
+        // 描述要足够长 —— 浮层里出现滚动才有「这是个长内容编辑器」的样子。
+        charExpand: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+
+          document.querySelector('#btn-chars')?.click();
+          await nap(400);
+          const card = $$('#char-page-grid .char-card')[0];
+          const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (btn) btn.click();
+          await nap(600);
+
+          const desc = $('#c-desc');
+          if (desc) {
+            desc.value = Array.from({ length: 26 }, (_, i) =>
+              '第' + (i + 1) + '段：她总在闭馆前十分钟才把书放回原位，指尖压着书脊，像怕惊动谁。'
+            ).join('\\n');
+            fire(desc, 'input');
+          }
+          await nap(200);
+          const expandBtn = document.querySelector('.char-expand-btn[data-expand="c-desc"]');
+          if (expandBtn) expandBtn.click();
+          await nap(400);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 同上，但停在**空分组**上 —— 空态文案、计数徽标上的 0、
         // 以及「卡身只剩一行提示」时的留白，只有截图能看出好不好看。
         charAttrsEmpty: `

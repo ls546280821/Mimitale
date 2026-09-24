@@ -44,6 +44,7 @@ import { activeConvo } from './core/util.js';
 import { showToast } from './ui/toast.js';
 import { applyTheme, toggleTheme, applyAccent, toggleAccent } from './ui/theme.js';
 import { esc } from './ui/markdown.js';
+import { applyFieldIcons } from './ui/icons.js';
 
 import { persistLibrary, markWorldbooksLoaded } from './data/persist.js';
 import { currentEndpoint } from './data/providers.js';
@@ -383,6 +384,9 @@ async function importWorldbooks() {
 
 async function init() {
   bindEvents();
+  // 静态 HTML 里带 data-icon 的字段标签，启动时一次性挂上图标（见 ui/icons.js）。
+  // 动态渲染出来的标签要自己在渲染完成后对那一段再调一次。
+  applyFieldIcons();
   // 必须在第一次 renderAll 之前登记 —— 否则首屏一个视图都不会画。
   // 各功能模块的事件绑定也在这一步完成（它们的 init 里带着自己的登记）。
   registerRefreshListeners();
