@@ -16,6 +16,7 @@
 import { el } from '../core/dom.js';
 import { state } from '../core/state.js';
 import { characterById, characters, characterAttrs, worldbookById } from '../data/library.js';
+import { applyMacros } from '../data/messages.js';
 
 /** 弹窗正对着哪本书（关掉就清空） */
 let playingBookId = null;
@@ -28,16 +29,22 @@ export function getPlayingBook() {
 /**
  * 把角色卡拼成「玩家角色」的设定文本。
  * 主角是 GM 要伺候的对象，所以描述和性格都要给到，不然它只知道一个名字。
+ *
+ * 选卡当自己 = 你扮演这张卡本人，所以卡里的 {{char}} 和 {{user}} 现在指的都是
+ * 你自己 —— 两处都替换成角色名。开场背景（scenario）**不带**：那通常是「这张卡
+ * 当 NPC、你（外乡人）另有其人」的场景预设，选卡当自己时带进去会让模型以为
+ * 有两个不同的人（实测：模型来回纠结「露西娅是主角还是外乡人」）。
  */
 function playerProfileFromCharacter(character) {
   if (!character) return '';
+  const name = String(character.name || '').trim() || '你';
   const bits = [];
   const desc = String(character.description || '').trim();
   const personality = String(character.personality || '').trim();
-  const scenario = String(character.scenario || '').trim();
-  if (desc) bits.push(desc);
-  if (personality) bits.push(`【性格】${personality}`);
-  if (scenario) bits.push(`【背景】${scenario}`);
+  // {{char}} 与 {{user}} 都指向「你自己」（= 这张卡），用 applyMacros 统一替换：
+  // 传 name=角色名，让 {{char}}→角色名、{{user}}→角色名。
+  if (desc) bits.push(applyMacros(desc, character, name));
+  if (personality) bits.push(`【性格】${applyMacros(personality, character, name)}`);
   return bits.join('\n');
 }
 

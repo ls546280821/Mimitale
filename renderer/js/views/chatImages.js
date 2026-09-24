@@ -23,7 +23,7 @@ import { now, activeConvo } from '../core/util.js';
 import { showToast } from '../ui/toast.js';
 import { h, button, clear } from '../ui/build.js';
 import { persistConversations } from '../data/persist.js';
-import { cleanAssistantText, convoPanelFields, panelGroupNames } from '../data/panel.js';
+import { cleanAssistantText, convoFieldDisplayNames, panelGroupNames } from '../data/panel.js';
 import { messageImages } from '../data/messages.js';
 
 // 一张图最长边压到多少再发。视觉模型内部一般也就缩到这个量级，
@@ -207,7 +207,7 @@ export async function illustrateMessage(index) {
     return;
   }
 
-  const panelFields = convoPanelFields(convo);
+  const panelFields = convoFieldDisplayNames(convo);
   const raw = cleanAssistantText(String(message.content || ''), panelFields, [...panelGroupNames(convo)]);
   // 去掉 markdown 标记和括号里的旁白符号，让提示词更像一句画面描述
   const prompt = raw

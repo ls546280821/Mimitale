@@ -41,6 +41,7 @@ import {
   convoPanelDef,
   convoPanelFields,
   panelFieldGroup,
+  panelFieldName,
   panelFieldOwner,
   setPanelField
 } from '../data/panel.js';
@@ -195,21 +196,22 @@ function listItemCount(value) {
     .filter(Boolean).length;
 }
 
-/** 铺一行「字段名 + 值输入框 + 删除」 */
-function appendPanelRow(convo, name, value, container) {
+/** 铺一行「字段名 + 值输入框 + 删除」。key 是复合键，显示名用 panelFieldName 取。 */
+function appendPanelRow(convo, key, value, container) {
+  const name = panelFieldName(key);
   const input = h('input', {
     type: 'text',
     class: 'panel-value',
-    dataset: { field: name },
+    dataset: { field: key },
     value: value || '',
     spellcheck: 'false',
     'aria-label': name
   });
-  attachPanelEditor(convo, name, input);
+  attachPanelEditor(convo, key, input);
 
   // 数值字段的值是「60/100」这种，末尾那个 /100 是满值、不是可编辑内容，
   // 所以拆出来单独显示成一个小标记，让输入框里只剩要改的数字。
-  const def = convoPanelDef(convo, name);
+  const def = convoPanelDef(convo, key);
   const parsed = def && def.type === 'meter' ? parseNumericValue(String(value == null ? '' : value)) : null;
   const unit = parsed && parsed.total !== null ? `/${trimNumber(parsed.total)}` : '';
   if (unit) input.value = trimNumber(parsed.n);
@@ -232,7 +234,7 @@ function appendPanelRow(convo, name, value, container) {
       class: 'panel-del',
       text: '✕',
       title: '从面板里移除这个字段',
-      onClick: () => removePanelField(convo, name)
+      onClick: () => removePanelField(convo, key)
     })
   );
 

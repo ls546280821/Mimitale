@@ -23,7 +23,7 @@ import { esc, renderMarkdown } from '../ui/markdown.js';
 import { h, button } from '../ui/build.js';
 import { characterForConvo, convoWorldbookIds, worldbookById } from '../data/library.js';
 import { convoPlayer, convoUserName, userName, speakerName } from '../data/cast.js';
-import { cleanAssistantText, convoPanelFields, panelGroupNames } from '../data/panel.js';
+import { cleanAssistantText, convoFieldDisplayNames, panelGroupNames } from '../data/panel.js';
 import { scrollToBottom } from './stream.js';
 import { buildMessageImages, illustrateMessage } from './chatImages.js';
 import { suggestNextActions, pickOption, rerollOptions, closeOptions } from './suggestionsUi.js';
@@ -427,7 +427,7 @@ export function renderMessages(options) {
     Array.isArray(convo.options) &&
     convo.options.length > 0;
   const ctx = {
-    panelFields: convoPanelFields(convo),
+    panelFields: convoFieldDisplayNames(convo),
     panelGroups: [...panelGroupNames(convo)],
     lastIndex: convo.messages.length - 1,
     options: showOptions ? convo.options : null

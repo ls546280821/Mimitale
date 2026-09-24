@@ -53,7 +53,8 @@ import { characters, worldbooks } from './data/library.js';
 import {
   normalizePanelDefs,
   cleanAssistantText,
-  convoPanelFields,
+  convoFieldDisplayNames,
+  migrateConvoPanel,
   panelGroupNames,
   cutTrailingStatusBlock
 } from './data/panel.js';
@@ -324,7 +325,7 @@ function bindEvents() {
       chunkTarget = {
         requestId,
         node: el.messages.querySelector(`.msg[data-index="${index}"] .msg-content`),
-        base: cleanAssistantText(before, convoPanelFields(convo), [...panelGroupNames(convo)]),
+        base: cleanAssistantText(before, convoFieldDisplayNames(convo), [...panelGroupNames(convo)]),
         delta: ''
       };
     }
@@ -502,6 +503,10 @@ async function init() {
   // 只在真有坏数据时才重写这个键，免得给所有老会话平白加上一个空对象。
   for (const convo of state.conversations) {
     if (!convo || typeof convo !== 'object') continue;
+    // 先迁移（老格式「字段名」→「字段名+owner」复合键），再归一化。
+    // 顺序不能反：migrate 要从老格式的 defs[name].owner 读归属，归一化之后
+    // 键已经变成复合键，就取不到 owner 了（见 data/panel.js 的 migrateConvoPanel）。
+    migrateConvoPanel(convo);
     if (convo.panelDefs !== undefined) convo.panelDefs = normalizePanelDefs(convo.panelDefs);
     // 选项是程序写进去的，读盘时只要保证形状对（不是数组就当没有）
     if (!Array.isArray(convo.options)) convo.options = [];

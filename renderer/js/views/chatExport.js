@@ -21,7 +21,7 @@ import {
   worldbookById,
   worldbookPayload
 } from '../data/library.js';
-import { convoPanel, convoPanelFields } from '../data/panel.js';
+import { convoPanel, convoPanelFields, panelFieldName, panelKeyParts, panelOwnerLabel } from '../data/panel.js';
 import { convoPlayer, userName, speakerName } from '../data/cast.js';
 import { currentEditorCharacter } from './characterEditor.js';
 
@@ -104,11 +104,16 @@ function conversationMarkdown(convo) {
   // 状态面板单独列一段：正文里那几行注入时会被剥掉，导出的快照留着更有用
   const panelFields = convoPanelFields(convo);
   const panel = convoPanel(convo);
-  const filled = panelFields.filter((n) => String(panel[n] || '').trim());
+  const filled = panelFields.filter((key) => String(panel[key] || '').trim());
   if (filled.length) {
     lines.push('## 当前状态');
     lines.push('');
-    for (const name of filled) lines.push(`- ${name}：${panel[name]}`);
+    // 带归属的字段标上「谁·字段」，无归属的保持原名
+    for (const key of filled) {
+      const { owner } = panelKeyParts(key);
+      const label = owner ? `${panelOwnerLabel(convo, owner)}·` : '';
+      lines.push(`- ${label}${panelFieldName(key)}：${panel[key]}`);
+    }
     lines.push('');
   }
 

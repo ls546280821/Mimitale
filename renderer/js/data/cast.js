@@ -91,6 +91,28 @@ export function convoPlayer(convo) {
   return { name, profile };
 }
 
+/**
+ * 把玩家角色的设定整理成「能直接注入提示词」的文本。
+ *
+ * 选卡当自己 = 玩家扮演这张卡本人，所以卡里残留的 {{char}} / {{user}}（以及
+ * <BOT>/<USER>）现在指的都是玩家本人 —— 这里统一替换成玩家名。老会话 / 手写的
+ * profile 可能还带着字面宏（选卡拼设定时已经替换过，但历史数据没有这步），
+ * 留到注入时模型会读到裸占位符、分不清谁是谁（实测：模型来回纠结「露西娅是
+ * 主角还是外乡人」）。
+ *
+ * 纯函数：只读传入的 convo，不改任何东西。
+ */
+export function playerProfileForPrompt(convo) {
+  const player = convoPlayer(convo);
+  if (!player || !player.profile) return '';
+  const name = player.name || convoUserName(convo);
+  return String(player.profile)
+    .replace(/\{\{char\}\}/gi, () => name)
+    .replace(/\{\{user\}\}/gi, () => name)
+    .replace(/<BOT>/gi, () => name)
+    .replace(/<USER>/gi, () => name);
+}
+
 /** {{user}} 的替换值：进了世界的会话用玩家角色的名字，其它会话用设置里的名字 */
 export function convoUserName(convo) {
   const player = convoPlayer(convo);

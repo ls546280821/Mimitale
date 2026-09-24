@@ -29,7 +29,9 @@ import {
   convoPanelFields,
   panelFieldAllowed,
   panelFieldGroup,
+  panelFieldName,
   panelFieldOwner,
+  panelKey,
   setPanelField,
   appendPanelFields
 } from '../data/panel.js';
@@ -48,9 +50,9 @@ function entityFor(convo, owner) {
   return panelEntities(convo).find((e) => e.owner === owner) || null;
 }
 
-/** 某个人拥有的字段（按面板里的先后顺序） */
+/** 某个人拥有的字段（按面板里的先后顺序）。返回的是复合键。 */
 function ownerFields(convo, owner) {
-  return convoPanelFields(convo).filter((n) => panelFieldOwner(convo, n) === owner);
+  return convoPanelFields(convo).filter((key) => panelFieldOwner(convo, key) === owner);
 }
 
 /** 换会话就把开着的卡收掉 —— 卡里是上一局的字段 */
@@ -102,8 +104,9 @@ function bringToFront(owner) {
 // ---------------------------------------------------------------------------
 
 /** 只读行：字段名 + 值（数值补进度条）。这是卡片的默认样子。 */
-function viewRow(convo, name) {
-  const value = String(convoPanel(convo)[name] == null ? '' : convoPanel(convo)[name]);
+function viewRow(convo, key) {
+  const name = panelFieldName(key);
+  const value = String(convoPanel(convo)[key] == null ? '' : convoPanel(convo)[key]);
   const row = h(
     'div',
     { class: 'sc-row' },
@@ -111,7 +114,7 @@ function viewRow(convo, name) {
     h('span', { class: 'sc-value', text: value || '—', title: value })
   );
 
-  const progress = fieldProgress(value, convoPanelDef(convo, name));
+  const progress = fieldProgress(value, convoPanelDef(convo, key));
   if (progress) {
     row.classList.add('has-bar');
     const bar = h('div', { class: 'sc-bar' }, h('div', { class: 'sc-bar-fill' }));
@@ -122,21 +125,22 @@ function viewRow(convo, name) {
 }
 
 /** 编辑行：值变成输入框，右边一个删除。改完走 setPanelField（和面板同一条路）。 */
-function editRow(convo, name) {
+function editRow(convo, key) {
+  const name = panelFieldName(key);
   const input = h('input', {
     type: 'text',
     class: 'sc-input',
-    value: String(convoPanel(convo)[name] == null ? '' : convoPanel(convo)[name]),
+    value: String(convoPanel(convo)[key] == null ? '' : convoPanel(convo)[key]),
     spellcheck: 'false',
     'aria-label': name
   });
   input.addEventListener('input', () => {
     clearTimeout(input._scTimer);
-    input._scTimer = setTimeout(() => setPanelField(convo, name, input.value), 400);
+    input._scTimer = setTimeout(() => setPanelField(convo, key, input.value), 400);
   });
   input.addEventListener('blur', () => {
     clearTimeout(input._scTimer);
-    setPanelField(convo, name, input.value);
+    setPanelField(convo, key, input.value);
   });
 
   return h(
@@ -148,7 +152,7 @@ function editRow(convo, name) {
       class: 'sc-del',
       text: '✕',
       title: '从状态里删掉这个字段',
-      onClick: () => removeField(convo, name)
+      onClick: () => removeField(convo, key)
     })
   );
 }
@@ -176,13 +180,13 @@ function addRow(convo, owner) {
       return;
     }
 
-    // 字段名在**整个会话里只能有一个**：面板注入给模型的是「【名字】：值」，
-    // 同名的话模型分不出是谁的。所以要分两种情况说清楚 ——
+    // 字段名在「同一个人身上」只能有一个；不同的人（不同 owner）可以各自有
+    // 同名字段（世界书里姐姐妹妹都有自己的「好感度」）。所以分三种情况说清楚：
     //   · 这张卡自己已经有了 → 提示重复；
-    //   · 这张卡没有、但**别人**（角色）占了 → 别说「已经有了」（用户会懵：
-    //     我这张卡明明没有啊），得说清是谁占的、并给个可用的替代名。
-    const holders = convoPanelFields(convo).filter((n) => n === name);
-    if (holders.some((n) => panelFieldOwner(convo, n) === owner)) {
+    //   · 这张卡没有、但**别人**（角色）占了同名的 → 换名字或去别人那边改；
+    //   · 谁都没有 → 加。
+    const holders = convoPanelFields(convo).filter((key) => panelFieldName(key) === name);
+    if (holders.some((key) => panelFieldOwner(convo, key) === owner)) {
       showToast(`这张卡里已经有「${name}」了`, 'error');
       input.focus();
       return;
@@ -223,13 +227,13 @@ function addRow(convo, owner) {
   return h('div', { class: 'sc-add' }, input, add);
 }
 
-function removeField(convo, name) {
-  convo.panelFields = convoPanelFields(convo).filter((n) => n !== name);
+function removeField(convo, key) {
+  convo.panelFields = convoPanelFields(convo).filter((n) => n !== key);
   const panel = { ...convoPanel(convo) };
-  delete panel[name];
+  delete panel[key];
   convo.panel = panel;
   const defs = { ...convoPanelDefs(convo) };
-  delete defs[name];
+  delete defs[key];
   convo.panelDefs = defs;
   convo.updatedAt = now();
   persistConversations(0);

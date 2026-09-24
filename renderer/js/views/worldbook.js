@@ -31,6 +31,7 @@ import { confirmDialog } from '../ui/confirm.js';
 import { h, button, clear } from '../ui/build.js';
 import { saveExport } from '../data/export.js';
 import { persistLibrary, persistConversations } from '../data/persist.js';
+import { seedWorldbookCharactersIntoConvos } from '../data/panel.js';
 import {
   characters,
   worldbooks,
@@ -43,6 +44,7 @@ import {
   recursiveDepthSetting
 } from '../data/library.js';
 import { renderWorldbookPage } from './worldbookList.js';
+import { renderAll } from './redraw.js';
 
 // --- 入口层注入的跨视图编排动作 ---
 // openInBook(id)：把编辑焦点切到这本书里的某个角色副本并打开角色编辑器
@@ -244,7 +246,14 @@ function fillEntryForm(entry) {
   showEntryForm(true);
 }
 
-/** 选中一本世界书 */
+/**
+ * 选中一本世界书。
+ *
+ * ⚠️ 这是**唯一**改 editingWorldbookId 的地方，而且改之前必须先 stash ——
+ * 那两个 stash 读的是界面上的输入框，只有此时 currentWorldbook() 还指着
+ * 「正在显示的那一本」才写得对。外部（openWorldbooksModal 的调用方）
+ * 千万别抢先把 editingWorldbookId 设成目标书，否则脏表单会盖到新书上。
+ */
 function selectWorldbook(id) {
   stashWorldbookName();
   stashEntryForm();
@@ -336,12 +345,14 @@ async function addWorldbookCharacters(ids) {
   if (!picked.length) return;
 
   book.characters = worldbookCharacters(book);
+  const copies = [];
   for (const src of picked) {
     const copy = JSON.parse(JSON.stringify(src));
     copy.id = newWorldbookCharId();
     copy.createdAt = now();
     copy.updatedAt = now();
     book.characters.push(copy);
+    copies.push(copy);
   }
   book.updatedAt = now();
 
@@ -350,6 +361,19 @@ async function addWorldbookCharacters(ids) {
 
   const ok = await persistLibrary();
   showToast(ok ? `已加入 ${picked.length} 个角色副本` : '加入失败，没能写入磁盘', ok ? 'ok' : 'error');
+
+  // 正在玩这本书的会话：把新角色的属性也种进它们的状态面板，立刻就能点开看。
+  // 加入副本本身只动了世界书（persistLibrary），不回头通知会话 —— 这里补上，
+  // 否则「进世界之后再往书里加角色」会看不到新 NPC 的状态。
+  if (ok) {
+    const seeded = seedWorldbookCharactersIntoConvos(state.conversations, book, copies);
+    if (seeded) {
+      persistConversations(0);
+      if (activeConvo() && convoWorldbookIds(activeConvo()).includes(book.id)) {
+        renderAll();
+      }
+    }
+  }
 }
 
 /**
@@ -493,35 +517,39 @@ async function confirmWorldbookCharPicker() {
 /**
  * 打开编辑器去编辑某一本。这是列表页「编辑」按钮的动作，由入口层注入给列表页。
  *
- * 它留在这儿而不是跟着列表页走：要设 editingWorldbookId —— 那是**编辑器弹窗**
- * 的状态，只有这一区在读（currentWorldbook / selectWorldbook / openWorldbooksModal）。
- * 列表页不需要知道有「当前选中的是哪本」这回事。
+ * 目标那一本**必须由 openWorldbooksModal 去切**（见那里的注释）：
+ * 调用方如果自己先写 editingWorldbookId，就会把界面上残留的旧表单盖到新书上。
  */
 export function editWorldbookFromPage(id) {
-  const book = worldbookById(id);
-  if (!book) return;
-  editingWorldbookId = id;
-  openWorldbooksModal();
+  if (!worldbookById(id)) return;
+  openWorldbooksModal(id);
 }
 
 /** 打开编辑器并切到指定的一本（导入完成、外部要跳转时用） */
 export function openWorldbookEditor(id) {
-  const book = worldbookById(id);
-  if (!book) return;
-  editingWorldbookId = id;
+  if (!worldbookById(id)) return;
   renderWorldbookPage();
-  openWorldbooksModal();
+  openWorldbooksModal(id);
 }
 
-function openWorldbooksModal() {
+/**
+ * 打开编辑器，可选地切到某一本（不传就沿用当前选中的 / 第一本）。
+ *
+ * ⚠️ 这里**只传目标 id，不先改 editingWorldbookId** —— 顺序是这套东西的全部要点：
+ * selectWorldbook 一上来会把「界面上正在显示的表单」写回 currentWorldbook()，
+ * 也就是**还没切走的那一本**。要是调用方抢先把 editingWorldbookId 换成新书，
+ * 那次回写就落在新书头上，输入框里残留的旧书名会被写进新书、界面也仍然显示旧名字。
+ * 用户看到的就是「导入世界书后，书名还是上一本的名字」；
+ * 点另一张卡的「编辑」也一样会改名（那本真的会被存成上一本的名字，是丢数据）。
+ */
+function openWorldbooksModal(targetId) {
   // 角色库可能没开着（侧边栏可以直接进世界书），stashCharForm 内部会自己判断
   stashDraft();
 
-  if (!editingWorldbookId || !currentWorldbook()) {
-    editingWorldbookId = worldbooks().length ? worldbooks()[0].id : null;
-  }
+  const wanted = typeof targetId === 'string' && targetId ? targetId : editingWorldbookId;
+  const next = worldbookById(wanted) ? wanted : worldbooks().length ? worldbooks()[0].id : null;
 
-  selectWorldbook(editingWorldbookId);
+  selectWorldbook(next);
   renderWorldbookChars();
 
   el.wb.modal.classList.remove('hidden');
@@ -541,9 +569,6 @@ function closeWorldbooksModal() {
 
 /** 新建一本世界书，并直接进编辑器 */
 function newWorldbook() {
-  stashWorldbookName();
-  stashEntryForm();
-
   const book = {
     id: `w${uid()}`,
     name: '新世界书',
@@ -554,10 +579,11 @@ function newWorldbook() {
   };
 
   state.worldbooks = [...worldbooks(), book];
-  editingWorldbookId = book.id;
   renderWorldbookPage();
 
-  openWorldbooksModal();
+  // 切到新书这一步交给 openWorldbooksModal —— 它会先把旧书的表单收回去再切。
+  // 自己在这里先写 editingWorldbookId 的话，旧书残留的书名会被写进这本新书里。
+  openWorldbooksModal(book.id);
   el.wb.name.focus();
   el.wb.name.select();
 }

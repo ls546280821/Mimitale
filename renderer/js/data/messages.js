@@ -21,11 +21,11 @@
 import { CONFIG } from '../core/config.js';
 import { state } from '../core/state.js';
 import { characterForConvo } from './library.js';
-import { cleanAssistantText, convoPanelFields, formatPanelForPrompt, panelGroupNames } from './panel.js';
+import { cleanAssistantText, convoFieldDisplayNames, formatPanelForPrompt, panelGroupNames } from './panel.js';
 import { formatSummaryForPrompt, summarizedCount } from './memory.js';
 import { gmRuleText, isGmMode, narrationInstruction, roleplayRuleText } from './narration.js';
 import { optionsInstruction } from './suggestions.js';
-import { convoPlayer, convoUserName, userName, worldbookCast } from './cast.js';
+import { convoPlayer, convoUserName, userName, worldbookCast, playerProfileForPrompt } from './cast.js';
 
 /**
  * 替换角色卡里的占位符。
@@ -188,8 +188,9 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // 玩家角色：从世界书列表页「游玩」进来的会话才有这段。
   // 只有名字的话上面那句规则已经交代了，所以这里只在写了设定时才注入。
   const player = convoPlayer(convo);
-  if (player && player.profile) {
-    parts.push(`【玩家角色：${player.name || me}】\n${player.profile}`);
+  const playerProfileText = playerProfileForPrompt(convo);
+  if (player && playerProfileText) {
+    parts.push(`【玩家角色：${player.name || me}】\n${playerProfileText}`);
   }
 
   // 这个世界有哪些 NPC：不列出来 GM 就只能现编
@@ -245,8 +246,8 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   }
 
   // ---- 4. 真实对话历史（剥掉面板行，面板由程序权威注入）----
-  // 用本会话的已知字段名来剥：正文里提到同名字样不会被误删。
-  const panelFields = convoPanelFields(convo);
+  // 用本会话的已知字段名（显示名）来剥：正文里提到同名字样不会被误删。
+  const panelFields = convoFieldDisplayNames(convo);
   const panelGroups = [...panelGroupNames(convo)];
   for (const m of recent) {
     const raw = applyMacros(m.content, character, me);

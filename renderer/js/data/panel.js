@@ -31,7 +31,15 @@ import {
 import { persistConversations } from './persist.js';
 // 「把角色卡的属性种进面板」要读卡上的 attributes（走共享归一化）。
 // library 只依赖 core，不反向依赖这里，所以不成环。
-import { characterAttrs } from './library.js';
+// 复合键方案还需要「owner id → 角色名」的解析（注入加前缀 / 扫描解析前缀用），
+// 所以把角色库 / 世界书的查询也一起引进来（它们同样不反向依赖 panel）。
+import {
+  characterAttrs,
+  characterById,
+  convoWorldbookIds,
+  worldbookById,
+  worldbookCharacters
+} from './library.js';
 
 // 字段行：全角/半角冒号都认。字段名限制在 24 字内，避免把长句子误当成字段。
 const PANEL_LINE_RE = /^【([^】\n]{1,24})】[：:]\s*(.*)$/;
@@ -57,6 +65,159 @@ const PANEL_RESERVED = new Set([
 
 export const MAX_PANEL_FIELDS = 120;
 
+// ---------------------------------------------------------------------------
+//  字段的「身份」：字段名 + 归属（owner）
+//
+//  以前一个字段就是「名字」一个维度 —— panelFields 存字段名、panel / panelDefs
+//  的键也是字段名。这套在世界书里撞了个大 bug：两个角色都有「好感度」「生命」
+//  这种同名字段时，字段名全局去重，后种进去的那个角色的同名字段全被挤掉，
+//  点它的状态卡就只剩几个没撞名的字段（「显示不全」）。
+//
+//  现在字段的身份升级成「字段名 + owner」：
+//    · owner 为空 = 场景字段（不归属任何人），键仍是纯字段名（向后兼容老数据）；
+//    · owner 非空 = 某个人的字段（'player' 或角色卡 id），键 = name + SEP + owner。
+//  这样每个角色都能各自持有自己的「好感度」，互不挤占。
+//
+//  ⚠️ 键里用 \u0000 分隔：它不可能出现在字段名或角色 id 里，天然不会撞。
+// ---------------------------------------------------------------------------
+const OWNER_SEP = '\u0000';
+
+/** 字段的存储键：owner 为空就是纯字段名，否则「字段名\u0000owner」 */
+export function panelKey(name, owner) {
+  const n = String(name == null ? '' : name);
+  const o = typeof owner === 'string' && owner ? owner : '';
+  return o ? `${n}${OWNER_SEP}${o}` : n;
+}
+
+/** 从存储键拆出字段名和 owner（键里没有分隔符就 owner 为空） */
+export function panelKeyParts(key) {
+  const k = String(key == null ? '' : key);
+  const i = k.indexOf(OWNER_SEP);
+  return i < 0 ? { name: k, owner: '' } : { name: k.slice(0, i), owner: k.slice(i + 1) };
+}
+
+/** 存储键的显示名（去掉 owner 尾巴，就是字段名本身） */
+export function panelFieldName(key) {
+  return panelKeyParts(key).name;
+}
+
+/**
+ * owner id → 显示名（注入状态栏时给字段加「谁的前缀」用）。
+ *   · 'player' → 玩家在会话里的名字（没进世界就退回「我」）
+ *   · 角色卡 id / 世界书副本 id → 那张卡的名字
+ *   · 空 / 查不到 → 空串（无前缀，字段名原样）
+ */
+export function panelOwnerLabel(convo, owner) {
+  const o = String(owner == null ? '' : owner);
+  if (!o) return '';
+
+  if (o === 'player') {
+    const p = convo && convo.player;
+    const n = String((p && p.name) || '').trim();
+    return n || '我';
+  }
+
+  const card = findCardForOwner(convo, o);
+  return (card && card.name) || o;
+}
+
+/**
+ * owner id → 卡对象。先查角色库，再查本会话绑定的世界书里的角色副本。
+ * （和 cast.js 的 findCardById 是同一套查找，但 panel 不能 import cast ——
+ * cast 反向 import panel，会成环。）
+ */
+function findCardForOwner(convo, id) {
+  const target = String(id || '').trim();
+  if (!target) return null;
+
+  const direct = characterById(target);
+  if (direct) return direct;
+
+  if (convo) {
+    for (const bookId of convoWorldbookIds(convo)) {
+      const book = worldbookById(bookId);
+      const found = book ? worldbookCharacters(book).find((c) => c && c.id === target) : null;
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * 注入状态栏时的字段名：只有「同一个字段名被多个 owner 共用」时才拼
+ * 「角色名·字段名」前缀（否则模型分不清同名归属）；无冲突的字段保持纯字段名，
+ * 单角色聊天完全不受影响。
+ *
+ * hasClash 由调用方算好传进来（一个字段名是否被多个 owner 共用）。
+ */
+function panelFieldDisplayName(convo, key, hasClash) {
+  const { name, owner } = panelKeyParts(key);
+  if (!owner) return name;
+  if (!hasClash || !hasClash(name)) return name;
+  const label = panelOwnerLabel(convo, owner);
+  return label ? `${label}·${name}` : name;
+}
+
+/** 会话里「被多个 owner 共用的字段名」集合 —— 只有这些才需要前缀区分 */
+function clashingFieldNames(convo) {
+  const owners = new Map();
+  for (const key of convoPanelFields(convo)) {
+    const { name, owner } = panelKeyParts(key);
+    if (!owner) continue;
+    if (!owners.has(name)) owners.set(name, new Set());
+    owners.get(name).add(owner);
+  }
+  const clash = new Set();
+  for (const [name, set] of owners) {
+    if (set.size > 1) clash.add(name);
+  }
+  return clash;
+}
+
+/** 分隔角色名和字段名的点（注入时用「·」拼，扫描时按它拆） */
+const OWNER_LABEL_SEP = '·';
+
+/**
+ * 扫描时，把模型输出的「字段名」（可能带「角色名·」前缀）拆成归属。
+ * 返回 { owner, name }：owner 是反查到的 id（查不到就空 = 无归属/场景）。
+ *
+ * 为什么只按「·」拆一次、拆不开就当无归属：模型不一定照抄前缀，拆错了
+ * 顶多把这条归到场景，不会丢数据、也不会崩 —— 归属信息本来就是种入时定的。
+ */
+function parseFieldLabel(convo, label) {
+  const text = String(label == null ? '' : label).trim();
+  const i = text.indexOf(OWNER_LABEL_SEP);
+  if (i <= 0) return { owner: '', name: text };
+
+  const head = text.slice(0, i).trim();
+  const name = text.slice(i + 1).trim();
+  if (!head || !name) return { owner: '', name: text };
+
+  // 反查：head 是某个在场角色的名字（或玩家名）吗？
+  const owner = ownerIdByLabel(convo, head);
+  return owner ? { owner, name } : { owner: '', name: text };
+}
+
+/** 显示名 → owner id 的反查（「露西娅」→ 露西娅副本 id）。查不到返回空。 */
+function ownerIdByLabel(convo, label) {
+  const text = String(label || '').trim();
+  if (!text || !convo) return '';
+
+  const p = convo.player;
+  if (p && String(p.name || '').trim() === text) return 'player';
+
+  const direct = characterById(text);
+  if (direct && String(direct.name || '').trim() === text) return direct.id;
+
+  for (const bookId of convoWorldbookIds(convo)) {
+    const book = worldbookById(bookId);
+    if (!book) continue;
+    const found = worldbookCharacters(book).find((c) => c && String(c.name || '').trim() === text);
+    if (found) return found.id;
+  }
+  return '';
+}
+
 // 身份四项（姓名/年龄/性别/种族）在状态面板里的分组名。它们和「时间/地点/
 // 好感度」这类随剧情变化的动态状态不是一回事，单独成块，跟状态栏/关系/背包并列。
 export const IDENTITY_GROUP = '身份';
@@ -70,8 +231,9 @@ const IDENTITY_FIELD_NAMES = new Set(['姓名', '年龄', '性别', '种族']);
  * 兜底归进「身份」。分组只是视图键，面板上的分组编辑不存在（组的归属在
  * 种进去那一刻就定了），所以这个兜底不会跟任何手工操作打架。
  */
-export function panelFieldGroup(convo, name) {
-  const group = (convoPanelDef(convo, name) || {}).group || '';
+export function panelFieldGroup(convo, key) {
+  const name = panelFieldName(key);
+  const group = (convoPanelDef(convo, key) || {}).group || '';
   if (group) return group;
   return IDENTITY_FIELD_NAMES.has(name) ? IDENTITY_GROUP : '';
 }
@@ -159,14 +321,14 @@ export function stripPanelLines(text, knownFields) {
 export function panelGroupNames(convo) {
   const names = new Set();
   const defs = convoPanelDefs(convo);
-  for (const name of Object.keys(defs)) {
-    const g = (defs[name] || {}).group;
+  for (const key of Object.keys(defs)) {
+    const g = (defs[key] || {}).group;
     if (g) names.add(g);
   }
   // 身份四项可能没记 group（老会话），但 panelFieldGroup 会兜底成「身份」，
   // 所以只要面板里有身份字段，就把「身份」也算作已知分组。
-  for (const name of convoPanelFields(convo)) {
-    if (IDENTITY_FIELD_NAMES.has(name)) {
+  for (const key of convoPanelFields(convo)) {
+    if (IDENTITY_FIELD_NAMES.has(panelFieldName(key))) {
       names.add(IDENTITY_GROUP);
       break;
     }
@@ -314,18 +476,25 @@ export function convoPanelDefs(convo) {
  * 归一化整张定义表。读盘进来的数据不可信（用户手改过 JSON、版本更老），
  * 所以只留真正能用的条目，其余丢掉 —— 丢一条定义只是少了范围提示，
  * 留一条坏定义却可能让夹取逻辑算出个乱值。
+ *
+ * 兼容两种键：老格式纯字段名（owner 记在 def.owner 里）、新格式复合键
+ * （「字段名\u0000owner」，owner 既在键里也在 def.owner 里）。归一化时按
+ * 字段名处理、按复合键写回，两种输入产出同一种规范格式。
  */
 export function normalizePanelDefs(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
 
   const out = {};
   let count = 0;
-  for (const name of Object.keys(value)) {
+  for (const rawKey of Object.keys(value)) {
     if (count >= MAX_PANEL_FIELDS) break;
-    const raw = value[name];
+    const raw = value[rawKey];
     if (!raw || typeof raw !== 'object') continue;
 
-    const def = normalizePanelField({ ...raw, name, value: '' });
+    const { name, owner: keyOwner } = panelKeyParts(rawKey);
+    const owner = (raw.owner && typeof raw.owner === 'string' ? raw.owner : keyOwner) || '';
+
+    const def = normalizePanelField({ ...raw, name, owner, value: '' });
     if (!def) continue;
     // normalizePanelField 对没有意义的定义只回 type:'text' 且没有范围/hint，
     // 这种和「没有定义」等价，不用存。但**分组（group）和归属（owner）本身是有意义的**——
@@ -335,7 +504,8 @@ export function normalizePanelDefs(value) {
     const hasRange = typeof def.min === 'number' || typeof def.max === 'number';
     if (def.type === 'text' && !def.hint && !hasRange && !def.group && !def.owner) continue;
 
-    out[name] = {
+    const key = panelKey(def.name, def.owner);
+    out[key] = {
       type: def.type,
       ...(typeof def.min === 'number' ? { min: def.min } : {}),
       ...(typeof def.max === 'number' ? { max: def.max } : {}),
@@ -356,11 +526,52 @@ export function convoPanelDef(convo, name) {
 
 /**
  * 字段属于谁：'player' = 玩家自己；某个角色卡 id = 那个角色；空 = 场景/不归属。
- * 用来把「我的状态」从面板里拆出去单独看（面板只显示 owner != 'player' 的）。
+ * 用来把「我的状态」从面板里拆出去单独看（面板只显示 owner 为空的）。
+ *
+ * 归属以**存储键里的 owner** 为准（复合键方案）；老数据（纯字段名键）则退回
+ * def 里记的 owner —— 迁移前两者是一致的，迁移后键里就是权威。
  */
-export function panelFieldOwner(convo, name) {
-  const owner = (convoPanelDef(convo, name) || {}).owner;
+export function panelFieldOwner(convo, key) {
+  const fromKey = panelKeyParts(key).owner;
+  if (fromKey) return fromKey;
+  const owner = (convoPanelDef(convo, key) || {}).owner;
   return typeof owner === 'string' && owner ? owner : '';
+}
+
+/**
+ * 会话里去重后的字段名列表（不含 owner 尾巴）。
+ * 这是注入提示词 / 剥正文时用的「已知字段名」—— 模型看到的是字段名本身，
+ * 不是复合键，所以这里按名字去重。
+ */
+export function convoFieldNames(convo) {
+  const seen = new Set();
+  const out = [];
+  for (const key of convoPanelFields(convo)) {
+    const name = panelFieldName(key);
+    if (name && !seen.has(name)) {
+      seen.add(name);
+      out.push(name);
+    }
+  }
+  return out;
+}
+
+/**
+ * 会话里去重后的「显示名」列表（有归属冲突的字段是「角色名·字段名」，其余原名）。
+ * 剥正文 / 流式剥状态块时用它做 knownFields —— 因为注入和模型照抄的都是显示名。
+ */
+export function convoFieldDisplayNames(convo) {
+  const clash = clashingFieldNames(convo);
+  const seen = new Set();
+  const out = [];
+  for (const key of convoPanelFields(convo)) {
+    const dn = panelFieldDisplayName(convo, key, (name) => clash.has(name));
+    if (dn && !seen.has(dn)) {
+      seen.add(dn);
+      out.push(dn);
+    }
+  }
+  return out;
 }
 
 /**
@@ -401,35 +612,67 @@ export function syncConvoPanel(convo) {
   // 「剧情选项」，于是老会话的面板里可能已经躺着一个叫这个名字的脏字段 ——
   // 光把名字加进保留名单只会让**新**扫描不再收它，已经存下的那个不会自己消失
   // （这一段的「累积」语义恰恰保证了它留下来）。所以在入口处清一遍，老会话一跑就自愈。
-  const order = existingFields.filter((name) => panelFieldAllowed(name));
-  const known = new Set(order);
-  const latest = new Map();
+  // 复合键方案：过滤时按「字段名」判断（保留名是名字维度的）。
+  const order = existingFields.filter((key) => panelFieldAllowed(panelFieldName(key)));
   const defs = { ...convoPanelDefs(convo) };
   // 定义表里也要清：脏字段的定义留着的话，cleanAssistantText 剥旧消息时
   // 还会把它当「已知字段」照剥（那边是按 knownFields 判断的），不一致。
-  for (const name of Object.keys(defs)) {
-    if (!panelFieldAllowed(name)) delete defs[name];
+  for (const key of Object.keys(defs)) {
+    if (!panelFieldAllowed(panelFieldName(key))) delete defs[key];
   }
+
+  // 已存在的复合键集合（判断扫描到的字段是不是新字段）
+  const keySet = new Set(order);
+  // 传给 extractPanelFromText 的「已知字段名」：显示名（有冲突才带归属前缀），去重。
+  // 模型看到的/照抄的就是显示名（注入时 formatPanelForPrompt 写的就是它），
+  // 所以这里必须以显示名做 knownFields，否则带前缀的字段会被当成未知字段，
+  // 值一长就被误 skip。
+  const clash = clashingFieldNames(convo);
+  const knownNames = [];
+  const known = new Set();
+  for (const key of order) {
+    const dn = panelFieldDisplayName(convo, key, (name) => clash.has(name));
+    if (dn && !known.has(dn)) {
+      known.add(dn);
+      knownNames.push(dn);
+    }
+  }
+  const latest = new Map();
 
   for (const msg of convo.messages) {
     if (!msg || msg.role !== 'assistant') continue;
     const content = String(msg.content || '');
     if (!content.includes('【')) continue;
 
-    const found = extractPanelFromText(content, [...known]);
-    for (const [name, value] of found) {
-      if (!known.has(name)) {
+    const found = extractPanelFromText(content, knownNames);
+    for (const [rawName, value] of found) {
+      // 模型可能带「角色名·字段名」前缀（我们注入时就是这么写的）。拆出归属，
+      // 反查到 owner 就更新那个角色的字段；拆不开就退回纯字段名（场景/无归属）。
+      const { owner, name } = parseFieldLabel(convo, rawName);
+      const key = panelKey(name, owner);
+
+      if (!keySet.has(key)) {
         if (order.length >= MAX_PANEL_FIELDS) continue;
-        order.push(name);
-        known.add(name);
+        order.push(key);
+        keySet.add(key);
         // 模型自己冒出来的字段：从值的形状补个定义（「63/100」= 带范围的数值），
         // 否则它永远没有进度条、也不受范围约束。
-        if (!defs[name]) {
+        if (!defs[key]) {
           const inferred = inferPanelDef(name, value);
-          if (inferred) defs[name] = inferred;
+          if (inferred) {
+            const d = { ...inferred };
+            if (owner) d.owner = owner;
+            defs[key] = d;
+          }
+        }
+        // 有新字段时，后续消息扫描用的 knownNames 也要带上它（带上原始写法，
+        // 让 extractPanelFromText 认它是已知字段）
+        if (!known.has(rawName)) {
+          known.add(rawName);
+          knownNames.push(rawName);
         }
       }
-      latest.set(name, value);
+      latest.set(key, value);
     }
   }
 
@@ -437,9 +680,9 @@ export function syncConvoPanel(convo) {
   // 有范围的数值字段在这里夹一下 —— 模型写 150/100、-5/100 都会被拉回范围内，
   // 否则面板上会长期挂着一个越界的数，而且下一轮它还会照抄那个越界值。
   const panel = {};
-  for (const name of order) {
-    const value = latest.has(name) ? latest.get(name) : existingPanel[name];
-    if (value !== undefined) panel[name] = clampPanelValue(convo, name, value, defs);
+  for (const key of order) {
+    const value = latest.has(key) ? latest.get(key) : existingPanel[key];
+    if (value !== undefined) panel[key] = clampPanelValue(convo, key, value, defs);
   }
 
   convo.panelFields = order;
@@ -497,13 +740,15 @@ export function mergeMeterValue(value, prev, def) {
  * （它就是模型上一轮写的），掺上注解会影响它照着抄。
  */
 export function panelFieldLegend(convo, fields) {
+  const clash = clashingFieldNames(convo);
   const lines = [];
-  for (const name of fields) {
-    const def = convoPanelDef(convo, name);
+  for (const key of fields) {
+    const def = convoPanelDef(convo, key);
     if (!def) continue;
     const desc = describePanelField(def);
     if (!desc) continue;
-    lines.push(`- ${name}：${desc}`);
+    // 图例里也用「角色名·字段名」的显示名（有冲突时），和正文保持一致
+    lines.push(`- ${panelFieldDisplayName(convo, key, (name) => clash.has(name))}：${desc}`);
   }
   return lines;
 }
@@ -546,16 +791,22 @@ export function formatPanelForPrompt(convo) {
   if (!fields.length) return '';
 
   const panel = convoPanel(convo);
+  // 只有「同名字段被多个 owner 共用」才加前缀（见 clashingFieldNames）
+  const clash = clashingFieldNames(convo);
+  const label = (key) => panelFieldDisplayName(convo, key, (name) => clash.has(name));
 
   // 按分组拼。分组的字段顺序由 groupPanelFields 保序，没分组的排最后。
   // 老会话的身份四项没有记 group，panelFieldGroup 按字段名兜底归进「身份」。
-  const groups = groupPanelFields(fields.map((name) => ({ name, group: panelFieldGroup(convo, name) })));
+  // 分组桶里存的 key 是复合键，注入时把显示名换成「角色名·字段名」（无冲突保持原名）。
+  const groups = groupPanelFields(
+    fields.map((key) => ({ key, name: panelFieldName(key), group: panelFieldGroup(convo, key) }))
+  );
 
   const lines = [];
   let groupCount = 0;
   for (const bucket of groups) {
     const filled = bucket.fields.filter((f) => {
-      const v = panel[f.name];
+      const v = panel[f.key];
       return v !== undefined && v !== '';
     });
     if (!filled.length) continue;
@@ -564,7 +815,9 @@ export function formatPanelForPrompt(convo) {
       groupCount += 1;
       lines.push(panelGroupHeader(bucket.id));
     }
-    for (const f of filled) lines.push(`【${f.name}】：${panel[f.name]}`);
+    for (const f of filled) {
+      lines.push(`【${label(f.key)}】：${panel[f.key]}`);
+    }
   }
 
   const grouped = groupCount > 0;
@@ -580,10 +833,11 @@ export function formatPanelForPrompt(convo) {
   // 一个值都还没有 = 刚用角色卡的属性模板开的局。
   // 这时候也要把字段名告诉模型，否则它不知道要维护哪些状态 ——
   // 而「模型得自己碰巧输出【金币】：100」正是属性模板要解决的冷启动问题。
+  const fieldNames = fields.map(label);
   if (!lines.length) {
     return (
       '[当前状态]\n' +
-      `本局需要维护这些状态字段：${fields.join('、')}\n` +
+      `本局需要维护这些状态字段：${fieldNames.join('、')}\n` +
       '请在每次回复的末尾，用「【字段】：值」的格式把它们完整输出一遍' +
       '（还不知道的写「未知」）；之后每轮照抄并更新，不要凭空改动已有数值。' +
       groupNote +
@@ -625,6 +879,8 @@ export function appendPanelFields(convo, pairs) {
   const fields = [...convoPanelFields(convo)];
   const panel = { ...convoPanel(convo) };
   const defs = { ...convoPanelDefs(convo) };
+  // 去重键是「字段名 + owner」：同名的字段，只要归属不同的人，就能各自存在。
+  // 以前用字段名去重，世界书里两个角色同名属性会互相挤掉（后种的全丢）。
   const known = new Set(fields);
   let changed = false;
 
@@ -632,21 +888,24 @@ export function appendPanelFields(convo, pairs) {
     // 两种形状都收：[name, value] 和完整定义对象
     const raw = Array.isArray(pair) ? { name: pair[0], value: pair[1] } : pair || {};
     const name = String(raw.name == null ? '' : raw.name).trim();
-    if (!name || known.has(name)) continue;
-    if (!panelFieldAllowed(name)) continue;
+    if (!name || !panelFieldAllowed(name)) continue;
     if (fields.length >= MAX_PANEL_FIELDS) break;
 
-    fields.push(name);
-    known.add(name);
-    changed = true;
-
-    // 归一化一遍：范围写反了会被换正，类型不认识会退回 text
+    // 归一化一遍：范围写反了会被换正，类型不认识会退回 text。owner 也从这里拿。
     const def = normalizePanelField({ ...raw, name });
     if (!def) continue;
 
+    const owner = typeof def.owner === 'string' ? def.owner : '';
+    const key = panelKey(name, owner);
+    if (known.has(key)) continue;
+
+    fields.push(key);
+    known.add(key);
+    changed = true;
+
     // 范围/hint/分组/归属记到会话上（只有真的有内容才记，免得存一堆空壳）
     if (def.type !== 'text' || def.hint || def.group || def.owner) {
-      defs[name] = {
+      defs[key] = {
         type: def.type,
         ...(typeof def.min === 'number' ? { min: def.min } : {}),
         ...(typeof def.max === 'number' ? { max: def.max } : {}),
@@ -659,7 +918,7 @@ export function appendPanelFields(convo, pairs) {
     // 初始值也过一遍范围（卡作者自己写越界了，也一样夹回来），
     // 并统一成「分子/满值」格式（卡里 initial 常是裸数字 20）
     const text = String(def.value == null ? '' : def.value).trim();
-    if (text) panel[name] = clampFieldValue(mergeMeterValue(text, '', def), def).value.slice(0, 500);
+    if (text) panel[key] = clampFieldValue(mergeMeterValue(text, '', def), def).value.slice(0, 500);
   }
 
   if (!changed) return false;
@@ -739,10 +998,77 @@ export function syncPlayerNameFromPanel(convo) {
   const player = convo && convo.player;
   if (!player || typeof player !== 'object') return false;
 
-  const name = String(convoPanel(convo)['姓名'] || '').trim();
+  // 「姓名」现在可能带 owner 后缀（玩家自己的是「姓名\u0000player」）；
+  // 优先取玩家那份，取不到再退回纯字段名（老数据 / 无归属）。
+  const name = String(
+    convoPanel(convo)[panelKey('姓名', 'player')] || convoPanel(convo)['姓名'] || ''
+  ).trim();
   if (!name || name === player.name) return false;
 
   player.name = name.slice(0, 40);
   convo.updatedAt = now();
   return true;
+}
+
+/**
+ * 把老格式的面板就地升级成复合键。
+ *
+ * 老格式：panelFields 是字段名数组，panel / panelDefs 的键是纯字段名，
+ * 归属信息放在 panelDefs[name].owner 里（可能没有，= 场景字段）。
+ * 新格式：键 = name + '\u0000' + owner（owner 为空时仍是纯字段名）。
+ *
+ * 迁移是幂等的：已经带分隔符的键原样保留。挂点：应用启动读盘后
+ * （main.js 的 init 里）对每个会话调一次 —— 之后内存里就全是新格式，
+ * 落盘也跟着升级，老数据只迁移这一次。
+ */
+export function migrateConvoPanel(convo) {
+  if (!convo || typeof convo !== 'object') return;
+
+  const fields = Array.isArray(convo.panelFields) ? convo.panelFields : [];
+  const panel = convo.panel && typeof convo.panel === 'object' ? convo.panel : {};
+  const defs = convo.panelDefs && typeof convo.panelDefs === 'object' ? convo.panelDefs : {};
+
+  // 已经迁过（任一键含分隔符）就不动，避免重复处理
+  const alreadyMigrated = fields.some((k) => String(k).includes(OWNER_SEP));
+  if (alreadyMigrated) return;
+
+  const newFields = [];
+  const newPanel = {};
+  const newDefs = {};
+
+  for (const raw of fields) {
+    const name = String(raw == null ? '' : raw);
+    if (!name) continue;
+    const owner = String((defs[name] && defs[name].owner) || '');
+    const key = panelKey(name, owner);
+    if (newFields.includes(key)) continue; // 同名同归属只留一个（老数据不该有，兜底）
+    newFields.push(key);
+    if (panel[name] !== undefined) newPanel[key] = panel[name];
+    if (defs[name]) newDefs[key] = defs[name];
+  }
+
+  convo.panelFields = newFields;
+  convo.panel = newPanel;
+  convo.panelDefs = newDefs;
+}
+
+/**
+ * 往一本书里新加了角色副本之后，把它们的属性种进所有「正在玩这本书」的会话。
+ *
+ * 为什么需要这一步：加入副本本身只动了世界书（persistLibrary），不回头通知
+ * 会话。如果用户是「进世界之后才想起来加角色」，这些新 NPC 的属性就不会出现在
+ * 当前会话的状态面板里，点开状态卡是空的。这里把新副本补种进去，让它们立刻可见。
+ *
+ * 纯函数：只改传入的 conversations 里匹配的那些会话，不碰 state / DOM，
+ * 也不负责落盘（落盘由调用方决定要不要做）。返回实际种入了的会话数。
+ */
+export function seedWorldbookCharactersIntoConvos(conversations, book, copies) {
+  if (!Array.isArray(conversations) || !book || !Array.isArray(copies) || !copies.length) return 0;
+
+  let seeded = 0;
+  for (const convo of conversations) {
+    if (!convo || !convoWorldbookIds(convo).includes(book.id)) continue;
+    if (seedPanelFromCharacters(convo, copies)) seeded += 1;
+  }
+  return seeded;
 }

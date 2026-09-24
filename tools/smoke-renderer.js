@@ -131,6 +131,23 @@ async function savedWorldbooks() {
   return (res && res.worldbooks) || [];
 }
 
+// 面板字段的键现在是「字段名\u0000owner」复合键（见 data/panel.js），
+// 但测试断言要按「字段名」读值/定义。这两个辅助按字段名在对象里找。
+function panelValByName(panel, name) {
+  if (!panel || typeof panel !== 'object') return undefined;
+  for (const key of Object.keys(panel)) {
+    if (key === name || key.startsWith(`${name}\u0000`)) return panel[key];
+  }
+  return undefined;
+}
+function panelDefByName(defs, name) {
+  if (!defs || typeof defs !== 'object') return null;
+  for (const key of Object.keys(defs)) {
+    if (key === name || key.startsWith(`${name}\u0000`)) return defs[key];
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 //  场景 1：启动
 // ---------------------------------------------------------------------------
@@ -783,18 +800,18 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     const active = convos.conversations.find((c) => c.id === convos.activeId);
     check(
       '越界值被夹回上限（150 → 100/100）',
-      !!active && active.panel && active.panel['好感度'] === '100/100',
+      !!active && active.panel && panelValByName(active.panel, '好感度') === '100/100',
       JSON.stringify(active && active.panel)
     );
     check(
       '字段定义跟着会话一起存下来了（有范围才夹得住）',
-      !!active && !!active.panelDefs && !!active.panelDefs['好感度'] && active.panelDefs['好感度'].max === 100,
+      !!active && panelDefByName(active.panelDefs, '好感度') && panelDefByName(active.panelDefs, '好感度').max === 100,
       JSON.stringify(active && active.panelDefs)
     );
     check(
       '分组也跟着定义存下来了',
-      !!active && !!active.panelDefs['好感度'] && active.panelDefs['好感度'].group === '关系',
-      JSON.stringify(active && active.panelDefs && active.panelDefs['好感度'])
+      !!active && panelDefByName(active.panelDefs, '好感度') && panelDefByName(active.panelDefs, '好感度').group === '关系',
+      JSON.stringify(active && panelDefByName(active.panelDefs, '好感度'))
     );
 
     // 范围内的值不该被动
@@ -805,8 +822,8 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     const active2 = convos2.conversations.find((c) => c.id === convos2.activeId);
     check(
       '范围内的值不动（60 → 60/100）',
-      !!active2 && active2.panel['好感度'] === '60/100',
-      JSON.stringify(active2 && active2.panel['好感度'])
+      !!active2 && active2.panel && panelValByName(active2.panel, '好感度') === '60/100',
+      JSON.stringify(active2 && panelValByName(active2.panel, '好感度'))
     );
   }
 
@@ -2653,8 +2670,8 @@ await scenario('剧情选项', async () => {
       const ca = cv.conversations.find((c) => c.id === cv.activeId);
       check(
         '推断出来的范围也真的夹得住（150 → 100/100）',
-        !!ca && ca.panel['好感度'] === '100/100',
-        JSON.stringify(ca && ca.panel['好感度'])
+        !!ca && ca.panel && panelValByName(ca.panel, '好感度') === '100/100',
+        JSON.stringify(ca && panelValByName(ca.panel, '好感度'))
       );
     }
   }
@@ -3088,7 +3105,7 @@ await scenario('状态卡：点头像查看与编辑', async () => {
   await sleep(300);
   let cv = await window.mimitale.getConversations();
   let wc = cv.conversations.find((c) => c.title === '冒烟测试世界');
-  check('卡片里改的值落到了会话面板上', !!wc && wc.panel['年龄'] === '19', wc ? String(wc.panel['年龄']) : 'null');
+  check('卡片里改的值落到了会话面板上', !!wc && wc.panel && panelValByName(wc.panel, '年龄') === '19', wc ? String(panelValByName(wc.panel, '年龄')) : 'null');
 
   // --- 加一个字段 ---
   setValue($('#state-cards .state-card[data-owner="player"] .sc-new'), '心情');
@@ -3101,8 +3118,8 @@ await scenario('状态卡：点头像查看与编辑', async () => {
   wc = cv.conversations.find((c) => c.title === '冒烟测试世界');
   check(
     '新字段归到玩家名下（owner=player）',
-    !!wc && !!wc.panelDefs['心情'] && wc.panelDefs['心情'].owner === 'player',
-    JSON.stringify(wc && wc.panelDefs['心情'])
+    !!wc && panelDefByName(wc.panelDefs, '心情') && panelDefByName(wc.panelDefs, '心情').owner === 'player',
+    JSON.stringify(wc && panelDefByName(wc.panelDefs, '心情'))
   );
 
   // --- 删掉它 ---
@@ -3199,6 +3216,308 @@ await scenario('状态卡：点头像查看与编辑', async () => {
       check('换个名字就能加成（提示给的活路走得通）', true);
     }
   }
+});
+
+// ---------------------------------------------------------------------------
+//  场景 26：切世界书时，编辑器里残留的旧表单不能盖到「刚切过去的那一本」上
+//
+//  用户报的现象：「导入世界书时，世界书的名字不会变」。
+//  根因：openWorldbooksModal 以前是**调用方**先把 editingWorldbookId 改成目标书，
+//  再走 selectWorldbook → stashWorldbookName()；而那个 stash 写的是
+//  currentWorldbook() —— 这时它已经是新书了。于是输入框里残留的上一本的书名
+//  被写进新书，界面也还显示着旧名字（重开一次才正常）。
+//
+//  「导入世界书」（openWorldbookEditor）/ 列表卡上的「编辑」（editWorldbookFromPage）
+//  /「新建世界书」三条路都走 openWorldbooksModal，所以这里用点按钮的方式覆盖
+//  （不调内部函数，见本文件头部的规矩）。第三条路还能顺便验「切回来时是它自己「
+//  的名字」，也就是「点编辑另一本 → 那本被改成上一本的名字」这个会落盘的丢数据问题。
+// ---------------------------------------------------------------------------
+await scenario('世界书：切书时旧表单不能盖住新书', async () => {
+  const namesOnPage = () => $$('#wb-page-grid .char-card-name').map((n) => n.textContent);
+  const cardNamed = (name) => $$('#wb-page-grid .char-card').find((c) => c.title === name);
+
+  click('#btn-worldbooks');
+  await waitFor('切到世界书页面', () => shown('#view-worldbooks'));
+
+  // 打开种子里那本，改名「甲书」—— 输入框里从此留着「甲书」
+  click(buttonByText($$('#wb-page-grid .char-card')[0], '编辑'));
+  await waitFor('世界书弹窗打开', () => shown('#worldbooks-modal'));
+  await sleep(150);
+  setValue('#wb-name', '甲书');
+  await sleep(200);
+  check('书名已经改成「甲书」', $('#wb-name').value === '甲书', `输入框里是「${$('#wb-name').value}」`);
+
+  // 新建一本：它得用自己的默认名，不能被输入框里残留的「甲书」盖掉
+  click('#btn-new-worldbook');
+  await sleep(300);
+  check(
+    '新建的书用自己的默认名（没继承上一本的）',
+    $('#wb-name').value === '新世界书',
+    `输入框里是「${$('#wb-name').value}」`
+  );
+  check(
+    '列表页上两本书各是各的名字',
+    namesOnPage().includes('甲书') && namesOnPage().includes('新世界书'),
+    JSON.stringify(namesOnPage())
+  );
+
+  // 给这一本也起个自己的名字，然后关掉弹窗（关闭时会落盘）
+  setValue('#wb-name', '乙书');
+  await sleep(200);
+  click('#btn-close-worldbooks');
+  await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
+  await sleep(200);
+
+  const target = cardNamed('甲书');
+  check('列表页上「甲书」还在（没被新书顶掉）', !!target, JSON.stringify(namesOnPage()));
+  click(buttonByText(target, '编辑'));
+  await waitFor('世界书弹窗打开', () => shown('#worldbooks-modal'));
+  await sleep(250);
+  check(
+    '点「编辑」另一本，书名字段显示的是那一本自己的名字',
+    $('#wb-name').value === '甲书',
+    `输入框里是「${$('#wb-name').value}」`
+  );
+
+  click('#btn-close-worldbooks');
+  await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
+  await sleep(400);
+  const names = (await savedWorldbooks()).map((b) => b.name);
+  check(
+    '两本书的名字都各自落盘了（没有互相覆盖）',
+    names.includes('甲书') && names.includes('乙书'),
+    JSON.stringify(names)
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  场景 27：世界书里多个角色有同名字段时，各自保留、不互相挤掉
+//
+//  用户报的现象：把妹妹卡加进世界书、用姐姐卡进世界，点妹妹头像的状态卡
+//  「基本没几条属性」。根因：面板字段以前按「字段名」全局去重（一维数组 +
+//  键是字段名），姐姐和妹妹都有「好感度/生命/上衣」这些同名属性时，先种的
+//  姐姐抢到所有同名字段，妹妹的同名字段全被挤掉。
+//
+//  修复：面板字段身份升级成「字段名 + owner」复合键（data/panel.js），
+//  同名但归属不同的字段各自独立。这里用动态 import 真模块验证纯函数行为：
+//    · appendPanelFields 能种进两个 owner 的同名字段（各一条，键不同）；
+//    · panelFieldOwner 能按 owner 拆开；
+//    · formatPanelForPrompt 注入时，同名冲突的字段加「角色名·」前缀、
+//      无冲突的字段保持纯字段名（单角色聊天不受影响）。
+// ---------------------------------------------------------------------------
+await scenario('面板：同名属性按 owner 各自保留', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/panel.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('panel 模块能动态加载', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.appendPanelFields !== 'function') {
+    check('panel 模块能动态加载', false);
+    return;
+  }
+  check('panel 模块能动态加载', true);
+
+  // 造一个空会话，两个角色：姐姐（id=sis）和妹妹（id=young）都有「好感度」
+  const convo = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
+
+  mod.seedPanelFromCharacters(
+    convo,
+    [{ id: 'sis', name: '姐姐', attributes: [{ name: '好感度', type: 'meter', min: 0, max: 100, value: '5/100' }] }],
+    'sis'
+  );
+  mod.seedPanelFromCharacters(
+    convo,
+    [{ id: 'young', name: '妹妹', attributes: [{ name: '好感度', type: 'meter', min: 0, max: 100, value: '80/100' }] }],
+    'young'
+  );
+
+  check(
+    '两个角色的同名「好感度」各自种进去（两条，不是被挤成一条）',
+    convo.panelFields.length === 2,
+    JSON.stringify(convo.panelFields)
+  );
+  check(
+    '按 owner 能拆开两个「好感度」',
+    convo.panelFields.filter((k) => mod.panelFieldOwner(convo, k) === 'sis').length === 1 &&
+      convo.panelFields.filter((k) => mod.panelFieldOwner(convo, k) === 'young').length === 1,
+    JSON.stringify(convo.panelFields.map((k) => [k, mod.panelFieldOwner(convo, k)]))
+  );
+  check(
+    '姐姐的好感度值没被妹妹盖掉',
+    convo.panelFields.some((k) => mod.panelFieldOwner(convo, k) === 'sis' && convo.panel[k] === '5/100'),
+    JSON.stringify(convo.panel)
+  );
+
+  // 注入提示词：同名字段有冲突 → 加「角色名·」前缀；无冲突字段保持纯名
+  const withPlayer = { ...convo, player: { name: '我' } };
+  // 妹妹再加一个独有字段，验证「无冲突不加前缀」
+  mod.seedPanelFromCharacters(
+    withPlayer,
+    [{ id: 'young', name: '妹妹', attributes: [{ name: '铜板', type: 'meter', min: 0, max: 100, value: '3/100' }] }],
+    'young'
+  );
+  const prompt = mod.formatPanelForPrompt(withPlayer);
+  // 这里 owner 用的是假 id（sis/young，不在角色库/世界书里），panelOwnerLabel
+  // 查不到角色名时退回 id 本身作前缀 —— 真实场景里 owner 是世界书副本 id，
+  // 能查到角色名。断言按「前缀 = 归属 id」来验冲突确实加了前缀。
+  check('注入里同名「好感度」带归属前缀区分', prompt.includes('sis·好感度') && prompt.includes('young·好感度'), prompt);
+  check('注入里无冲突的「铜板」保持纯字段名（不带前缀）', prompt.includes('【铜板】') && !prompt.includes('young·铜板'), prompt);
+
+  // 单角色聊天：字段名不冲突时，注入不该加前缀（保持老行为）
+  const solo = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
+  mod.seedPanelFromCharacters(
+    solo,
+    [{ id: 'only', name: '单角', attributes: [{ name: '好感度', type: 'meter', min: 0, max: 100, value: '20/100' }] }],
+    'only'
+  );
+  const soloPrompt = mod.formatPanelForPrompt(solo);
+  check('单角色不冲突时注入保持纯字段名（【好感度】）', soloPrompt.includes('【好感度】') && !soloPrompt.includes('单角·好感度'), soloPrompt);
+
+  // 迁移：老格式（纯字段名键 + def.owner）能就地升级成复合键
+  const legacy = {
+    panel: { 好感度: '20/100' },
+    panelFields: ['好感度'],
+    panelDefs: { 好感度: { type: 'meter', min: 0, max: 100, owner: 'oldid' } }
+  };
+  mod.migrateConvoPanel(legacy);
+  check(
+    '老格式面板能迁移成复合键（键里带 owner）',
+    legacy.panelFields.length === 1 && legacy.panelFields[0] === '好感度\u0000oldid' && legacy.panel['好感度\u0000oldid'] === '20/100',
+    JSON.stringify(legacy)
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  场景 28：进世界之后才往书里加角色，新 NPC 的属性也要种进会话
+//
+//  用户诉求：想「玩到一半再往世界书里加角色当 NPC」。加入副本这个动作本身
+//  只动世界书（persistLibrary），不回头通知会话 —— 若不补，新 NPC 的状态
+//  卡是空的。修复抽出纯函数 seedWorldbookCharactersIntoConvos，遍历所有绑定
+//  这本书的会话补种。这里动态 import 真模块验证：
+//    · 绑了这本书的会话被种入新副本的属性；
+//    · 没绑这本书的会话不被碰；
+//    · 同名属性也不会盖掉已有的（复合键按 owner 区分）。
+// ---------------------------------------------------------------------------
+await scenario('世界书：进世界后加角色也能种进会话', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/panel.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('panel 模块能动态加载（场景28）', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.seedWorldbookCharactersIntoConvos !== 'function') {
+    check('panel 模块能动态加载（场景28）', false);
+    return;
+  }
+  check('panel 模块能动态加载（场景28）', true);
+
+  // 两个会话：A 绑了这本书，B 没绑
+  const book = { id: 'bk1', name: '酒馆' };
+  const convos = [
+    { id: 'cA', worldbookIds: ['bk1'], panel: {}, panelFields: [], panelDefs: {}, messages: [] },
+    { id: 'cB', worldbookIds: ['other'], panel: {}, panelFields: [], panelDefs: {}, messages: [] }
+  ];
+  // 新加入的副本：一个角色，带一个「生命」属性
+  const copies = [
+    { id: 'wc_new', name: '新来的NPC', attributes: [{ name: '生命', type: 'meter', min: 0, max: 100, value: '50/100' }] }
+  ];
+
+  const seeded = mod.seedWorldbookCharactersIntoConvos(convos, book, copies);
+
+  check('只种进了绑了这本书的那一个会话', seeded === 1, `seeded=${seeded}`);
+  check(
+    '绑了这本书的会话拿到了新 NPC 的属性（归属=副本 id）',
+    convos[0].panelFields.length === 1 &&
+      mod.panelFieldOwner(convos[0], convos[0].panelFields[0]) === 'wc_new' &&
+      convos[0].panel[convos[0].panelFields[0]] === '50/100',
+    JSON.stringify(convos[0].panelFields)
+  );
+  check(
+    '没绑这本书的会话完全没被碰',
+    convos[1].panelFields.length === 0,
+    JSON.stringify(convos[1].panelFields)
+  );
+
+  // 会话里已有同名的「生命」（属于另一个角色）时，新 NPC 的「生命」不该盖掉它
+  const clashConvo = { id: 'cC', worldbookIds: ['bk1'], panel: {}, panelFields: [], panelDefs: {}, messages: [] };
+  mod.seedPanelFromCharacters(clashConvo, [{ id: 'wc_old', name: '老角色', attributes: [{ name: '生命', type: 'meter', min: 0, max: 100, value: '90/100' }] }], 'wc_old');
+  mod.seedWorldbookCharactersIntoConvos([clashConvo], book, copies);
+  check(
+    '同名的「生命」按 owner 并存（老角色的 90 和新 NPC 的 50 都留着）',
+    clashConvo.panelFields.length === 2 &&
+      clashConvo.panelFields.some((k) => mod.panelFieldOwner(clashConvo, k) === 'wc_old' && clashConvo.panel[k] === '90/100') &&
+      clashConvo.panelFields.some((k) => mod.panelFieldOwner(clashConvo, k) === 'wc_new' && clashConvo.panel[k] === '50/100'),
+    JSON.stringify(clashConvo.panel)
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  场景 29：选卡当自己时，玩家设定里的 {{char}}/{{user}} 宏要替换成玩家本人
+//
+//  用户报的现象：用露西娅卡进世界，模型来回纠结「露西娅是主角还是外乡人」，
+//  把「你」当成了坐在邻桌的外乡人。根因：选卡当自己时，把卡上的 description/
+//  personality/scenario 原样塞进 player.profile —— 里面满篇 {{char}}、{{user}}
+//  字面宏，还带着「{{char}}端酒摔倒、{{user}}这个外乡人坐邻桌」的开场背景
+//  （那是「这张卡当 NPC、你另有其人」的预设）。注入时宏又没替换，模型读到
+//  裸占位符，加上「露西娅既是主角又是外乡人」的矛盾，就晕了。
+//
+//  修复：选卡拼设定时不再带 scenario，且宏替换成角色名；注入层（cast.js 的
+//  playerProfileForPrompt）再兜底替换一遍，历史脏数据也能自愈。这里动态 import
+//  真模块验证注入层的宏替换。
+// ---------------------------------------------------------------------------
+await scenario('选卡当自己：玩家设定的宏替换成本人', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/cast.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('cast 模块能动态加载', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.playerProfileForPrompt !== 'function') {
+    check('cast 模块能动态加载', false);
+    return;
+  }
+  check('cast 模块能动态加载', true);
+
+  // 老会话 / 手写的 profile：还带着字面的 {{char}}、{{user}}、<BOT>、<USER>
+  const convo = {
+    player: {
+      name: '露西娅',
+      profile:
+        '{{char}}，十八岁的魅魔混血姑娘。被{{user}}善意对待时第一反应是慌。' +
+        '开场背景：{{char}}端着托盘摔倒，<USER>这个外乡人坐在邻桌。'
+    }
+  };
+
+  const out = mod.playerProfileForPrompt(convo);
+
+  check(
+    '{{char}} 被替换成玩家本人（露西娅）',
+    !out.includes('{{char}}') && !out.includes('{{CHAR}}') && out.includes('露西娅，十八岁'),
+    out
+  );
+  check(
+    '{{user}} 被替换成玩家本人',
+    !out.includes('{{user}}') && !out.includes('{{USER}}') && out.includes('被露西娅善意对待'),
+    out
+  );
+  check(
+    '<USER> 也被替换',
+    !out.includes('<USER>') && !out.includes('<user>'),
+    out
+  );
+  check(
+    '最终文本不再含任何裸宏占位符',
+    !/\{\{(char|user)\}\}/i.test(out) && !/<(BOT|USER)>/i.test(out),
+    out
+  );
+
+  // 没写设定 / 没有玩家角色时返回空串，不该崩
+  check('没有 player 时返回空串', mod.playerProfileForPrompt({}) === '', String(mod.playerProfileForPrompt({})));
+  check('有 player 但没 profile 时返回空串', mod.playerProfileForPrompt({ player: { name: '甲' } }) === '');
 });
 
 return { results, notes, hoverProbe };
