@@ -335,6 +335,15 @@ async function requestCompletion(convo, options) {
       throw new Error('接口没有返回任何内容。可能是模型名不对，或该模型不支持流式输出。');
     }
 
+    // 推理模型（如 deepseek-reasoner）有时会把 max_tokens 全花在思考过程上，
+    // 正文还没开始就被截断 —— 结果只有「思考过程」、没有正文。与其留下一个
+    // 空气泡让用户纳闷，不如明确告诉他发生了什么、怎么补救。
+    if (!String(assistant.content || '').trim() && String(assistant.reasoning || '').trim()) {
+      assistant.content =
+        '（模型只输出了思考过程，正文被截断了 —— 通常是思考把字数上限用光了。）\n\n' +
+        '点下面这条消息的「继续」让它接着写正文，或到「设置」里把 max_tokens 调大一些。';
+    }
+
     // 定稿：把这一轮的结果写回它那个候选槽
     if (Array.isArray(assistant.variants)) {
       assistant.variants[assistant.variantIndex] = assistant.content;

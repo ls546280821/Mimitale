@@ -3696,6 +3696,44 @@ await scenario('面板：静态字段「变了才说」，动态字段每轮维�
 });
 
 // ---------------------------------------------------------------------------
+//  场景：推理模型只吐思考、正文被截断 → 给出明确提示而不是空气泡
+//
+//  用户反馈：有时会思考，但是不返回内容。根因是推理模型（deepseek-reasoner 等）
+//  可能把 max_tokens 全花在 reasoning_content 上，正文还没开始就被截断 ——
+//  界面上留下一个「只有思考过程、没有正文」的气泡。修成：content 为空但 reasoning
+//  非空时，把正文替换成一句提示，告诉用户发生了什么、怎么补救。
+// ---------------------------------------------------------------------------
+await scenario('聊天：只思考不回答时给出提示', async () => {
+  click('#convo-list .convo-item');
+  await waitFor('切回聊天视图', () => shown('#view-chat'));
+
+  const beforeMsgs = $$('#messages .msg').length;
+
+  setValue('#input', '只思考不回答');
+  click('#btn-send');
+
+  await waitFor('新回复出现', () => $$('#messages .msg').length >= beforeMsgs + 2, 8000);
+  await waitFor('流式状态结束', () => byId('btn-send').disabled === false, 8000);
+
+  const assistant = $$('#messages .msg.assistant').pop();
+  check('助手回复气泡存在', !!assistant);
+
+  // 正文不该是空白 —— 应该被替换成「截断」提示
+  const contentText = assistant ? assistant.querySelector('.msg-content').textContent : '';
+  check('正文有「截断」提示，而不是空着', contentText.includes('截断'), contentText.slice(0, 60));
+
+  // 思考过程仍保留、可展开
+  const reasoningNode = assistant ? assistant.querySelector('.reasoning') : null;
+  check('思考过程还在（可展开）', !!reasoningNode, reasoningNode ? '有' : '无');
+
+  // 不该出现错误气泡（这条不算错误，是正常回复 + 提示）
+  check('没有错误气泡', $$('#messages .msg.error').length === 0);
+
+  // 流式正常结束，没卡住
+  check('发送按钮恢复可用', byId('btn-send').disabled === false);
+});
+
+// ---------------------------------------------------------------------------
 //  场景 33：剧情选项同步只认「最新一轮」，不回退到历史里的旧选项
 //
 //  用户反馈：玩世界书时剧情选项「每次第一个都是之前的，要换一批才跟着新剧情」，

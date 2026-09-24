@@ -424,6 +424,27 @@ function registerStubs() {
     const requestId = (payload && payload.requestId) || 'req-smoke';
     const model = (payload && payload.model) || 'test-model';
 
+    // 「只思考不回答」：模拟推理模型把 max_tokens 全花在思考上、正文被截断的情形。
+    // 只发 reasoning 增量、不发正文增量，最终返回 content 为空、reasoning 非空。
+    const askedToOnlyThink = ((payload && payload.messages) || []).some((m) =>
+      String((m && m.content) || '').includes('只思考不回答')
+    );
+    if (askedToOnlyThink) {
+      const thinking = '我在想这件事到底该怎么办，越想越觉得……';
+      for (const piece of thinking.match(/[\s\S]{1,8}/g) || []) {
+        if (!event.sender.isDestroyed()) event.sender.send('chat:reasoning', { requestId, text: piece });
+        await sleep(4);
+      }
+      return {
+        ok: true,
+        requestId,
+        model,
+        content: '',
+        reasoning: thinking,
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+      };
+    }
+
     // 「帮我想想」会带一条特殊的指令；这时给回几个选项，好让测试能验证解析与渲染。
     // 故意让模型「不听话」带序号和引号，测试要能容忍。
     const askedForSuggestions = ((payload && payload.messages) || []).some((m) =>
