@@ -66,7 +66,7 @@ function buildOptionsBlock(options) {
           },
           // 数字序号：输入框里按 1~9 也能选，序号印在按钮上对上号
           h('span', { class: 'opt-index', text: String(i + 1), 'aria-hidden': 'true' }),
-          h('span', { class: 'opt-arrow', text: '↩', 'aria-hidden': 'true' }),
+          // h('span', { class: 'opt-arrow', text: '↩', 'aria-hidden': 'true' }),
           h('span', { class: 'opt-text', text })
         )
       );

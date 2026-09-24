@@ -2,8 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy"
-        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
   <title>如我所书</title>
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -556,17 +555,16 @@
               <span class="field-label">角色描述</span>
               <textarea id="c-desc" rows="5" spellcheck="false" placeholder="这个角色是谁、长什么样、有什么经历……&#10;可以用 {{char}} 表示角色自己，{{user}} 表示你。"></textarea>
             </label>
-
-            <div class="field-grid">
-              <label class="field field-stack">
-                <span class="field-label">性格</span>
-                <textarea id="c-personality" rows="3" spellcheck="false" placeholder="开朗、爱笑、有点冒失……"></textarea>
-              </label>
-              <label class="field field-stack">
-                <span class="field-label">场景</span>
-                <textarea id="c-scenario" rows="3" spellcheck="false" placeholder="你们正在哪里、干什么"></textarea>
-              </label>
-            </div>
+			
+			<label class="field field-stack">
+			  <span class="field-label">性格</span>
+			  <textarea id="c-personality" rows="3" spellcheck="false" placeholder="开朗、爱笑、有点冒失……"></textarea>
+			</label>
+			
+			<label class="field field-stack">
+			  <span class="field-label">场景</span>
+			  <textarea id="c-scenario" rows="3" spellcheck="false" placeholder="你们正在哪里、干什么"></textarea>
+			</label>
 
             <label class="field field-stack">
               <span class="field-label">开场白</span>

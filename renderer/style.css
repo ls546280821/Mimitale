@@ -224,11 +224,11 @@ body {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  margin-right: auto;
 }
 
 /* 品牌行右侧的昼夜切换按钮：只显示「将要切到的那个模式」的图标 */
 .brand-theme {
-  margin-left: auto;
   width: 28px;
   height: 28px;
   border-radius: 8px;
@@ -859,15 +859,16 @@ body {
 /* 选项常常是一句话，允许换行；箭头是装饰，豁出去不让它参与选中 */
 .msg-option-btn {
   display: flex;
-  align-items: baseline;
-  gap: 7px;
+  align-items: flex-start;
+  width: fit-content;
+  gap: 6px;
   text-align: left;
   background: none;
   border: none;
   font-family: inherit;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text);
-  padding: 5px 6px;
+  padding: 6px 10px;
   border-radius: 6px;
   cursor: pointer;
 }
@@ -886,10 +887,10 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 16px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 4px;
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1;
   color: var(--accent);
@@ -1710,9 +1711,72 @@ body {
 
 .char-form { display: flex; flex-direction: column; }
 
+/* ⚠️ 这一条是「长文本框自动增高」能生效的前提，别删。
+   .char-form 是 flex 列，而它的祖先链上有一层定高的网格行
+   （.modal-body.chars-body 的 grid-template-rows: minmax(0, 1fr)），
+   于是每个字段都被当成 flex item 用默认的 flex-shrink:1 往下压 ——
+   压到底就撞在 .char-form textarea 的 min-height: 84px 上。
+   表现是：JS 把 height 写成 334px（inline style 确实写进去了），
+   浏览器算出来的却是 84px，而且怎么等都等不出来（不是 transition 的问题）。
+   加 flex-shrink:0 让字段保持自己的自然高度，装不下就交给
+   .char-main 的 overflow-y: auto 滚动 —— 滚动是稳定的，压缩不是。 */
+.char-form > * { flex: 0 0 auto; }
+
 /* 角色表单里输入框多，把 textarea 的最低高度收一点，免得一屏放不下几项 */
 .char-form textarea { min-height: 84px; }
 .char-advanced textarea { min-height: 70px; }
+
+/* ------------------------------ 长文本框：自动增高 + 拖拽把手 ------------------------------
+   「角色描述 / 性格 / 场景 / 开场白 / 示例对话」这五个框有时会填很多，
+   平铺着的旧样子是：每个都占好几行、一屏放不下几项，想看下面的属性得滚半天。
+
+   只做两件事（高度都由 ui/auto-grow.js 按内容写 inline height，CSS 只管外观）：
+
+   1) 自动增高 —— 内容多就长高，内容少就缩回下限。
+      CSS 这边不加 min-height 去和 JS 抢：inline height 优先级更高，
+      下限交给 JS 的 GROW_MIN 兜底（见那个文件的注释）。
+      max-height 留着当第二道闸：万一 JS 那边算飞了，也不会把表单顶爆。
+
+   2) 拖拽把手 —— resize: vertical 本来就开着（通用 textarea 规则里），
+      但默认那个把手在浅色主题下几乎看不见，等于没有。这里补一个
+      「右下角有两条斜线」的提示，让它看起来是可拖的。
+
+   选择器刻意写成 .char-form .field-stack > textarea（(0,2,1)）——
+   通用 textarea 那条是 (0,0,1)，但它是**文件后面**写的，
+   只写类名（(0,1,0)）会被它盖掉（这个坑在属性区已经吃过一次）。 */
+.char-form .field-stack > textarea {
+  /* ⚠️ 这里**不能**写 transition: height —— 踩过一个大坑。
+     文本框的高度是 JS 按内容算出来写进 inline style 的，一旦加上
+     height 过渡，Chromium 会把这个过渡在每次布局时重新触发，
+     结果元素永远停在起始值上：JS 明明写下 height: 334px
+     （style 里查得到），浏览器算出来的却一直是 84px，
+     而且无论等多久都不收敛（不是「等过渡跑完」的事）。
+     自动增高本来就该是**瞬时**的 —— 一边打字一边看高度慢慢爬，
+     反而像卡了。真要看过渡，只保留 max-height（它不参与这个过程）。 */
+  max-height: 460px;
+  /* 右下角的斜纹把手：纯装饰，真正的拖拽靠浏览器自带的 resize */
+  background-image: linear-gradient(
+    135deg,
+    transparent 0 46%,
+    var(--border-strong, var(--border)) 46% 54%,
+    transparent 54% 68%,
+    var(--border-strong, var(--border)) 68% 76%,
+    transparent 76%
+  );
+  background-repeat: no-repeat;
+  background-position: right 3px bottom 3px;
+  background-size: 11px 11px;
+}
+
+/* 聚焦时不给其他框「收窄」——
+   曾经试过用 :has(textarea:focus) 把同级的其他长文本框压到两行高，
+   结论是**不能要**：自动增高已经把每个框撑到内容该有的高度，再压回去
+   就变成「点一个框、另一个框当着你的面缩掉」，眼睛正看着的字突然消失。
+   高就是高，让它留着 —— 长框多了确实要滚，但滚动是稳定的，
+   一跳一跳不是。这里保留一条最小规则：聚焦的框描边加粗，让「在改哪个」看得清。 */
+.char-form .field-stack > textarea:focus {
+  border-color: var(--accent, var(--border-strong, var(--border)));
+}
 
 /* ------------------------------ 角色「属性」编辑区 ------------------------------
    属性 = 游玩时状态面板里的字段。这里只填初始值，进游戏后在面板里改的是当前值。

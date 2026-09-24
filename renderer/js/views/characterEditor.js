@@ -43,6 +43,37 @@ import { currentWorldbook, renderWorldbookChars } from './worldbook.js';
 import { renderWorldbookPage } from './worldbookList.js';
 import { renderCharacterPage } from './characterList.js';
 import { renderCharAttrs, initCharAttrsUi } from './charAttributes.js';
+import { attachAutoGrow, syncAutoGrowAll } from '../ui/auto-grow.js';
+
+// ---------------------------------------------------------------------------
+//  长文本框：自动增高 + 拖拽高度记忆
+//
+//  这五个框（描述 / 性格 / 场景 / 开场白 / 示例对话）有时会填很多，
+//  固定 rows 的框看不全内容。行为细节都在 ui/auto-grow.js 里，
+//  这里只负责「哪些框」和「什么时候重算」。
+//
+//  key 用**字段名**而不是角色 id：拖高是「我习惯把示例对话拖这么高」，
+//  换个角色也该沿用 —— 按角色记的话，每换一张卡都要重拖一遍。
+// ---------------------------------------------------------------------------
+
+/** 五个长文本框 + 各自的记忆 key */
+function longTextAreas() {
+  const c = el.c || {};
+  return [
+    [c.desc, 'desc'],
+    [c.personality, 'personality'],
+    [c.scenario, 'scenario'],
+    [c.first, 'first'],
+    [c.example, 'example']
+  ].filter((pair) => pair[0]);
+}
+
+/** 给五个框接上自动增高。接线只需一次（重复调用会被 ignore） */
+function wireAutoGrow() {
+  for (const [node, key] of longTextAreas()) {
+    attachAutoGrow(node, { key: `charform:${key}` });
+  }
+}
 
 // ---------------------------------------------------------------------------
 //  编辑器的状态
@@ -101,6 +132,8 @@ export function openCharsModal() {
   // 编辑器的入口指向了别的角色，说明「新建」那个草稿已经被放弃了，顺手清掉。
   if (charDraft && editingCharacterId !== charDraft.character.id) discardCharDraft();
 
+  // 长文本框的接线在 fillCharForm() 里（新建和编辑两条路都经过那儿）
+
   let current = editorCharacterById(editingCharacterId);
 
   if (!current) {
@@ -110,6 +143,10 @@ export function openCharsModal() {
     current = editorCharacterById(editingCharacterId);
   }
 
+  // 先让弹窗可见再填表：fillCharForm 最后会量文本框高度，
+  // 而隐藏状态下（display:none）量什么都是 0。
+  el.charsModal.classList.remove('hidden');
+
   if (current) {
     fillCharForm(current);
   } else {
@@ -117,7 +154,6 @@ export function openCharsModal() {
   }
 
   updateCharEditorScopeUi();
-  el.charsModal.classList.remove('hidden');
 }
 
 /** 弹窗标题跟着作用域变，免得改半天不知道改的是哪一份 */
@@ -300,6 +336,20 @@ function fillCharForm(character) {
   el.c.gender.value = GENDERS.includes(character.gender) ? character.gender : '';
   el.c.race.value = character.race || '';
 
+  // 长文本框：值刚被程序塞进去，不走 input 事件 —— 所以这里显式重算一次高度。
+  // 漏了这一步的表现是「框里明明写着两千字，高度还是两行」，得手动敲一下才展开。
+  //
+  // ⚠️ 接线必须**在这里**、而不是只在 openCharsModal 里：
+  //    新建角色的路径（startCharDraft）是自己调 fillCharForm 的，
+  //    不经过 openCharsModal —— 少接一次线的表现是「新建角色时框不会长高」。
+  //    attachAutoGrow 自带幂等（认 dataset.autoGrow），重复调用没有代价。
+  //
+  // ⚠️ 但**量高度不能在这一刻做**：调用方（openCharsModal / startCharDraft）
+  //    都还没把弹窗的 .hidden 摘掉，而 display:none 的元素 scrollHeight 是 0 ——
+  //    量出来永远是下限 84px。所以这里只接线，真正的重算放在
+  //    showCharForm(true) 之后（那时弹窗已经可见）。
+  wireAutoGrow();
+
   charDraftAvatar = character.avatar || '';
   renderCharAvatar();
 
@@ -323,6 +373,10 @@ function fillCharForm(character) {
   el.charFootHint.textContent = charFootHintText(character);
 
   showCharForm(true);
+
+  // 长文本框的最后一步：到这儿弹窗才是可见的（上面那些调用方刚摘掉 .hidden），
+  // 这时候量高度才量得准。见上面那段注释 —— 在隐藏状态下量会永远得到 84px。
+  syncAutoGrowAll(longTextAreas().map((pair) => pair[0]));
 }
 
 /** 剧情选项的配置区：开关关着就整块收起来（省得看着以为在生效） */
@@ -657,9 +711,11 @@ function startCharDraft() {
   charDraft = { character, scope, bookId: book ? book.id : null };
   editingCharacterId = character.id;
 
+  // 先让弹窗可见再填表：fillCharForm 最后会量文本框高度，
+  // 而隐藏状态下（display:none）量什么都是 0。
+  el.charsModal.classList.remove('hidden');
   fillCharForm(character);
   updateCharEditorScopeUi();
-  el.charsModal.classList.remove('hidden');
 
   el.c.name.focus();
   el.c.name.select();
