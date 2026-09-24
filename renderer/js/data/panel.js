@@ -502,7 +502,8 @@ export function normalizePanelDefs(value) {
     // 不被拆散成零散字段；玩家的字段全靠 owner 才能从面板里拆出来单独看。
     // 漏掉的话，重启后这些字段会被 normalize 丢光分组/归属信息、散回「未分组」。
     const hasRange = typeof def.min === 'number' || typeof def.max === 'number';
-    if (def.type === 'text' && !def.hint && !hasRange && !def.group && !def.owner) continue;
+    const hasMode = def.mode && def.mode !== 'dynamic';
+    if (def.type === 'text' && !def.hint && !hasRange && !def.group && !def.owner && !hasMode) continue;
 
     const key = panelKey(def.name, def.owner);
     out[key] = {
@@ -511,7 +512,8 @@ export function normalizePanelDefs(value) {
       ...(typeof def.max === 'number' ? { max: def.max } : {}),
       ...(def.hint ? { hint: def.hint } : {}),
       ...(def.group ? { group: def.group } : {}),
-      ...(def.owner ? { owner: def.owner } : {})
+      ...(def.owner ? { owner: def.owner } : {}),
+      ...(def.mode && def.mode !== 'dynamic' ? { mode: def.mode } : {})
     };
     count += 1;
   }
@@ -795,68 +797,95 @@ export function formatPanelForPrompt(convo) {
   const clash = clashingFieldNames(convo);
   const label = (key) => panelFieldDisplayName(convo, key, (name) => clash.has(name));
 
+  // 把字段按「更新频率」分成两组：动态字段每轮维护、静态字段变了才说。
+  // 老数据没有 mode，一律按动态处理（向后兼容，行为不变）。
+  const isStatic = (key) => {
+    const def = convoPanelDef(convo, key);
+    return !!def && def.mode === 'static';
+  };
+  const dynamicKeys = fields.filter((key) => !isStatic(key));
+  const staticKeys = fields.filter(isStatic);
+
   // 按分组拼。分组的字段顺序由 groupPanelFields 保序，没分组的排最后。
-  // 老会话的身份四项没有记 group，panelFieldGroup 按字段名兜底归进「身份」。
   // 分组桶里存的 key 是复合键，注入时把显示名换成「角色名·字段名」（无冲突保持原名）。
-  const groups = groupPanelFields(
-    fields.map((key) => ({ key, name: panelFieldName(key), group: panelFieldGroup(convo, key) }))
-  );
+  const grouped = (keys) =>
+    groupPanelFields(
+      keys.map((key) => ({ key, name: panelFieldName(key), group: panelFieldGroup(convo, key) }))
+    );
 
-  const lines = [];
-  let groupCount = 0;
-  for (const bucket of groups) {
-    const filled = bucket.fields.filter((f) => {
-      const v = panel[f.key];
-      return v !== undefined && v !== '';
-    });
-    if (!filled.length) continue;
+  // 拼一组字段的「组标题 + 字段行」，只留当前有值的字段
+  const renderGroups = (keys) => {
+    const lines = [];
+    let groupCount = 0;
+    for (const bucket of grouped(keys)) {
+      const filled = bucket.fields.filter((f) => {
+        const v = panel[f.key];
+        return v !== undefined && v !== '';
+      });
+      if (!filled.length) continue;
 
-    if (bucket.id) {
-      groupCount += 1;
-      lines.push(panelGroupHeader(bucket.id));
+      if (bucket.id) {
+        groupCount += 1;
+        lines.push(panelGroupHeader(bucket.id));
+      }
+      for (const f of filled) {
+        lines.push(`【${label(f.key)}】：${panel[f.key]}`);
+      }
     }
-    for (const f of filled) {
-      lines.push(`【${label(f.key)}】：${panel[f.key]}`);
-    }
-  }
+    return { lines, grouped: groupCount > 0 };
+  };
 
-  const grouped = groupCount > 0;
+  const dyn = renderGroups(dynamicKeys);
+  const stat = renderGroups(staticKeys);
+
   const legend = panelFieldLegend(convo, fields);
   const legendBlock = legend.length
     ? '\n\n字段的取值范围与变化规则（务必遵守，数值超出范围会被程序拉回）：\n' + legend.join('\n')
     : '';
   // 有分组时交代一句 —— 否则模型看不懂那些破折号标题是干什么的
-  const groupNote = grouped
+  const groupNote = dyn.grouped || stat.grouped
     ? '\n（「—— 组名 ——」是状态分组的小标题，照抄即可，不要当成字段输出。）'
     : '';
 
   // 一个值都还没有 = 刚用角色卡的属性模板开的局。
   // 这时候也要把字段名告诉模型，否则它不知道要维护哪些状态 ——
   // 而「模型得自己碰巧输出【金币】：100」正是属性模板要解决的冷启动问题。
-  const fieldNames = fields.map(label);
-  if (!lines.length) {
+  const dynamicNames = dynamicKeys.map(label);
+  const staticNames = staticKeys.map(label);
+  if (!dyn.lines.length && !stat.lines.length) {
+    const parts = [];
+    parts.push(`本局需要维护这些状态字段：${dynamicNames.join('、')}`);
+    parts.push('请在每次回复的末尾，用「【字段】：值」的格式把它们完整输出一遍' +
+      '（还不知道的写「未知」）；之后每轮照抄并更新，不要凭空改动已有数值。');
+    if (staticNames.length) {
+      parts.push(`下面这些字段不常变，只在变化时才输出一行，没变化就省略：${staticNames.join('、')}`);
+    }
     return (
-      '[当前状态]\n' +
-      `本局需要维护这些状态字段：${fieldNames.join('、')}\n` +
-      '请在每次回复的末尾，用「【字段】：值」的格式把它们完整输出一遍' +
-      '（还不知道的写「未知」）；之后每轮照抄并更新，不要凭空改动已有数值。' +
-      groupNote +
-      legendBlock
+      '[当前状态]\n' + parts.join('\n') + groupNote + legendBlock
     );
   }
 
-  return (
-    '[当前状态]\n' +
-    '这是本局当前的权威状态，请以它为准，不要自行改动历史数值。\n' +
-    '每次回复末尾，必须按同样的格式把完整状态栏**完整输出一遍**，不得省略、\n' +
-    '不得用「（状态略）」「同上」之类带过。没有变化的字段照抄即可。\n' +
-    '本轮剧情里只要发生了消耗或获得（花钱、付账、买东西、受伤、进食、休息、\n' +
-    '喝酒、还债……），对应的数值字段就**必须**在状态栏里更新成新的数，不能照抄旧值。' +
-    groupNote +
-    '\n\n' +
-    lines.join('\n') +
-    legendBlock
-  );
+  const rules = [];
+  if (dynamicKeys.length) {
+    rules.push(
+      '这是本局当前的权威状态，请以它为准，不要自行改动历史数值。\n' +
+      '每次回复末尾，必须按同样的格式把【下面列出的字段】完整输出一遍，不得省略、\n' +
+      '不得用「（状态略）」「同上」之类带过。没有变化的字段照抄即可。\n' +
+      '本轮剧情里只要发生了消耗或获得（花钱、付账、买东西、受伤、进食、休息、\n' +
+      '喝酒、还债……），对应的数值字段就**必须**在状态栏里更新成新的数，不能照抄旧值。'
+    );
+  }
+  if (staticKeys.length) {
+    rules.push(
+      '另外这些字段不是每轮都变的（衣服、随身物之类）：只在它们**发生变化**时，\n' +
+      '才在状态栏里输出那一行新的值；没有变化就整行省略，不要照抄。'
+    );
+  }
+
+  const body = [rules.join('\n\n'), dyn.lines.join('\n'), stat.lines.join('\n')]
+    .filter(Boolean);
+
+  return '[当前状态]\n' + body.join('\n') + groupNote + legendBlock;
 }
 
 // ---------------------------------------------------------------------------
@@ -906,15 +935,16 @@ export function appendPanelFields(convo, pairs) {
     known.add(key);
     changed = true;
 
-    // 范围/hint/分组/归属记到会话上（只有真的有内容才记，免得存一堆空壳）
-    if (def.type !== 'text' || def.hint || def.group || def.owner) {
+    // 范围/hint/分组/归属/更新频率记到会话上（只有真的有内容才记，免得存一堆空壳）
+    if (def.type !== 'text' || def.hint || def.group || def.owner || def.mode) {
       defs[key] = {
         type: def.type,
         ...(typeof def.min === 'number' ? { min: def.min } : {}),
         ...(typeof def.max === 'number' ? { max: def.max } : {}),
         ...(def.hint ? { hint: def.hint } : {}),
         ...(def.group ? { group: def.group } : {}),
-        ...(def.owner ? { owner: def.owner } : {})
+        ...(def.owner ? { owner: def.owner } : {}),
+        ...(def.mode && def.mode !== 'dynamic' ? { mode: def.mode } : {})
       };
     }
 
@@ -978,15 +1008,17 @@ export function seedPanelFromCharacters(convo, list, ownerFor) {
 export function seedIdentity(convo, name, character, owner) {
   const pairs = [];
   const trimmed = String(name || '').trim();
-  if (trimmed) pairs.push({ name: '姓名', value: trimmed, group: IDENTITY_GROUP, owner });
+  // 身份四项是「偶尔变」的设定（年龄一年才涨一岁、改名也少见），标 static ——
+  // 模型只在变化时输出，不用每轮都照抄一遍姓名/年龄/性别/种族。
+  if (trimmed) pairs.push({ name: '姓名', value: trimmed, group: IDENTITY_GROUP, owner, mode: 'static' });
 
   if (character) {
     const age = String(character.age || '').trim();
     const gender = String(character.gender || '').trim();
     const race = String(character.race || '').trim();
-    if (age) pairs.push({ name: '年龄', value: age, group: IDENTITY_GROUP, owner });
-    if (gender) pairs.push({ name: '性别', value: gender, group: IDENTITY_GROUP, owner });
-    if (race) pairs.push({ name: '种族', value: race, group: IDENTITY_GROUP, owner });
+    if (age) pairs.push({ name: '年龄', value: age, group: IDENTITY_GROUP, owner, mode: 'static' });
+    if (gender) pairs.push({ name: '性别', value: gender, group: IDENTITY_GROUP, owner, mode: 'static' });
+    if (race) pairs.push({ name: '种族', value: race, group: IDENTITY_GROUP, owner, mode: 'static' });
   }
 
   return appendPanelFields(convo, pairs);

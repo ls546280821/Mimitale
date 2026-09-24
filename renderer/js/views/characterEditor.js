@@ -246,9 +246,6 @@ let charAttrs = [];
 // 角色编辑器里「给角色绑世界书」那个浮层（自己起一个，不复用世界书页的选择器）
 let worldbookPickerEl = null;
 
-// 性别是选择框，只认这几个值（导入的卡会在主进程先归一化过来）
-const GENDERS = ['男', '女', '其他'];
-
 // 入口层注入的动作
 let actions = { rerender: () => {} };
 
@@ -486,9 +483,8 @@ function fillCharForm(character) {
   el.c.system.value = character.systemPrompt || '';
   el.c.post.value = character.postHistoryInstructions || '';
   el.c.notes.value = character.creatorNotes || '';
-  el.c.age.value = character.age || '';
-  el.c.gender.value = GENDERS.includes(character.gender) ? character.gender : '';
-  el.c.race.value = character.race || '';
+
+  // 年龄/性别/种族已从表单移除（归入描述文字），不再回填这三个输入框。
 
   // 长文本框：值刚被程序塞进去，不走 input 事件 —— 所以这里显式重算一次高度。
   // 漏了这一步的表现是「框里明明写着两千字，高度还是两行」，得手动敲一下才展开。
@@ -785,10 +781,9 @@ function stashCharForm() {
   character.systemPrompt = el.c.system.value;
   character.postHistoryInstructions = el.c.post.value;
   character.creatorNotes = el.c.notes.value;
-  // 身份三项：年龄和种族是自由文本（「不详」「精灵」都合法），性别用选择框
-  character.age = el.c.age.value.trim().slice(0, 40);
-  character.gender = GENDERS.includes(el.c.gender.value) ? el.c.gender.value : '';
-  character.race = el.c.race.value.trim().slice(0, 40);
+  // 年龄/性别/种族已从表单移除（归入描述文字），不再从输入框写回。
+  // 老卡 / 导入卡可能还带着 age/gender/race，保留不动（messages.js / cast.js
+  // 仍会读它们拼「基本信息」），只是本编辑器不再提供手填入口。
   // 属性是编辑期间的草稿（charAttrs），保存时才写回角色卡。
   // ⚠️ 这里以前是个只搬 name/value 的白名单映射 —— 于是 type/min/max/hint
   // 会被静默丢掉（和当初「attributes 整个丢过」是同一个坑）。
@@ -856,9 +851,7 @@ function startCharDraft() {
     creatorNotes: '',
     tags: [],
     attributes: [],
-    age: '',
-    gender: '',
-    race: '人类', // 新建的角色默认就是人类，省得每次打
+    // 年龄/性别/种族不再单独建字段：写进描述文字即可，这里不再预设默认值。
     source: 'manual',
     createdAt: now(),
     updatedAt: now()

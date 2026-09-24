@@ -36,6 +36,18 @@ const ATTR_TYPES = [
 ];
 
 /**
+ * 字段的「更新频率」选择框（每轮维护 / 变了才说）。
+ *
+ * 每轮维护 = 铜板/生命/好感度这类随剧情变的状态，模型每轮都要在状态栏里照抄更新。
+ * 变了才说 = 身高/衣物/随身物这类偶尔变的设定，模型只在变化时输出一行，没变化就省略。
+ * 默认「每轮维护」——老数据没有这个标记，行为完全不变。
+ */
+const ATTR_MODES = [
+  { value: 'dynamic', label: '每轮维护' },
+  { value: 'static', label: '变了才说' }
+];
+
+/**
  * 官方「互动模板」的预设分组与默认字段。
  *
  * 点一下就把这几个官方面板连同默认字段一起种进属性草稿 —— 字段可再改名、
@@ -606,9 +618,42 @@ function buildMoreBox(list, attr) {
   });
   more.appendChild(hintInput);
 
+  more.appendChild(buildModeRow(attr));
+
   more.appendChild(buildGroupRow(list, attr));
 
   return more;
+}
+
+/**
+ * 「更多」里的更新频率行：这个字段是每轮维护，还是变了才说。
+ *
+ * 默认「每轮维护」——对绝大多数状态（铜板/好感度）都是对的，用户不用改。
+ * 「变了才说」留给衣服、随身物、身高这类偶尔变的设定：模型只在变化时
+ * 输出一行，没变化就省略，状态栏不会每轮都拖着几十行不变的东西。
+ */
+function buildModeRow(attr) {
+  const row = h('div', { class: 'attr-mode-row' }, h('span', { class: 'attr-range-label', text: '更新频率' }));
+
+  const modeSelect = h(
+    'select',
+    {
+      class: 'attr-mode',
+      'aria-label': `${attr.name} 的更新频率`,
+      title: '每轮维护：铜板/好感度这类随剧情变的状态；变了才说：衣服/随身物这类偶尔变的设定',
+      onchange: () => {
+        if (modeSelect.value === 'static') attr.mode = 'static';
+        else delete attr.mode; // dynamic 是默认，不写进盘，保持数据干净
+      }
+    },
+    ATTR_MODES.map((m) =>
+      h('option', { value: m.value, text: m.label, selected: (attr.mode || 'dynamic') === m.value })
+    )
+  );
+  modeSelect.value = attr.mode || 'dynamic';
+
+  row.appendChild(modeSelect);
+  return row;
 }
 
 /**

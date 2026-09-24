@@ -509,10 +509,8 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   setValue('#c-name', '属性测试角色');
   setValue('#c-desc', '属性测试角色的设定文本');
   setValue('#c-personality', '沉默寡言');
-  setValue('#c-age', '18');
-  setValue('#c-gender', '女');
-  check('新建角色时种族默认就是人类', byId('c-race').value === '人类', byId('c-race').value);
-  setValue('#c-race', '精灵');
+  // 年龄/性别/种族已从编辑器移除（归入描述），这里不再通过 UI 填。
+  // 身份三项的流转由下方「保存后补数据」保证，见 saveCharacters 那段。
 
   const quick = $$('#c-attr-quick .attr-quick-btn');
   check('快捷候选词按钮出现了', quick.length === 3, `实际 ${quick.length} 个`);
@@ -663,6 +661,20 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
   await sleep(150);
 
+  // 年龄/性别/种族已从编辑器移除（归入描述文字），但「身份四项流转」这条链路
+  // （种进状态卡、注入模型）仍保留，依赖角色卡上的 age/gender/race 数据字段。
+  // 这些字段现在只能来自「导入的外部卡」——测试里直接改渲染层 state 里这张卡，
+  // 等价于导入了一张自带身份信息的卡，验证后续流转不受手填入口移除的影响。
+  {
+    const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+    const target = stateMod.state.characters.find((c) => c.name === '属性测试角色');
+    if (target) {
+      target.age = '18';
+      target.gender = '女';
+      target.race = '精灵';
+    }
+  }
+
   const saved = await savedCharacters();
   const mine = saved.find((c) => c.name === '属性测试角色');
   check('属性已落盘到角色卡', !!mine && Array.isArray(mine.attributes) && mine.attributes.length === 3, JSON.stringify(mine && mine.attributes));
@@ -688,11 +700,9 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     !!mine && !('_moreOpen' in mine.attributes[2]),
     JSON.stringify(mine && Object.keys(mine.attributes[2] || {}))
   );
-  check(
-    '身份三项也落盘了',
-    !!mine && mine.age === '18' && mine.gender === '女' && mine.race === '精灵',
-    JSON.stringify({ age: mine && mine.age, gender: mine && mine.gender, race: mine && mine.race })
-  );
+  // 年龄/性别/种族不再是编辑器可填字段（归入描述），「落盘」语义由
+  // 「字段往返不丢」场景里的 saveCharacters 白名单测试覆盖。这里不再断言
+  // 编辑器填的身份三项落盘 —— 身份三项的流转（种进状态卡）在下方验证。
 
   // --- 3) 点「聊天」绑定角色 → 属性应该种进状态面板 ---
   click('#btn-close-chars');
@@ -1564,9 +1574,8 @@ await scenario('角色卡：字段往返不丢', async () => {
   const NAME = '字段往返测试';
   setValue('#c-name', NAME);
   setValue('#c-tags', '甲, 乙');
-  setValue('#c-age', '23');
-  setValue('#c-gender', '男');
-  setValue('#c-race', '龙');
+  // 年龄/性别/种族已从编辑器移除，不再通过 UI 填；它们的白名单保留行为
+  // 由下方 saveCharacters 补数据后单独验证。
   setValue('#c-desc', 'D-描述');
   setValue('#c-personality', 'P-性格');
   setValue('#c-scenario', 'S-场景');
@@ -1584,6 +1593,15 @@ await scenario('角色卡：字段往返不丢', async () => {
   click('#btn-save-char');
   await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
   await sleep(150);
+
+  // 身份三项走导入/数据层通道进来：验证 normalizeCharacter 白名单仍保留它们
+  // （导入的外部卡会带这些字段，不能丢）。
+  await window.mimitale.saveCharacters({
+    characters: (await savedCharacters()).map((c) =>
+      c.name === NAME ? { ...c, age: '23', gender: '男', race: '龙' } : c
+    )
+  });
+  await sleep(100);
 
   const saved = (await savedCharacters()).find((c) => c.name === NAME);
   check('角色存下来了', !!saved);
@@ -3606,6 +3624,165 @@ await scenario('世界书：玩家不同名不误判', async () => {
     '玩家名匹配时（旅行者）才算玩家本人',
     mod.isPlayerCharacterCopy(convo, { id: 'wc_me', name: '旅行者' }) === true,
     String(mod.isPlayerCharacterCopy(convo, { id: 'wc_me', name: '旅行者' }))
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  场景 32：状态字段分「每轮维护 / 变了才说」，静态字段不再每轮照抄
+//
+//  背景：状态字段爆炸到 50+（大量是身高/衣物/随身物这类不常变的设定），
+//  模型每轮都要照抄一遍，负担太重就摆烂不写状态栏 → 铜板花了面板不更新。
+//  修复：字段加 mode（dynamic 每轮维护 / static 变了才说），formatPanelForPrompt
+//  把静态字段单列、告诉模型「只在变化时输出」，动态字段照旧每轮维护。
+// ---------------------------------------------------------------------------
+await scenario('面板：静态字段「变了才说」，动态字段每轮维护', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/panel.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('panel 模块能动态加载', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.appendPanelFields !== 'function') {
+    check('panel 模块能动态加载', false);
+    return;
+  }
+  check('panel 模块能动态加载', true);
+
+  // 造一个会话：铜板（动态）+ 上衣（静态，偶尔换）
+  const convo = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
+  mod.appendPanelFields(convo, [
+    { name: '铜板', type: 'meter', min: 0, max: 100, value: '3/100' },
+    { name: '上衣', type: 'text', value: '红裙子', mode: 'static' }
+  ]);
+
+  // 1) mode 落进了 panelDefs（静态字段才记 mode，动态字段不记，保持数据干净）
+  check(
+    '静态字段的 mode 记进 panelDefs',
+    mod.convoPanelDef(convo, '上衣') && mod.convoPanelDef(convo, '上衣').mode === 'static',
+    JSON.stringify(convo.panelDefs)
+  );
+  check(
+    '动态字段不写 mode（默认值不落盘）',
+    !mod.convoPanelDef(convo, '铜板') || mod.convoPanelDef(convo, '铜板').mode === undefined,
+    JSON.stringify(convo.panelDefs && convo.panelDefs['铜板'])
+  );
+
+  // 2) 注入提示词：动态字段的规则说「每轮完整输出」；静态字段说「变了才说」
+  const prompt = mod.formatPanelForPrompt(convo);
+  check('注入里有「完整输出一遍」的动态字段规则', prompt.includes('完整输出一遍'), prompt);
+  check('注入里点名静态字段「只在变化时输出」', prompt.includes('只在') && prompt.includes('发生变化'), prompt);
+  check('静态字段值仍在注入里（当前值要给模型看）', prompt.includes('红裙子'), prompt);
+  check('动态字段值仍在注入里', prompt.includes('3/100'), prompt);
+
+  // 3) 全静态字段的会话：不该出现「每轮完整输出」的动态规则（没有动态字段）
+  const allStatic = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
+  mod.appendPanelFields(allStatic, [
+    { name: '上衣', type: 'text', value: '红裙子', mode: 'static' },
+    { name: '身高', type: 'text', value: '168cm', mode: 'static' }
+  ]);
+  const staticPrompt = mod.formatPanelForPrompt(allStatic);
+  check(
+    '全静态字段时不注入「每轮完整输出」的动态规则',
+    !staticPrompt.includes('完整输出一遍'),
+    staticPrompt
+  );
+
+  // 4) 老数据（无 mode）一律按动态处理：注入仍要求每轮维护
+  const legacy = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
+  mod.appendPanelFields(legacy, [{ name: '铜板', type: 'meter', min: 0, max: 100, value: '3/100' }]);
+  const legacyPrompt = mod.formatPanelForPrompt(legacy);
+  check('老数据（无 mode）仍按动态字段每轮维护', legacyPrompt.includes('完整输出一遍'), legacyPrompt);
+});
+
+// ---------------------------------------------------------------------------
+//  场景 33：剧情选项同步只认「最新一轮」，不回退到历史里的旧选项
+//
+//  用户反馈：玩世界书时剧情选项「每次第一个都是之前的，要换一批才跟着新剧情」，
+//  以及「一会有一会没有，好奇怪」。根因是模型不是每轮都稳定输出选项行。两轮修复：
+//    1) 从历史里往回找 → 命中几轮前旧选项（严重过时）；
+//    2) 只看最新一条、没给就清空 → 选项凭空消失（时有时无闪烁）。
+//  最终语义：只看最新一条 assistant，给了用新的；没给则**保留上一批**（紧邻、
+//  基本贴合当前局面），不清空也不回退几轮前。这里用纯函数直测 syncConvoOptions。
+// ---------------------------------------------------------------------------
+await scenario('选项：同步只认最新一轮，不回退旧选项', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/suggestions.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('suggestions 模块能动态加载', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.syncConvoOptions !== 'function') {
+    check('suggestions 模块能动态加载', false);
+    return;
+  }
+  check('suggestions 模块能动态加载', true);
+
+  // 1) 最新一条 assistant 给了选项 → 用新的
+  const withOpts = {
+    optionsSpec: { count: 3, hint: '' },
+    options: [],
+    messages: [
+      { role: 'assistant', content: '【剧情选项】：老选项甲 / 老选项乙 / 老选项丙' },
+      { role: 'user', content: '继续' },
+      { role: 'assistant', content: '正文……\n【剧情选项】：新选项一 / 新选项二 / 新选项三' }
+    ]
+  };
+  mod.syncConvoOptions(withOpts);
+  check(
+    '最新一条给了选项就用新的',
+    JSON.stringify(withOpts.options) === JSON.stringify(['新选项一', '新选项二', '新选项三']),
+    JSON.stringify(withOpts.options)
+  );
+
+  // 2) 最新一条 assistant 没给选项 → 保留上一批（紧邻的），而不是清空、也不是
+  //    回退到历史里几轮前的旧选项。选项应该常驻，不能「一会有一会没有」。
+  const noOpts = {
+    optionsSpec: { count: 3, hint: '' },
+    options: ['残留的旧选项'],
+    messages: [
+      { role: 'assistant', content: '【剧情选项】：几轮前的旧选项A / 旧选项B / 旧选项C' },
+      { role: 'user', content: '继续推进' },
+      { role: 'assistant', content: '这一段只有正文，没写剧情选项行。' }
+    ]
+  };
+  const changed = mod.syncConvoOptions(noOpts);
+  check(
+    '最新一条没给选项时保留上一批（选项常驻不断档）',
+    JSON.stringify(noOpts.options) === JSON.stringify(['残留的旧选项']),
+    JSON.stringify(noOpts.options)
+  );
+  check('保留动作被检测到（返回无变化）', changed === false, String(changed));
+
+  // 3) 没开剧情选项 → 直接清空
+  const noSpec = {
+    optionsSpec: null,
+    options: ['残留'],
+    messages: [{ role: 'assistant', content: '【剧情选项】：甲 / 乙 / 丙' }]
+  };
+  mod.syncConvoOptions(noSpec);
+  check('没开剧情选项时直接清空', Array.isArray(noSpec.options) && noSpec.options.length === 0, JSON.stringify(noSpec.options));
+
+  // 4) 最后一条不是 assistant（边界，比如空历史）→ 清空、不崩
+  const empty = { optionsSpec: { count: 3, hint: '' }, options: ['残留'], messages: [] };
+  mod.syncConvoOptions(empty);
+  check('空历史不崩且清空', Array.isArray(empty.options) && empty.options.length === 0, JSON.stringify(empty.options));
+
+  // 5) 最后一条是用户消息（玩家刚发话、AI 还没回）→ 也没有可依附的剧情，清空
+  const endsWithUser = {
+    optionsSpec: { count: 3, hint: '' },
+    options: ['残留'],
+    messages: [
+      { role: 'assistant', content: '【剧情选项】：甲 / 乙 / 丙' },
+      { role: 'user', content: '我接着往下走。' }
+    ]
+  };
+  mod.syncConvoOptions(endsWithUser);
+  check(
+    '最后一条是用户消息时清空',
+    Array.isArray(endsWithUser.options) && endsWithUser.options.length === 0,
+    JSON.stringify(endsWithUser.options)
   );
 });
 

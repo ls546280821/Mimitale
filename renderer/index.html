@@ -535,28 +535,9 @@
               </div>
             </div>
 
-            <!-- 身份：姓名就是上面的「角色名」，这里补另外三个。
-                 这四项会在世界里随剧情变（过一年年龄涨一岁、被改名），
-                 所以游玩世界书时会作为字段进状态面板。 -->
-            <div class="field-grid field-grid-3">
-              <label class="field">
-                <span class="field-label" data-icon="hourglass">年龄</span>
-                <input id="c-age" type="text" spellcheck="false" placeholder="例如 18" aria-label="年龄" />
-              </label>
-              <label class="field">
-                <span class="field-label" data-icon="venus">性别</span>
-                <select id="c-gender" aria-label="性别">
-                  <option value="">未设置</option>
-                  <option value="男">男</option>
-                  <option value="女">女</option>
-                  <option value="其他">其他</option>
-                </select>
-              </label>
-              <label class="field">
-                <span class="field-label" data-icon="users">种族</span>
-                <input id="c-race" type="text" spellcheck="false" placeholder="人类" aria-label="种族" />
-              </label>
-            </div>
+            <!-- 年龄/性别/种族不再单独填：这些是角色的固定设定，写进「角色描述」
+                 文字里即可（描述里本就该交代清楚「十八岁」「魅魔混血」这类信息）。
+                 单独字段反而会和描述重复，还要两处一起维护。 -->
 
             <!-- 五个长文本字段共用一套结构：field-head = 字段名 + 字数角标 + 放大编辑。
                  label 上的 for 是**必须的**：head 里那个放大按钮也是可标注元素，

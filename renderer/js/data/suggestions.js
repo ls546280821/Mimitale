@@ -167,8 +167,9 @@ export function optionsInstruction(convo) {
 
   const lines = [
     '【剧情选项】',
-    `在正文和状态栏之后，另起一行，用「【${OPTIONS_LABEL}】：选项内容 / 选项内容 / 选项内容」的格式给出 ${spec.count} 个选项，` +
-      '每个选项之间用「 / 」隔开（就这一行，不要编号、不要加 A/B/C 字母标签、不要再分多行）。',
+    `每轮回复的末尾都**必须**带上「【${OPTIONS_LABEL}】：选项内容 / 选项内容 / 选项内容」这一行，` +
+      `给出 ${spec.count} 个选项，每个选项之间用「 / 」隔开。` +
+      '就这一行、紧跟正文和状态栏之后，不要编号、不要加 A/B/C 字母标签、不要再分多行，也不要因为正文长就省略这一行。',
     '每个选项是玩家接下来可以**直接说出口或做出来**的动作/台词，用玩家第一人称，' +
       `每条一句话以内（不超过 ${MAX_OPTION_CHARS} 字）。`,
     `例如：【${OPTIONS_LABEL}】：走过去抱住她 / 退后一步问她怎么了 / 假装没看见，继续做自己的事。`,
@@ -191,34 +192,46 @@ export function optionsInstruction(convo) {
 }
 
 /**
- * 把最近一条带选项的回复里的选项同步到会话上。
+ * 把最新一条回复里的选项同步到会话上。
  *
  * 规则：
- *   · 找到**最近**一条提到选项的助手消息就用它 —— 和状态栏一样「最新一轮说了算」；
- *   · 一条都没有就清空（这轮没给，就别把上一轮的旧选项留在面板上误导玩家）；
+ *   · 只看**最新一条**助手消息 —— 它这一轮给出选项就用新的；
+ *   · 这一轮没给 → **保留上一批**（不清空）。选项应该常驻，模型偶尔漏输出
+ *     「【剧情选项】」那行时，面板不能整批消失，否则就是「一会有一会没有」；
  *   · 没开剧情选项的会话直接清空并返回。
+ *
+ * 为什么「保留上一批」而不是「从历史往回找」：两者都拿旧选项，区别在跨度。
+ * 往回扫会命中好几轮前那条（严重过时，玩家看到「每次第一个都是之前的」）；
+ * 只退到**紧邻上一批**则基本还贴着当前局面，最多是内容略有重复，体验远好于
+ * 选项凭空消失。真正要选项「更新」的是模型下一轮给新的，这里只是兜底不断档。
+ *
  * 返回是否发生了变化。
  */
 export function syncConvoOptions(convo) {
   if (!convo || !Array.isArray(convo.messages)) return false;
 
   const before = JSON.stringify(convo.options || []);
-  let found = null;
+  const previous = Array.isArray(convo.options) ? convo.options : [];
+  let found = previous;
 
   if (convoOptionsSpec(convo)) {
-    for (let i = convo.messages.length - 1; i >= 0; i -= 1) {
-      const msg = convo.messages[i];
-      if (!msg || msg.role !== 'assistant') continue;
-      const content = String(msg.content || '');
-      if (!content.includes(OPTIONS_LABEL)) continue;
-      const items = extractOptionsFromText(content);
-      if (items.length) {
-        found = items;
-        break;
+    // 只取**第一条 assistant**（就是刚生成完的那条），不再往前翻。
+    const last = convo.messages[convo.messages.length - 1];
+    if (last && last.role === 'assistant') {
+      const content = String(last.content || '');
+      if (content.includes(OPTIONS_LABEL)) {
+        const items = extractOptionsFromText(content);
+        if (items.length) found = items;
       }
+    } else {
+      // 最后一条不是 assistant（空历史、或停在用户/错误消息上）——没有
+      // 「最新一轮剧情」可依附，保留残留选项只会让面板挂着无关内容，清空。
+      found = [];
     }
+  } else {
+    found = [];
   }
 
-  convo.options = found || [];
+  convo.options = found;
   return before !== JSON.stringify(convo.options);
 }

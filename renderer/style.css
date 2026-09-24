@@ -2212,7 +2212,8 @@ body {
 }
 
 .attr-range,
-.attr-group-row {
+.attr-group-row,
+.attr-mode-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -2250,6 +2251,7 @@ body {
    是 (0,1,1) 而且写在文件更后面，光写 `.attr-more .attr-group`
    照样会输给它的 min-height:40px / padding。 */
 .attr-more select.attr-group,
+.attr-more select.attr-mode,
 .attr-more input.attr-group-new {
   flex: 1 1 auto;
   min-width: 0;

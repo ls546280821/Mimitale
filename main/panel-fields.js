@@ -36,6 +36,13 @@ const MAX_GROUP_TITLE = 24;
 
 const FIELD_TYPES = ['text', 'meter', 'list'];
 
+// 字段的「更新频率」标记：决定它要不要每轮都出现在状态栏里。
+//   · 'dynamic' 每轮维护 —— 铜板/生命/好感度这类随剧情变的状态，默认值。
+//   · 'static'  变了才说 —— 身高/衣物/随身物这类偶尔变的设定，没变化就不输出。
+// 老数据没有这个键，一律按 dynamic 处理（向后兼容，行为与以前完全一致）。
+const FIELD_MODES = ['dynamic', 'static'];
+const DEFAULT_FIELD_MODE = 'dynamic';
+
 /** 一个字段值是不是「数字」或「数字/数字」这种分数写法 */
 function parseNumericValue(value) {
   const text = String(value == null ? '' : value).trim();
@@ -135,6 +142,10 @@ function normalizePanelField(raw) {
 
   const hint = String(raw.hint == null ? '' : raw.hint).trim().slice(0, MAX_FIELD_HINT);
   if (hint) field.hint = hint;
+
+  // 更新频率标记：不认识的值退回默认 dynamic。老数据没有这个键，也走默认。
+  const mode = FIELD_MODES.includes(raw.mode) ? raw.mode : DEFAULT_FIELD_MODE;
+  if (mode !== DEFAULT_FIELD_MODE) field.mode = mode;
 
   // 分组：字段属于哪个命名面板。空 = 不分组（就是以前那种扁平清单）。
   const group = String(raw.group == null ? '' : raw.group).trim().slice(0, MAX_GROUP_TITLE);
@@ -244,11 +255,17 @@ function describePanelField(field) {
 
   if (f.hint) parts.push(f.hint);
 
+  // 静态字段额外说明一句：让模型知道「这个不用每轮都写，变了才写」。
+  // 动态字段不额外说 —— 保持默认的「每轮照抄」，别把提示词撑长。
+  if (f.mode === 'static') parts.push('只在变化时输出这一行，没变化就省略');
+
   return parts.join('；');
 }
 
 const PanelFields = {
   FIELD_TYPES,
+  FIELD_MODES,
+  DEFAULT_FIELD_MODE,
   MAX_FIELD_NAME,
   MAX_FIELD_VALUE,
   MAX_FIELD_HINT,
