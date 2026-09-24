@@ -59,6 +59,12 @@ export function startWorldPlay() {
   const pickedCard = characterById(el.playerChar.value);
   convo.player = { name, profile, characterId: pickedCard ? pickedCard.id : null };
 
+  // 剧情选项：选卡当自己时，把卡上的剧情选项配置一起带进这个世界 ——
+  // 否则进世界的会话 optionsSpec 永远是 null，剧情选项全程不生效。
+  // 用复制（和绑定角色卡那套一致），改卡不该悄悄改掉正在玩的这一局。
+  convo.optionsSpec = pickedCard && pickedCard.optionsSpec ? { ...pickedCard.optionsSpec } : null;
+  if (!convo.optionsSpec) convo.options = [];
+
   // 状态面板：先种「你自己」的身份和属性（主角的数值优先），再种本书角色的。
   // 同名以先出现的为准，所以自己卡上的「金币」不会被书里的盖掉。
   // 归属（owner）：你自己的身份和卡标成 'player'（在「我的状态」卡里看，

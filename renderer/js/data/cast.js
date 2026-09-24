@@ -207,10 +207,28 @@ const MAX_CAST_CHARS = 3000;
 const MAX_CAST_PER_NPC = 160;
 
 /**
+ * 书里的某个角色副本是不是「玩家本人」。
+ *
+ * 玩家用某张卡「进入世界」时，那张卡（或同名角色）可能也在书里当 NPC ——
+ * 副本名字和玩家名撞了，GM 名单里就冒出两个同名的人。判断只认名字：
+ * 副本名字和玩家名一样，就视为玩家本人、不当 NPC。纯函数，只读传入的 convo。
+ */
+export function isPlayerCharacterCopy(convo, character) {
+  if (!convo || !character) return false;
+  const playerName = convoUserName(convo);
+  return String(character.name || '').trim() === playerName;
+}
+
+/**
  * 「这个世界的人」：把书里的角色副本列给 GM。
  *
  * 不列的话 GM 根本不知道这个世界有哪些 NPC —— 之前就是这样，它只能现编人物，
  * 或者等你主动提到名字。名单每轮都注入，所以做了长度上限。
+ *
+ * 玩家本人不算 NPC：玩家用某张卡「进入世界」时，那张卡（或同名角色）可能也
+ * 在书里 —— 同名副本会和玩家撞名，GM 名单里就冒出两个「姐姐」，模型分不清
+ * 谁是玩家、谁是 NPC（实测：来回纠结「露西娅是主角还是外乡人」）。所以这里
+ * 把与玩家同名的副本标成「玩家扮演」、不再当 NPC 罗列，并在开头明说。
  */
 export function worldbookCast(convo) {
   const books = convoWorldbookIds(convo)
@@ -219,10 +237,17 @@ export function worldbookCast(convo) {
   const cast = books.flatMap((b) => worldbookCharacters(b));
   if (!cast.length) return '';
 
+  const playerName = convoUserName(convo);
+
   const lines = [];
   let total = 0;
+  let npcCount = 0;
 
   for (const c of cast) {
+    // 与玩家同名的副本 = 玩家本人，不是 NPC：跳过，别让 GM 当成另一个人来演
+    if (isPlayerCharacterCopy(convo, c)) continue;
+    npcCount += 1;
+
     // 身份用括号缀在名字后面：GM 不知道 NPC 几岁、什么族，照样会瞎编
     const who = [c.age && `${c.age}岁`, c.gender, c.race].filter(Boolean).join('·');
     const bits = [c.description, c.personality]
@@ -233,12 +258,17 @@ export function worldbookCast(convo) {
     const line = `- ${head}：${bits.slice(0, MAX_CAST_PER_NPC) || '（没写设定）'}`;
 
     if (total + line.length > MAX_CAST_CHARS) {
-      lines.push(`- （还有 ${cast.length - lines.length} 人没列出）`);
+      lines.push(`- （还有 ${cast.length - npcCount + 1} 人没列出）`);
       break;
     }
     lines.push(line);
     total += line.length;
   }
 
-  return `【这个世界的人】\n以下角色由你扮演，各自有各自的立场、语气和说话习惯。\n${lines.join('\n')}`;
+  // 玩家本人明确点出来，和 NPC 名单分开 —— 免得模型把主角当 NPC 之一
+  const header =
+    `【这个世界的人】\n` +
+    `「${playerName}」是玩家本人扮演的主角，不是 NPC —— 不要把他/她当成别的 NPC 来描写或替他说话。\n` +
+    (lines.length ? `以下角色是你扮演的 NPC，各自有各自的立场、语气和说话习惯：\n` : '');
+  return header + lines.join('\n');
 }

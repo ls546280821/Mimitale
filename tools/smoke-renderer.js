@@ -3520,4 +3520,93 @@ await scenario('选卡当自己：玩家设定的宏替换成本人', async () =
   check('有 player 但没 profile 时返回空串', mod.playerProfileForPrompt({ player: { name: '甲' } }) === '');
 });
 
+// ---------------------------------------------------------------------------
+//  场景 30：世界书的 NPC 名单不该把玩家本人（同名副本）当成 NPC
+//
+//  用户报的现象：用「姐姐」卡进世界，姐姐卡也被加进了世界书当 NPC，结果 GM
+//  名单里冒出两个「姐姐」，模型分不清谁是玩家、把主角当 NPC。
+//
+//  修复：worldbookCast 把与玩家同名的书里副本标成「玩家本人」、不再当 NPC 罗列。
+//  判定逻辑抽成纯函数 isPlayerCharacterCopy（只读 convo），这里动态 import 真模块验证。
+// ---------------------------------------------------------------------------
+await scenario('世界书：同名副本不把玩家当 NPC', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/cast.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('cast 模块能动态加载', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.isPlayerCharacterCopy !== 'function') {
+    check('cast 模块能动态加载', false);
+    return;
+  }
+  check('cast 模块能动态加载', true);
+
+  const convo = {
+    worldbookIds: ['bk1'],
+    player: { name: '姐姐', profile: '', characterId: null },
+    gmMode: true
+  };
+
+  // 与玩家同名的副本 = 玩家本人
+  check(
+    '与玩家同名的副本被判为玩家本人',
+    mod.isPlayerCharacterCopy(convo, { id: 'wc_self', name: '姐姐' }) === true,
+    String(mod.isPlayerCharacterCopy(convo, { id: 'wc_self', name: '姐姐' }))
+  );
+  // 不同名的副本 = 真 NPC
+  check(
+    '不同名的副本被判为 NPC（不是玩家）',
+    mod.isPlayerCharacterCopy(convo, { id: 'wc_npc', name: '妹妹' }) === false,
+    String(mod.isPlayerCharacterCopy(convo, { id: 'wc_npc', name: '妹妹' }))
+  );
+  // 前后有空格也能识别（trim 后比较）
+  check(
+    '副本名字前后带空格也能识别',
+    mod.isPlayerCharacterCopy(convo, { id: 'wc_sp', name: ' 姐姐 ' }) === true,
+    String(mod.isPlayerCharacterCopy(convo, { id: 'wc_sp', name: ' 姐姐 ' }))
+  );
+  // 空 convo / 空角色不崩
+  check('空 convo 返回 false', mod.isPlayerCharacterCopy(null, { name: '姐姐' }) === false);
+  check('空角色返回 false', mod.isPlayerCharacterCopy(convo, null) === false);
+});
+
+// ---------------------------------------------------------------------------
+//  场景 31：玩家不同名时，书里同名检测不误判
+//
+//  边界：玩家起的名字和书里角色都不一样时，书里角色全部是 NPC（不该误删）。
+//  另一个边界：玩家没有角色卡（名字来自设置里的默认名）时也能识别。
+// ---------------------------------------------------------------------------
+await scenario('世界书：玩家不同名不误判', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/cast.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('cast 模块能动态加载', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.isPlayerCharacterCopy !== 'function') {
+    check('cast 模块能动态加载', false);
+    return;
+  }
+
+  const convo = {
+    worldbookIds: ['bk2'],
+    player: { name: '旅行者', profile: '', characterId: null },
+    gmMode: true
+  };
+
+  check(
+    '玩家名不同时，同名副本（妹妹）不当玩家本人',
+    mod.isPlayerCharacterCopy(convo, { id: 'wc_a', name: '妹妹' }) === false,
+    String(mod.isPlayerCharacterCopy(convo, { id: 'wc_a', name: '妹妹' }))
+  );
+  check(
+    '玩家名匹配时（旅行者）才算玩家本人',
+    mod.isPlayerCharacterCopy(convo, { id: 'wc_me', name: '旅行者' }) === true,
+    String(mod.isPlayerCharacterCopy(convo, { id: 'wc_me', name: '旅行者' }))
+  );
+});
+
 return { results, notes, hoverProbe };

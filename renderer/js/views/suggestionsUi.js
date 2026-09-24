@@ -141,15 +141,19 @@ export async function suggestNextActions(trigger) {
   }
 
   try {
-    // 只带最近几轮，够模型判断局面就行，不用把整段历史塞进去
-    const recent = history.slice(-6).map((m) => ({ role: m.role, content: m.content }));
-    recent.push({ role: 'user', content: suggestInstruction() });
+    // 和「换一批」一样复用 buildApiMessages：人设、玩家角色、世界书、面板状态、
+    // 剧情选项指令全都带着，模型才知道「你是谁、这是什么世界」，否则它只能看到
+    // 一截裸对话，会把你当 NPC、把主角当外乡人（实测踩过）。再追加一句「帮我想想」。
+    const worldbookSection = await matchWorldbookSection(convo);
+    const ragSection = await recallSection(convo);
+    const messages = buildApiMessages(convo, worldbookSection, ragSection);
+    messages.push({ role: 'user', content: suggestInstruction() });
 
     const response = await api.sendChat({
       requestId: `suggest-${uid()}`,
       providerId: endpoint.provider.id,
       model: endpoint.model,
-      messages: recent
+      messages
     });
 
     if (!response || response.ok !== true) {
