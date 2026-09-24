@@ -40,10 +40,19 @@ const PANEL_LINE_MAX = 200;
 // 还没有已知字段时，值超过这个长度就不认为是面板（首次扫描的兜底判断）
 const PANEL_GUESS_VALUE_MAX = 60;
 
-// 明确不当面板的字段名：这些是我们自己注入的提示词段落，或消息渲染用的标记
+// 明确不当面板的字段名：这些是我们自己注入的提示词段落，或消息渲染用的标记。
+//
+// ⚠️ 「剧情选项」必须在这里 —— 它 /值/ 长得很像一个面板字段（行首【】、值也不长），
+// 但它是**程序读的指令行**：解析出来变成按钮之后就该消失（见 stripOptionsLine）。
+// 以前漏了它，于是 syncConvoPanel 扫描时把它收成了一个名叫「剧情选项」的面板字段，
+// 而 cleanAssistantText 又把这一行剥掉了 —— 扫描和剥离两套规则不一致，
+// 结果就是气泡里看不见、面板上却凭空多出一个字段。
+// 注意这里只能用字面量：OPTIONS_LABEL 定义在下面（它是 export 给别处用的），
+// 往上提会把这段常量的可读顺序打乱，而这个名字本来也不会变。
 const PANEL_RESERVED = new Set([
   '心理', '内心', '心声', '旁白', '上帝视角', '全知',
-  '扮演规则', '主持规则', '当前场景', '世界设定', '参考信息', '叙述要求'
+  '扮演规则', '主持规则', '当前场景', '世界设定', '参考信息', '叙述要求',
+  '剧情选项'
 ]);
 
 export const MAX_PANEL_FIELDS = 120;
@@ -311,10 +320,20 @@ export function syncConvoPanel(convo) {
   const existingPanel = convoPanel(convo);
 
   // 字段顺序：先保留已经有的（角色卡种下的 / 手动加的），新发现的追加在后面。
-  const order = [...existingFields];
+  //
+  // 这里顺手把「保留名」剔出去。为什么需要这一步：以前 PANEL_RESERVED 漏了
+  // 「剧情选项」，于是老会话的面板里可能已经躺着一个叫这个名字的脏字段 ——
+  // 光把名字加进保留名单只会让**新**扫描不再收它，已经存下的那个不会自己消失
+  // （这一段的「累积」语义恰恰保证了它留下来）。所以在入口处清一遍，老会话一跑就自愈。
+  const order = existingFields.filter((name) => panelFieldAllowed(name));
   const known = new Set(order);
   const latest = new Map();
   const defs = { ...convoPanelDefs(convo) };
+  // 定义表里也要清：脏字段的定义留着的话，cleanAssistantText 剥旧消息时
+  // 还会把它当「已知字段」照剥（那边是按 knownFields 判断的），不一致。
+  for (const name of Object.keys(defs)) {
+    if (!panelFieldAllowed(name)) delete defs[name];
+  }
 
   for (const msg of convo.messages) {
     if (!msg || msg.role !== 'assistant') continue;

@@ -265,6 +265,76 @@ await scenario('角色库：放弃新建', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  场景 5.5：角色编辑器 —— 长文本框自动增高
+//
+//  两件事只靠眼睛看是看不出「对没对」的，得量高度：
+//    · 内容少的时候框要矮（不能每个都占五行，一屏放不下几项）
+//    · 内容多的时候框要长高（不然只能看到一小截）
+//    · 手动拖过之后，输入不该把它拽回去
+//
+//  这里只量「有没有按内容变」，具体多高由 ui/auto-grow.js 决定。
+//  ⚠️ 高度靠 getBoundingClientRect 读 —— 那是布局完成后的实高，
+//     比读 style.height 可信（style 里可能写着值但被别的规则压回去）。
+// ---------------------------------------------------------------------------
+await scenario('角色编辑器：长文本框自动增高', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+
+  const desc = byId('c-desc');
+  const example = byId('c-example');
+  check('五个长文本框都在表单里', !!desc && !!example);
+
+  const hOf = (node) => Math.round(node.getBoundingClientRect().height);
+
+  // 内容少：高度应当停在「下限」附近
+  setValue(desc, '一行字');
+  await sleep(80);
+  const hShort = hOf(desc);
+
+  // 内容多：高度应当明显长高
+  setValue(example, Array.from({ length: 14 }, (_, i) => `第 ${i + 1} 行的内容`).join('\n'));
+  await sleep(200);
+  const hLong = hOf(example);
+
+  check(
+    '内容少时框是矮的',
+    hShort <= 120,
+    `实际 ${hShort}px（期望 <=120px）`
+  );
+  check(
+    '内容多时框会自己长高',
+    hLong > hShort + 40,
+    `长内容 ${hLong}px vs 短内容 ${hShort}px`
+  );
+  check(
+    '长高有上限，不会把表单顶爆',
+    hLong <= 470,
+    `实际 ${hLong}px（期望 <=470px）`
+  );
+
+  // 手动拖过之后就锁定：再输入内容也不该被自动改回去。
+  // 模拟「用户拖拽结束」——直接改高度再派发 mouseup（这是唯一能观察到的信号）。
+  example.style.height = '150px';
+  example.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+  await sleep(50);
+  setValue(example, '又变短了');
+  await sleep(80);
+  check(
+    '拖过之后高度被锁住，输入不会拽回去',
+    Math.abs(hOf(example) - 150) <= 6,
+    `实际 ${hOf(example)}px（期望 ~150px）`
+  );
+
+  click('#btn-close-chars');
+  await waitFor('弹出放弃确认框', () => shown('#confirm-modal'));
+  click('#confirm-ok');
+  await waitFor('编辑器关闭', () => !shown('#chars-modal'));
+  await sleep(150);
+});
+
+// ---------------------------------------------------------------------------
 //  场景 6：角色库 —— 编辑已有角色是「更新」，不是「新增」
 // ---------------------------------------------------------------------------
 await scenario('角色库：编辑已有角色', async () => {
@@ -2463,6 +2533,21 @@ await scenario('剧情选项', async () => {
     '同一条回复里的状态栏也被面板收下了',
     $$('#panel-fields .panel-name').some((n) => n.textContent === '好感度'),
     JSON.stringify($$('#panel-fields .panel-name').map((n) => n.textContent))
+  );
+
+  // 「剧情选项」是**程序读的指令行**，不是面板字段。
+  // 它的形状和面板行一模一样（行首【】、值也不长），所以扫描时很容易被误收 ——
+  // 而 cleanAssistantText 又把它剥掉了，于是表现为「气泡里看不见、面板上却多一个字段」。
+  // 这条断言盯的就是那个分裂：选项行和状态栏同一条消息回来，它绝不能进面板。
+  check(
+    '「剧情选项」没被当成面板字段收下',
+    !$$('#panel-fields .panel-name').some((n) => n.textContent === '剧情选项'),
+    JSON.stringify($$('#panel-fields .panel-name').map((n) => n.textContent))
+  );
+  check(
+    '面板里也没有「剧情选项」的输入框',
+    !$$('#panel-fields .panel-value').some((i) => i.dataset.field === '剧情选项'),
+    JSON.stringify($$('#panel-fields .panel-value').map((i) => i.dataset.field))
   );
 
   // 「好感度」是模型自己输出、这个角色卡上没声明过的字段。

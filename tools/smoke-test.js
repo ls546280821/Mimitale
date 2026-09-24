@@ -466,11 +466,17 @@ function registerStubs() {
     if (askedForOptions) {
       // 故意不带方括号（写成「剧情选项：」而不是「【剧情选项】：」）——
       // 指令是让模型带方括号的，但真模型经常漏，解析要两边都认。
+      //
+      // ⚠️ 但这两种形态有个关键区别：**带方括号的那行长得和面板字段一模一样**
+      // （行首【】），不带方括号的则天然匹配不上 PANEL_LINE_RE。
+      // 所以只测不带方括号的形态，是测不到「选项被误收成面板字段」这个 bug 的
+      // （见 renders 场景里那两条断言）—— 这里两种都发出来。
       const optionsLine =
         '剧情选项：1.「我想先喝一杯，压压惊」 / 我直接问他叫什么名字 / ' +
         '3） 我假装什么都没听见，继续吃 / 我想先喝一杯，压压惊 / 这条应该被丢掉（只取前几个）';
-      CONTENT = `${CONTENT}\n\n【好感度】：63/100\n${optionsLine}`;
-      pieces = [...pieces, '\n\n【好感度】：63/100\n', optionsLine];
+      const bracketedOptionsLine = '【剧情选项】：我想先喝一杯，压压惊 / 我直接问他叫什么名字 / 我假装什么都没听见';
+      CONTENT = `${CONTENT}\n\n【好感度】：63/100\n${optionsLine}\n${bracketedOptionsLine}`;
+      pieces = [...pieces, '\n\n【好感度】：63/100\n', optionsLine, '\n', bracketedOptionsLine];
     }
 
     for (const piece of pieces) {
@@ -755,7 +761,7 @@ function probeExports(result) {
       const png = Buffer.from(String(charExport.base64 || ''), 'base64');
       const withText = pngWithTextChunk(png, charExport.pngText.keyword, charExport.pngText.text);
       const card = parseCharacterCardPng(withText);
-      const ext = (card && card.data && card.data.extensions && card.data.extensions.barbara) || {};
+      const ext = (card && card.data && card.data.extensions && card.data.extensions.mimitale) || {};
       const attrs = Array.isArray(ext.attributes) ? ext.attributes : [];
       const meter = attrs.find((a) => a && a.name === '好感度');
       cardOk =
@@ -765,7 +771,7 @@ function probeExports(result) {
         ext.age === '18' &&
         ext.gender === '女' &&
         attrs.length === 3 &&
-        // 范围/规则也要能过一遍 PNG 往返（写进 extensions.barbara 再读回来）
+        // 范围/规则也要能过一遍 PNG 往返（写进 extensions.mimitale 再读回来）
         !!meter &&
         meter.type === 'meter' &&
         meter.min === 0 &&
@@ -836,9 +842,9 @@ function probeExports(result) {
     try {
       const card = JSON.parse(String(charExport.text || '{}'));
       const book = card.data && card.data.character_book;
-      const barbara = (card.data && card.data.extensions && card.data.extensions.barbara) || {};
-      boundOk = !!book && !!book.name && barbara.worldbookEnabled === true;
-      boundDetail = `character_book=${book ? `「${book.name}」` : 'null'} worldbookEnabled=${barbara.worldbookEnabled}`;
+      const own = (card.data && card.data.extensions && card.data.extensions.mimitale) || {};
+      boundOk = !!book && !!book.name && own.worldbookEnabled === true;
+      boundDetail = `character_book=${book ? `「${book.name}」` : 'null'} worldbookEnabled=${own.worldbookEnabled}`;
     } catch (err) {
       boundDetail = '角色卡 JSON 解析失败：' + ((err && err.message) || err);
     }
@@ -945,7 +951,7 @@ function probeImport(result) {
       post_history_instructions: '',
       tags: [],
       character_book: { name: '卡里自带的世界书', entries },
-      extensions: { barbara: { age: '18', gender: '女', race: '精灵', attributes: [] } }
+      extensions: { mimitale: { age: '18', gender: '女', race: '精灵', attributes: [] } }
     }
   });
 
@@ -999,7 +1005,7 @@ function probeImport(result) {
 
     push('导入：PNG 卡读出来了', (out.characters || []).length === 1 && !!char && char.name === '导入测试角色',
       char ? `roles=${out.characters.length} name=${char.name}` : JSON.stringify(out.errors));
-    push('导入：v2 的 extensions.barbara 也读回来了',
+    push('导入：v2 的 extensions.mimitale 也读回来了',
       !!char && char.age === '18' && char.gender === '女' && char.race === '精灵',
       char ? `age=${char.age} gender=${char.gender} race=${char.race}` : '没有角色');
     push('导入：卡里内嵌的世界书被存下来了（以前整本丢掉）', !!book,
@@ -1940,6 +1946,52 @@ app.whenReady().then(async () => {
           if (tabs) tabs.scrollIntoView({ block: 'center' });
           await nap(250);
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 长文本框：自动增高 + 右下角拖拽把手。
+        // 这两件事全是**纯视觉**的 —— DOM 断言只能说「高度变了」，
+        // 说不清把手看不看得见、长高之后上下留白对不对。
+        // 故意做成两种内容并存好一次看完：
+        //   · 「角色描述」留短内容 → 展示短内容不占地方（停在下限）
+        //   · 「示例对话」填一长段 → 展示自动增高（应该明显高于其他框）
+        charTextareas: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+
+          document.querySelector('#btn-chars')?.click();
+          await nap(400);
+          const card = $$('#char-page-grid .char-card')[0];
+          const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (btn) btn.click();
+          await nap(600);
+
+          const setVal = (node, v) => { if (!node) return; node.value = v; fire(node, 'input'); };
+
+          // 短内容（自动增高应当停在下限附近）
+          setVal($('#c-desc'), '一个爱在图书馆泡到闭馆的中文系女生。');
+          // 长内容（应当长高，但不该顶爆表单 —— 有 GROW_MAX 兜着）
+          setVal($('#c-example'), [
+            '{{user}}：这么晚了还不回去？',
+            '{{char}}：……还差两页。你先走吧。',
+            '',
+            '{{user}}：我看你昨天也没去食堂。',
+            '{{char}}：（把书往怀里按了按）不饿。',
+            '',
+            '{{user}}：这本书你借了三次了吧？',
+            '{{char}}：……第四次。图书馆要罚款的。'
+          ].join('\\n'));
+
+          // 焦点落到「示例对话」自己身上再滚过去 —— 让长高的那个框连同
+          // 右下角的把手一起进画面（不要在别的框上留焦点，
+          // 免得让人误以为「其他框被压扁了」）。
+          const example = $('#c-example');
+          if (example) example.focus();
+          await nap(300);
+
+          const desc = $('#c-desc');
+          if (desc) desc.scrollIntoView({ block: 'start' });
+          await nap(300);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 同上，但停在**空分组**上 —— 空态文案、计数徽标上的 0、
         // 以及「卡身只剩一行提示」时的留白，只有截图能看出好不好看。
         charAttrsEmpty: `
@@ -2115,15 +2167,26 @@ app.whenReady().then(async () => {
         // 一张错图去调配色。这里直接问浏览器要算完的值，比肉眼看可靠。
         const probe = await win.webContents.executeJavaScript(`(() => {
           const bg = (sel) => { const n = document.querySelector(sel); return n ? getComputedStyle(n).backgroundColor : '(无)'; };
+          const h = (sel) => { const n = document.querySelector(sel); return n ? Math.round(n.getBoundingClientRect().height) : 0; };
           return {
             theme: document.documentElement.getAttribute('data-theme') || 'light',
             card: bg('.modal-card'),
             panel: bg('.attr-panel'),
             tabs: bg('.attr-tabs'),
-            value: bg('.attr-row input.attr-value')
+            value: bg('.attr-row input.attr-value'),
+            // 长文本框的实高：光看截图分不清「自动长高了」和「本来就这个高」，
+            // 这里把五个框的量出来，一眼能看出收窄/增高有没有真的发生。
+            desc: h('#c-desc'),
+            personality: h('#c-personality'),
+            scenario: h('#c-scenario'),
+            first: h('#c-first'),
+            example: h('#c-example')
           };
         })()`);
         console.log(`  主题=${probe.theme} 弹窗底=${probe.card} 属性卡=${probe.panel} 标签栏=${probe.tabs} 值框=${probe.value}`);
+        if (shotArg === 'charTextareas') {
+          console.log(`  长文本框实高(px) 描述=${probe.desc} 性格=${probe.personality} 场景=${probe.scenario} 开场白=${probe.first} 示例对话=${probe.example}`);
+        }
         const dir = path.join(__dirname, 'shots');
         fs.mkdirSync(dir, { recursive: true });
         const shotName = `${shotArg}${shotAccent === 'blue' ? '-blue' : ''}${shotDark ? '-dark' : ''}.png`;
