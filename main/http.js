@@ -215,8 +215,31 @@ function normalizeNetworkError(err) {
 }
 
 /**
+ * 把服务商各写各的「思考 token」归一到 usage.reasoning_tokens。
+ *
+ * OpenAI / DeepSeek 把它放在 completion_tokens_details.reasoning_tokens，
+ * 也有服务商直接给顶层 reasoning_tokens —— 上层只想认一个字段，
+ * 分家的事在这里收口（界面要在消息上标「思考花了多少」，取错地方就是空白）。
+ */
+function normalizeUsage(usage) {
+  if (!usage || typeof usage !== 'object') return usage;
+  if (!Number.isFinite(Number(usage.reasoning_tokens))) {
+    const details = usage.completion_tokens_details || usage.output_tokens_details;
+    const n = Number(details && details.reasoning_tokens);
+    if (Number.isFinite(n)) usage.reasoning_tokens = n;
+  }
+  return usage;
+}
+
+/**
  * 流式对话：SSE 逐块解析，通过 onDelta 回调把增量文本交出去。
- * 返回 { content, reasoning, usage }。
+ * 返回 { content, reasoning, usage, finishReason }。
+ *
+ * finishReason 是服务商给的**权威收尾信号**，务必带上：
+ *   · 'length' —— 撞到 max_tokens 上限被截断（真截断）
+ *   · 'stop'   —— 模型自己写完了（哪怕正文是空的，也说明不是被截断）
+ * 少了它，上层只能靠「正文为空 + 有思考」猜，猜错就会把「模型没落笔」
+ * 说成「额度用光」，让人白白去调 max_tokens（而调大往往没用）。
  */
 function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
   return new Promise((resolve, reject) => {
@@ -276,6 +299,7 @@ function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
         let content = '';
         let reasoning = '';
         let usage = null;
+        let finishReason = '';
         let finished = false;
 
         const handleLine = (line) => {
@@ -300,6 +324,9 @@ function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
 
           const choice = json.choices && json.choices[0];
           if (!choice) return;
+
+          // 收尾信号只在最后一个 chunk 上出现（之前都是 null），有就记下来
+          if (choice.finish_reason) finishReason = choice.finish_reason;
 
           const delta = choice.delta || choice.message || {};
           if (typeof delta.reasoning_content === 'string' && delta.reasoning_content) {
@@ -341,7 +368,7 @@ function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
             reject(new Error('接口没有返回任何内容。可能是模型名不对，或该模型不支持流式输出。'));
             return;
           }
-          resolve({ content, reasoning, usage });
+          resolve({ content, reasoning, usage: normalizeUsage(usage), finishReason });
         });
 
         res.on('error', (err) => {

@@ -90,7 +90,12 @@ export function renderHeader() {
 
   if (state.usage && settings.showUsage !== false) {
     const u = state.usage;
-    el.usageText.textContent = `本次用量：输入 ${u.prompt_tokens ?? '-'} / 输出 ${u.completion_tokens ?? '-'} tokens`;
+    let text = `本次用量：输入 ${u.prompt_tokens ?? '-'} / 输出 ${u.completion_tokens ?? '-'} tokens`;
+    // 思考量单独拎出来说 —— 它是「输出被截断」时最该看的一个数：
+    // 思考接近输出总量，就说明额度是被思考吃掉的；离得远则跟上限无关。
+    const rt = Number(u.reasoning_tokens);
+    if (Number.isFinite(rt) && rt > 0) text += `（其中思考 ${rt}）`;
+    el.usageText.textContent = text;
   } else {
     el.usageText.textContent = '';
   }

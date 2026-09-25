@@ -272,7 +272,7 @@
             <label class="field">
               <span class="field-label">回复上限</span>
               <input id="s-maxtokens" type="number" min="64" max="32000" step="64" />
-              <span class="field-help">数字越大回复越长，也越费钱。</span>
+              <span class="field-help">越大回复越长，也越费钱。推理模型的「思考」也算在这份额度里；若调大后仍反复被截断，多半是服务商按模型自己的上限截断，换个模型比继续调大更管用。</span>
             </label>
           </div>
         </section>
@@ -349,6 +349,17 @@
             <span class="check-text">
               <span class="check-title">显示 token 使用量</span>
               <span class="check-desc">在输入框右下角显示本次对话消耗的 token 数</span>
+            </span>
+          </label>
+
+          <label class="check">
+            <input id="s-autocontinue" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">截断后自动续写</span>
+              <span class="check-desc">
+                回复撞到「回复上限」写了一半时，自动接着写完（最多两次）。<b>每续一次会多花一次钱</b>；
+                关掉则只在你点「继续」时才续。
+              </span>
             </span>
           </label>
 

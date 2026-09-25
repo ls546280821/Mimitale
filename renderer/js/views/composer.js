@@ -174,10 +174,79 @@ export function editMessage(index) {
 const CONTINUE_NUDGE = '（接着你上一条回复继续往下写。不要重复已经写过的内容，也不要重新开头。）';
 
 /**
- * 「继续」：让模型接着最后一条回复往下写（回复被 maxTokens 截断时用）。
+ * 正文撞到上限被截断时，最多自动接着写几次。
  *
- * 省事的地方在于**不新建消息**：流式分片本来就是「把增量加到 messages 里最后一条、
- * 再画到它的节点上」，所以只要不加新消息，它自然就续写在原文后面了。
+ * 为什么定成「有限次」：每续一次就再花一次钱，而「继续」按钮本来就摆在那条消
+ * 息上 —— 真要一直写下去，用户自己按更合适。这里只兜掉最烦的那一下。
+ */
+const MAX_AUTO_CONTINUE = 2;
+
+/**
+ * 思考挤掉正文时，自动重试附在提示词末尾的引导。只进这一次请求，不存进会话。
+ *
+ * 关键是**把「思考」也一起约束住**：只说「别重新推演」不够 —— 模型照样能再
+ * 长篇思考一轮、又把额度花光（实测连重试也会同样失败）。所以明说思考只写几句。
+ */
+const REASONING_RETRY_NUDGE =
+  '（你上一条回复只输出了思考过程，正文一个字都没写出来。不要再展开推演，思考最多两三句，' +
+  '然后直接把这一轮该写的正文完整写出来。）';
+
+/** 从一次响应的 usage 里取「思考 token」数（服务商没给、或给 0 就是 0） */
+function reasoningTokensOf(usage) {
+  const n = Number(usage && usage.reasoning_tokens);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * 让**最后一条**助手消息接着往下写 ——「继续」和「截断自动续写」共用这一段。
+ *
+ * 不新建消息是这里的关键：流式分片是「认 state.requestId，把增量加到 messages
+ * 里最后一条、再画到它的节点上」，所以只要不加新消息，新写的字自然接在原文后面。
+ *
+ * 刻意不抛异常，返回 { ok, usage, finishReason, error } —— 好让调用方自己决定
+ * 是弹提示（用户手动点「继续」）还是静默降级（自动续写失败时不必打扰用户）。
+ */
+async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSection, nudge) {
+  const last = convo.messages[convo.messages.length - 1];
+  if (!last || last.role !== 'assistant') return { ok: false, error: '没有可续写的回复' };
+
+  const requestId = uid();
+  state.requestId = requestId;
+
+  const messages = buildApiMessages(convo, worldbookSection, ragSection);
+  messages.push({ role: 'user', content: nudge || CONTINUE_NUDGE });
+
+  const before = String(last.content || '');
+
+  try {
+    const response = await api.sendChat({
+      requestId,
+      providerId: endpoint.provider.id,
+      model: endpoint.model,
+      messages
+    });
+
+    if (!response || response.ok !== true) {
+      return { ok: false, error: (response && response.error) || '调用失败' };
+    }
+    if (response.usage) state.usage = response.usage;
+    // 以新的收尾信号为准：救回来了是 'stop'，调用方据此决定还要不要再续
+    if (response.finishReason) last.finishReason = response.finishReason;
+
+    // 有的服务商不推流式分片，直接给全文 —— 那种情况分片处理器一次都没跑过，
+    // 这里补一次追加（正文没变就说明没收到过分片）
+    if (String(last.content || '') === before && String(response.content || '').trim()) {
+      last.content = before + response.content;
+    }
+
+    return { ok: true, usage: response.usage || null, finishReason: response.finishReason || '' };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || '续写失败' };
+  }
+}
+
+/**
+ * 「继续」：让模型接着最后一条回复往下写（回复被 maxTokens 截断时用）。
  */
 export async function continueLastMessage() {
   const convo = activeConvo();
@@ -201,37 +270,16 @@ export async function continueLastMessage() {
 
   const worldbookSection = await matchWorldbookSection(convo);
   const ragSection = await recallSection(convo);
-  const requestId = uid();
-  state.requestId = requestId;
-
-  const messages = buildApiMessages(convo, worldbookSection, ragSection);
-  messages.push({ role: 'user', content: CONTINUE_NUDGE });
 
   const index = convo.messages.length - 1;
   const bubble = el.messages.querySelector(`.msg[data-index="${index}"] .bubble`);
   if (bubble) bubble.classList.add('streaming');
 
-  const before = String(last.content || '');
   setStreaming(true);
 
   try {
-    const response = await api.sendChat({
-      requestId,
-      providerId: endpoint.provider.id,
-      model: endpoint.model,
-      messages
-    });
-
-    if (!response || response.ok !== true) {
-      throw new Error((response && response.error) || '调用失败');
-    }
-    if (response.usage) state.usage = response.usage;
-
-    // 有的服务商不推流式分片，直接给全文 —— 那种情况分片处理器一次都没跑过，
-    // 这里补一次追加（正文没变就说明没收到过分片）
-    if (String(last.content || '') === before && String(response.content || '').trim()) {
-      last.content = before + response.content;
-    }
+    const res = await extendAssistantMessage(convo, endpoint, worldbookSection, ragSection, CONTINUE_NUDGE);
+    if (!res.ok) throw new Error(res.error);
   } catch (err) {
     showToast((err && err.message) || '继续失败', 'error');
   } finally {
@@ -249,6 +297,48 @@ export async function continueLastMessage() {
     persistConversations();
     el.input.focus();
   }
+}
+
+/**
+ * 正文被截断时自动接着写（「设置 → 行为 → 截断后自动续写」可关）。
+ *
+ * 只在**已经有正文**的前提下接 —— 一个字都没写出来的情况走的是「自动重试」那条
+ * 分支（见 requestCompletion），两边不重叠。
+ * 返回 { rounds, reasoningTokens }：续了几轮、这几轮的思考量合计。
+ */
+async function autoContinueTruncated(convo, index, endpoint, worldbookSection, ragSection) {
+  const out = { rounds: 0, reasoningTokens: 0 };
+  if ((state.settings || {}).autoContinue === false) return out;
+
+  const lastMsg = () => convo.messages[convo.messages.length - 1];
+  let tip = null;
+
+  while (
+    out.rounds < MAX_AUTO_CONTINUE &&
+    lastMsg().finishReason === 'length' &&
+    String(lastMsg().content || '').trim()
+  ) {
+    out.rounds += 1;
+
+    // 第一轮流式跑起来之后，「正在思考」那行早被正文顶掉了 —— 这里补一条明确的
+    // 进度说明。挂在气泡上、不挂 .msg-content 里：流式绘制只重写 .msg-content
+    // 的 innerHTML，兄弟节点不会被冲掉。
+    const node = el.messages.querySelector(`.msg[data-index="${index}"] .msg-content`);
+    const bubble = node ? node.parentElement : null;
+    if (bubble && !tip) {
+      tip = document.createElement('div');
+      tip.className = 'continue-tip';
+      bubble.appendChild(tip);
+    }
+    if (tip) tip.textContent = `写到「回复上限」了，正在接着写…（第 ${out.rounds} 次）`;
+
+    const res = await extendAssistantMessage(convo, endpoint, worldbookSection, ragSection, CONTINUE_NUDGE);
+    if (!res.ok) break;
+    out.reasoningTokens += reasoningTokensOf(res.usage);
+  }
+
+  if (tip) tip.remove();
+  return out;
 }
 
 /**
@@ -331,17 +421,96 @@ async function requestCompletion(convo, options) {
     assistant.content = response.content || assistant.content;
     assistant.reasoning = response.reasoning || assistant.reasoning;
 
+    // 收尾信号与用量都记在这条消息上（以前只图省事看了一眼 usage，不留痕）：
+    //   · finishReason === 'length' 是服务商权威的「撞上限被截断」信号。光看
+    //     「正文为空 + 有思考」只能猜 —— 模型也可能只是思考完自己没落笔，
+    //     或者服务商按模型自己的上限截断（那种情况调大 max_tokens 根本没用）。
+    //   · usage 留着，事后才算得清思考吃了多少、上限到底有没有生效。
+    assistant.finishReason = response.finishReason || '';
+    assistant.usage = response.usage || null;
+    // 思考量跨请求累加：「思考把额度吃光」时，第一轮的量才是元凶，
+    // 只留最后一次的 usage 会把它漏掉。
+    let reasoningTokens = reasoningTokensOf(response.usage);
+
     if (!assistant.content && !assistant.reasoning) {
       throw new Error('接口没有返回任何内容。可能是模型名不对，或该模型不支持流式输出。');
     }
 
-    // 推理模型（如 deepseek-reasoner）有时会把 max_tokens 全花在思考过程上，
-    // 正文还没开始就被截断 —— 结果只有「思考过程」、没有正文。与其留下一个
-    // 空气泡让用户纳闷，不如明确告诉他发生了什么、怎么补救。
-    if (!String(assistant.content || '').trim() && String(assistant.reasoning || '').trim()) {
-      assistant.content =
-        '（模型只输出了思考过程，正文被截断了 —— 通常是思考把字数上限用光了。）\n\n' +
-        '点下面这条消息的「继续」让它接着写正文，或到「设置」里把 max_tokens 调大一些。';
+    const truncated = assistant.finishReason === 'length';
+    const contentEmpty = !String(assistant.content || '').trim();
+
+    // 情形一：只有思考、正文一个字都没写。
+    // 推理模型（如 deepseek-flash）有时会把 max_tokens 全花在思考过程上，
+    // 正文还没开始就被截断 —— 结果只有「思考过程」、没有正文。
+    // 先自动重试一次：明确要求它直接写正文。用户不需要知道这茬，
+    // 比让他自己去点「继续」强得多。重试也失败才退回提示文案。
+    if (contentEmpty && String(assistant.reasoning || '').trim()) {
+      const reasoningBefore = String(assistant.reasoning || '');
+
+      // 界面上那条「正在思考」还挂着 —— 如实改成现在的状态
+      const waitNode = el.messages.querySelector(`.msg[data-index="${index}"] .waiting`);
+      if (waitNode) {
+        waitNode.textContent = truncated ? '思考把篇幅用光了，正在重写正文…' : '它只思考没落笔，正在重写正文…';
+      }
+
+      const retryMessages = [...buildApiMessages(convo, worldbookSection, ragSection)];
+      retryMessages.push({ role: 'user', content: REASONING_RETRY_NUDGE });
+
+      const retryId = uid();
+      state.requestId = retryId;
+      const retry = await api.sendChat({
+        requestId: retryId,
+        providerId: endpoint.provider.id,
+        model: endpoint.model,
+        messages: retryMessages
+      });
+
+      if (retry && retry.ok === true) {
+        if (retry.usage) state.usage = retry.usage;
+        reasoningTokens += reasoningTokensOf(retry.usage);
+        // 流式分片已经直接写进 assistant.content（onChunk 按 requestId 追加到
+        // 最后一条消息）；只有服务商没推分片时才用整段返回兜底。
+        if (!String(assistant.content || '').trim() && String(retry.content || '').trim()) {
+          assistant.content = retry.content;
+        }
+        // 第一次的思考保留在前面，重试的思考（如果有）接在后面
+        assistant.reasoning = reasoningBefore + String(retry.reasoning || '');
+        // 重试也可能又撞上限 —— 以重试的信号为准
+        if (retry.finishReason) assistant.finishReason = retry.finishReason;
+      }
+
+      // 重试也没救回来：才留提示文案。
+      // 措辞必须区分「真被截断」和「模型自己没落笔」—— 后者叫人去调 max_tokens
+      // 是白折腾（实测把上限从 2048 调到 20480 照样失败）。
+      if (!String(assistant.content || '').trim()) {
+        // 这里不用再挂 truncated 标记：上面这段提示文字本身就是给用户看的说明，
+        // 界面再叠一行「被截断了」是重复的。
+        assistant.content =
+          assistant.finishReason === 'length'
+            ? '（模型只输出了思考过程，正文被截断了 —— 这一次的思考确实把「回复上限」用光了。）\n\n' +
+              '点下面这条消息的「继续」让它接着写正文；想少踩这个坑可以把上限调大，' +
+              '或者换一个不那么爱长篇思考的模型。'
+            : '（模型思考完，正文一个字都没写 —— 这一次不是被长度上限截断，更像它自己没接上。）\n\n' +
+              '点下面这条消息的「继续」，通常就能把它逼出来。';
+      }
+    } else if (!contentEmpty && truncated) {
+      // 情形二：正文写了一半撞上限（典型：状态栏写到一半断掉，看到一条残缺的回复）。
+      // 自动接着写 —— 省掉手点「继续」，但**只续有限次**（见 MAX_AUTO_CONTINUE）：
+      // 每续一次都要再花一次钱，撞满就停下挂标记，剩下的交给用户按「继续」。
+      const cont = await autoContinueTruncated(convo, index, endpoint, worldbookSection, ragSection);
+      assistant.autoContinued = cont.rounds;
+      reasoningTokens += cont.reasoningTokens;
+    }
+
+    if (reasoningTokens > 0) assistant.reasoningTokens = reasoningTokens;
+
+    // 「这条被截断过」的标记。两种情形都算：
+    //   · 收尾信号仍然是 'length' —— 真残缺了；
+    //   · 自动续写救回来了（信号已变 'stop'，但 autoContinued > 0）—— 中间确实断过，
+    //     值得给一行轻说明（文案见 chatMessages.js，语气不是「快去点继续」）。
+    // 正文为空的那条走的是上面的提示文案，不叠这个标记（重复）。
+    if (!contentEmpty && (assistant.finishReason === 'length' || Number(assistant.autoContinued) > 0)) {
+      assistant.truncated = true;
     }
 
     // 定稿：把这一轮的结果写回它那个候选槽

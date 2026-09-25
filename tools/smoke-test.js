@@ -120,7 +120,10 @@ function makeStore() {
       theme: 'light',
       sendOnEnter: true,
       showDate: false,
-      showUsage: false
+      // 打开用量显示：头部那行「输入 / 输出（其中思考 N）」才有得测 ——
+      // 「思考花了多少」是判断「是不是它在吃额度」的关键数字，值得一直摆在测试里
+      showUsage: true,
+      autoContinue: true
     },
     characters: [],
     worldbooks: [
@@ -424,12 +427,39 @@ function registerStubs() {
     const requestId = (payload && payload.requestId) || 'req-smoke';
     const model = (payload && payload.model) || 'test-model';
 
+    // ⚠️ 判定必须只看「当前这一轮」，不能扫整段历史 ——
+    // 这几个场景共用同一个会话，扫历史的话，前一个场景留下的关键词会污染
+    // 后面所有请求（症状：新场景莫名其妙走了「只思考」那条分支）。
+    //
+    // 当前轮 = 最后一条 user 消息；若它后面还跟着自动重试的引导语（它是重试请求），
+    // 再往回带一条原始输入 —— 这样「重试该失败」和「重试该救回」两种情形都能表达。
+    // 自动续写同理：它是「在真实输入后面追一轮续写引导」，不回溯就认不出场景。
+    const isRetryNudge = (s) => s.includes('直接把这一轮该写的正文完整写出来');
+    const isContinueNudge = (s) => s.includes('接着你上一条回复继续往下写');
+    const isNudge = (s) => isRetryNudge(s) || isContinueNudge(s);
+    const allMsgs = (payload && payload.messages) || [];
+    let turn = '';
+    for (let i = allMsgs.length - 1; i >= 0; i -= 1) {
+      const m = allMsgs[i] || {};
+      if (m.role !== 'user') continue;
+      const text = String(m.content || '');
+      turn = `${text}\n${turn}`;
+      if (isNudge(text)) continue; // 引导语 → 继续往回找真实的输入
+      break;
+    }
+    const retryNudged = isRetryNudge(turn);
+    const continuedNudged = isContinueNudge(turn);
+    const askedToOnlyThink = turn.includes('只思考不回答');
+    const askedThinkBurn = turn.includes('思考挤掉正文');
+    const askedTruncatedBody = turn.includes('截断正文');
+    const askedTruncatedForever = turn.includes('截断到底');
+
     // 「只思考不回答」：模拟推理模型把 max_tokens 全花在思考上、正文被截断的情形。
     // 只发 reasoning 增量、不发正文增量，最终返回 content 为空、reasoning 非空。
-    const askedToOnlyThink = ((payload && payload.messages) || []).some((m) =>
-      String((m && m.content) || '').includes('只思考不回答')
-    );
-    if (askedToOnlyThink) {
+    // 连自动重试也一样失败 —— 用来验证「重试也救不回来」时的兜底提示。
+    // 「思考挤掉正文」是同一情形的另一种输入，但它带自动重试引导的第二次请求
+    // 会正常回复 —— 用来验证「自动重试把正文救回来」。
+    if (askedToOnlyThink || (askedThinkBurn && !retryNudged)) {
       const thinking = '我在想这件事到底该怎么办，越想越觉得……';
       for (const piece of thinking.match(/[\s\S]{1,8}/g) || []) {
         if (!event.sender.isDestroyed()) event.sender.send('chat:reasoning', { requestId, text: piece });
@@ -441,7 +471,40 @@ function registerStubs() {
         model,
         content: '',
         reasoning: thinking,
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, reasoning_tokens: 5 },
+        // 这一路模拟的正是「思考把 max_tokens 花光、正文还没开始就被截断」，
+        // 服务商会给 finish_reason='length' —— 上层据此才敢断定是长度截断。
+        finishReason: 'length'
+      };
+    }
+
+    // 「截断正文」：正文写了一半撞上限（真实形态是状态栏写到一半断掉）。
+    // 有正文、但 finishReason 是 'length' —— 用来验证两件事：
+    //   · 气泡里会挂一行说明，而不是让残缺无声地过去；
+    //   · 应用会自动接着写（带续写引导语的第二次请求正常收尾）。
+    // 「截断到底」是同一情形的顽固版：续写请求照样撞上限 —— 用来验证
+    // 「只续有限次就停下、剩下交给用户按继续」，不会变成一个无底洞。
+    if (askedTruncatedBody || askedTruncatedForever) {
+      const body = continuedNudged
+        ? askedTruncatedForever
+          ? '又挤出来一点，还是撞上限'
+          : '……自动接着写完的后半段。'
+        : '冒烟测试回复：写到这儿就：';
+      for (const piece of body.match(/[\s\S]{1,6}/g) || []) {
+        if (!event.sender.isDestroyed()) event.sender.send('chat:chunk', { requestId, text: piece });
+        await sleep(6);
+      }
+      // 续写请求里「截断正文」正常收尾（stop），其余一律仍是 length
+      const stopped = continuedNudged && !askedTruncatedForever;
+      return {
+        ok: true,
+        requestId,
+        model,
+        content: body,
+        reasoning: '',
+        // 带 reasoning_tokens：界面要把它标在思考折叠标题和用量行上
+        usage: { prompt_tokens: 10, completion_tokens: 9, total_tokens: 19, reasoning_tokens: 6 },
+        finishReason: stopped ? 'stop' : 'length'
       };
     }
 
@@ -470,7 +533,8 @@ function registerStubs() {
         model,
         content: suggestions,
         reasoning: '',
-        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        finishReason: 'stop'
       };
     }
 
@@ -511,7 +575,15 @@ function registerStubs() {
       model,
       content: CONTENT,
       reasoning: '',
-      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 }
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 5,
+        total_tokens: 15,
+        // 带重试引导语的这次请求 = 「思考挤掉正文」的第二次尝试：给它带上
+        // reasoning_tokens，好覆盖「思考量跨请求累加、并标在消息标题上」。
+        ...(retryNudged ? { reasoning_tokens: 12 } : {})
+      },
+      finishReason: 'stop'
     };
   });
 }

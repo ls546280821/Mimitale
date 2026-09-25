@@ -228,7 +228,13 @@ function messageNode(message, index, character, labels, ctx) {
     const details = document.createElement('details');
     details.className = 'reasoning';
     const summary = document.createElement('summary');
-    summary.textContent = '思考过程';
+    // 把「思考花了多少」摆在标题上：这正是判断「是不是思考把额度吃光」的依据。
+    // 有服务商给的精确 token 就用它，没有就退回字数 —— 至少看得出长短。
+    const rt = Number(message.reasoningTokens);
+    summary.textContent =
+      Number.isFinite(rt) && rt > 0
+        ? `思考过程 · ${rt} tokens`
+        : `思考过程 · ${String(message.reasoning).length} 字`;
     const pre = document.createElement('div');
     pre.className = 'reasoning-text';
     pre.textContent = message.reasoning;
@@ -256,6 +262,25 @@ function messageNode(message, index, character, labels, ctx) {
   if (imageBlock) bubble.appendChild(imageBlock);
   // 只带图没打字的，就不要留一个空段落了
   if (String(message.content || '').trim() || !imageBlock) bubble.appendChild(content);
+
+  // 撞到回复上限、写到一半被服务商截断的回复：明说一句，别让残缺悄悄过去。
+  // （操作栏上的「继续」本来就有，这里只是点出来可以用它。）
+  if (!isUser && !isError && message.truncated && String(message.content || '').trim()) {
+    const note = document.createElement('div');
+    note.className = 'truncated-note';
+    const auto = Number(message.autoContinued) || 0;
+    if (message.finishReason === 'length') {
+      // 还在截断状态：自动续写没救回来，或者这个开关是关的
+      note.textContent =
+        auto > 0
+          ? `这一条撞到「回复上限」，已经自动接着写了 ${auto} 次还是没写完 —— 可以点「继续」，或把上限调大`
+          : '这一条撞到「回复上限」被截断了，可以点「继续」让它接着写';
+    } else {
+      // finishReason 已经不是 length = 自动续写救回来了。中间断过一次，但文本不残缺
+      note.textContent = '这一条中间撞到过「回复上限」，已经自动接着写完了';
+    }
+    bubble.appendChild(note);
+  }
 
   body.appendChild(role);
   body.appendChild(bubble);

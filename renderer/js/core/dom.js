@@ -182,6 +182,7 @@ export const el = {
     sendOnEnter: $('s-sendonenter'),
     showDate: $('s-showdate'),
     showUsage: $('s-showusage'),
+    autoContinue: $('s-autocontinue'),
     wbDepth: $('s-wb-depth'),
     imageProvider: $('s-image-provider'),
     imageModel: $('s-image-model'),

@@ -49,6 +49,25 @@ async function waitFor(label, fn, timeout = 5000) {
   }
 }
 
+/**
+ * 等「当前会话的某个面板字段」在**主进程里**落成期望值。
+ *
+ * 为什么单独一个：改状态卡走的是「渲染层改内存 → IPC → 主进程写文件」，固定的
+ * sleep(250) 偶尔跑输这条异步链，就报成「越界值没被夹回」的假失败（实测偶发，
+ * 排查起来很费神）。这里轮询到真落盘为止；等不到**不抛错** —— 交给调用方的断言
+ * 去报，报出来的细节更具体。
+ */
+async function settlePanelValue(name, expected, timeout = 3000) {
+  const t0 = Date.now();
+  for (;;) {
+    const cs = await window.mimitale.getConversations();
+    const a = cs.conversations.find((c) => c.id === cs.activeId);
+    if (a && a.panel && panelValByName(a.panel, name) === expected) return a;
+    if (Date.now() - t0 > timeout) return null;
+    await sleep(25);
+  }
+}
+
 /** 每个场景独立 try/catch：一个崩了不影响后面的 */
 async function scenario(name, fn) {
   currentScenario = name;
@@ -804,10 +823,11 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   if (favorInput) {
     setValue(favorInput, '150');
     favorInput.dispatchEvent(new Event('blur', { bubbles: true }));
-    await sleep(250);
+    // 等它真落盘，别用固定 sleep —— 那会偶发读到旧值，报成「没夹回」的假失败
+    const clamped = await settlePanelValue('好感度', '100/100');
 
     const convos = await window.mimitale.getConversations();
-    const active = convos.conversations.find((c) => c.id === convos.activeId);
+    const active = clamped || convos.conversations.find((c) => c.id === convos.activeId);
     check(
       '越界值被夹回上限（150 → 100/100）',
       !!active && active.panel && panelValByName(active.panel, '好感度') === '100/100',
@@ -827,7 +847,7 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     // 范围内的值不该被动
     setValue(favorInput, '60');
     favorInput.dispatchEvent(new Event('blur', { bubbles: true }));
-    await sleep(250);
+    await settlePanelValue('好感度', '60/100');
     const convos2 = await window.mimitale.getConversations();
     const active2 = convos2.conversations.find((c) => c.id === convos2.activeId);
     check(
@@ -3726,11 +3746,184 @@ await scenario('聊天：只思考不回答时给出提示', async () => {
   const reasoningNode = assistant ? assistant.querySelector('.reasoning') : null;
   check('思考过程还在（可展开）', !!reasoningNode, reasoningNode ? '有' : '无');
 
+  // 思考量标在折叠标题上（两次尝试各 5，累加 = 10）—— 「思考花了多少」是判断
+  // 「是不是它在吃额度」最直接的一个数，光放在状态栏里太容易错过
+  const summaryText = reasoningNode ? reasoningNode.querySelector('summary').textContent : '';
+  check('思考标题标出了 token 数', summaryText.includes('10 tokens'), summaryText);
+
   // 不该出现错误气泡（这条不算错误，是正常回复 + 提示）
   check('没有错误气泡', $$('#messages .msg.error').length === 0);
 
   // 流式正常结束，没卡住
   check('发送按钮恢复可用', byId('btn-send').disabled === false);
+});
+
+// ---------------------------------------------------------------------------
+//  场景：正文写了一半撞上限（finish_reason='length'）→ 自动接着写完
+//
+//  用户反馈：一轮里回复有时长有时短，还有一次状态栏写到一半就没了。
+//  根因：撞到回复上限被截断，但界面上没有任何标记 —— 看不出这条是残缺的。
+//  修成：服务商的 finish_reason='length' 记在这条消息上；有正文时自动接着写
+//  （设置里可关），续写接在同一条气泡里，写完挂一行轻说明。
+// ---------------------------------------------------------------------------
+await scenario('聊天：正文被截断时自动接着写完', async () => {
+  click('#convo-list .convo-item');
+  await waitFor('切回聊天视图', () => shown('#view-chat'));
+
+  const beforeMsgs = $$('#messages .msg').length;
+
+  setValue('#input', '截断正文');
+  click('#btn-send');
+
+  await waitFor('新回复出现', () => $$('#messages .msg').length >= beforeMsgs + 2, 8000);
+  // 自动续写会再发一次请求，得等它彻底停下来
+  await waitFor('流式状态结束（含自动续写）', () => byId('btn-send').disabled === false, 8000);
+  await sleep(400);
+
+  const assistant = $$('#messages .msg.assistant').pop();
+  check('助手回复气泡存在', !!assistant);
+
+  // 正文照常显示（半截也是真正文，绝不能被替换成提示文字）
+  const contentText = assistant ? assistant.querySelector('.msg-content').textContent : '';
+  check('正文照常显示', contentText.includes('冒烟测试回复'), contentText.slice(0, 40));
+
+  // 关键：自动续写的后半段被接了上来 —— 而且是同一条气泡，不是新消息
+  check('自动续写接回了后半段', contentText.includes('自动接着写完的后半段'), contentText.slice(0, 80));
+  check(
+    '续写没有多出消息（还是同一条气泡）',
+    $$('#messages .msg').length === beforeMsgs + 2,
+    `期望 ${beforeMsgs + 2}，实际 ${$$('#messages .msg').length}`
+  );
+
+  // 救回来之后是「轻说明」口径：指出中间断过，但不催着点「继续」
+  const note = assistant ? assistant.querySelector('.truncated-note') : null;
+  check('挂了「撞过上限」说明', !!note, note ? note.textContent : '无');
+  check(
+    '说明是「已自动接着写完」的口径',
+    note ? note.textContent.includes('自动接着写完') : false,
+    note ? note.textContent : '无'
+  );
+
+  // 思考 token 要标出来（usage.reasoning_tokens 由主进程归一后带上来）
+  const usageText = byId('usage-text').textContent;
+  check('用量行标出了思考 token', usageText.includes('其中思考 6'), usageText);
+
+  check('没有错误气泡', $$('#messages .msg.error').length === 0);
+  check('发送按钮恢复可用', byId('btn-send').disabled === false);
+});
+
+// ---------------------------------------------------------------------------
+//  场景：续写也撞上限 → 只续有限次就停下，剩下的交给用户
+//
+//  自动续写最怕变成无底洞（每续一次都要再花一次钱）。这里让续写请求也返回
+//  'length'，验证它到上限就停手，并把「还能点继续 / 调大上限」说明白。
+// ---------------------------------------------------------------------------
+await scenario('聊天：截断续到上限后停下并提示', async () => {
+  const beforeMsgs = $$('#messages .msg').length;
+
+  setValue('#input', '截断到底');
+  click('#btn-send');
+
+  await waitFor('新回复出现', () => $$('#messages .msg').length >= beforeMsgs + 2, 8000);
+  await waitFor('流式状态结束（含两次自动续写）', () => byId('btn-send').disabled === false, 10000);
+  await sleep(400);
+
+  const assistant = $$('#messages .msg.assistant').pop();
+  const contentText = assistant ? assistant.querySelector('.msg-content').textContent : '';
+  check('续写的字也接上了', contentText.includes('又挤出来一点'), contentText.slice(0, 80));
+
+  const note = assistant ? assistant.querySelector('.truncated-note') : null;
+  check('仍然挂着「被截断」说明', !!note, note ? note.textContent : '无');
+  check(
+    '说明里写明续了 2 次仍没写完',
+    note ? note.textContent.includes('自动接着写了 2 次') : false,
+    note ? note.textContent : '无'
+  );
+  check(
+    '说明里指出还能点「继续」',
+    note ? note.textContent.includes('继续') : false,
+    note ? note.textContent : '无'
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  场景：关掉「截断后自动续写」→ 只挂说明，不自己花钱接着写
+// ---------------------------------------------------------------------------
+await scenario('设置：关掉自动续写后不再自己续', async () => {
+  click('#btn-settings');
+  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  click('#s-autocontinue');
+  await sleep(150);
+  click('#btn-save-settings');
+  await waitFor('设置关闭', () => !shown('#settings-modal'));
+
+  const saved = (await window.mimitale.getSettings()).settings;
+  check('关掉之后落盘也是关的', saved.autoContinue === false, String(saved.autoContinue));
+
+  const beforeMsgs = $$('#messages .msg').length;
+  setValue('#input', '截断正文');
+  click('#btn-send');
+
+  await waitFor('新回复出现', () => $$('#messages .msg').length >= beforeMsgs + 2, 8000);
+  await waitFor('流式状态结束', () => byId('btn-send').disabled === false, 8000);
+  await sleep(400);
+
+  const assistant = $$('#messages .msg.assistant').pop();
+  const contentText = assistant ? assistant.querySelector('.msg-content').textContent : '';
+  check('没有自动续写（正文停在半截）', !contentText.includes('自动接着写完的后半段'), contentText.slice(0, 80));
+
+  const note = assistant ? assistant.querySelector('.truncated-note') : null;
+  check(
+    '挂了「点继续」的说明',
+    note ? note.textContent.includes('点「继续」') : false,
+    note ? note.textContent : '无'
+  );
+
+  // 改回来，免得影响后面的场景
+  click('#btn-settings');
+  await waitFor('设置弹窗重新打开', () => shown('#settings-modal'));
+  click('#s-autocontinue');
+  await sleep(150);
+  click('#btn-save-settings');
+  await waitFor('设置再次关闭', () => !shown('#settings-modal'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景：思考挤掉正文 → 自动重试一次，直接把正文救回来（用户无感）
+//
+//  上一个场景验证「重试也失败 → 兜底提示」，这个验证主路径：第一次只返回
+//  思考，应用自动带着引导语重发一次，模型正常写出正文 —— 界面上不该出现
+//  「截断」字样，第一次的思考过程也该保留。
+// ---------------------------------------------------------------------------
+await scenario('聊天：思考挤掉正文时自动重试救回', async () => {
+  const beforeMsgs = $$('#messages .msg').length;
+
+  setValue('#input', '思考挤掉正文');
+  click('#btn-send');
+
+  await waitFor('新回复出现', () => $$('#messages .msg').length >= beforeMsgs + 2, 8000);
+  await waitFor('流式状态结束（含自动重试）', () => byId('btn-send').disabled === false, 8000);
+
+  const assistant = $$('#messages .msg.assistant').pop();
+  check('助手回复气泡存在', !!assistant);
+
+  // 正文应该是重试拿回来的真回复，而不是截断提示
+  const contentText = assistant ? assistant.querySelector('.msg-content').textContent : '';
+  check('正文是自动重试拿回来的真回复', contentText.includes('冒烟测试回复'), contentText.slice(0, 60));
+  check('没有「截断」提示', !contentText.includes('截断'), contentText.slice(0, 60));
+
+  // 第一次的思考过程仍保留、可展开
+  const reasoningNode = assistant ? assistant.querySelector('.reasoning') : null;
+  check('第一次的思考过程还在（可展开）', !!reasoningNode, reasoningNode ? '有' : '无');
+
+  // 思考量要跨请求累加（第一次 5 + 重试 12 = 17）：只看最后一次会漏掉
+  // 「正是第一次的长思考把额度吃光」这个关键事实
+  const summaryText = reasoningNode ? reasoningNode.querySelector('summary').textContent : '';
+  check('思考量跨请求累加后标在标题上', summaryText.includes('17 tokens'), summaryText);
+
+  // 没有错误气泡，也没多出一条消息（重写的是同一条，不是新气泡）
+  check('没有错误气泡', $$('#messages .msg.error').length === 0);
+  check('没有多出额外的消息', $$('#messages .msg').length === beforeMsgs + 2);
 });
 
 // ---------------------------------------------------------------------------

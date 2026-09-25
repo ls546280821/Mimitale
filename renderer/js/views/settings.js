@@ -162,6 +162,7 @@ function fillSettingsForm(settings) {
   el.s.sendOnEnter.checked = settings.sendOnEnter !== false;
   el.s.showDate.checked = settings.showDate !== false;
   el.s.showUsage.checked = settings.showUsage !== false;
+  el.s.autoContinue.checked = settings.autoContinue !== false;
   el.s.wbDepth.value = String(
     Number.isFinite(Number(settings.worldbookRecursiveDepth)) ? Number(settings.worldbookRecursiveDepth) : 3
   );
@@ -349,6 +350,7 @@ function readSettingsForm() {
     sendOnEnter: el.s.sendOnEnter.checked,
     showDate: el.s.showDate.checked,
     showUsage: el.s.showUsage.checked,
+    autoContinue: el.s.autoContinue.checked,
     worldbookRecursiveDepth: (() => {
       const depth = Number(el.s.wbDepth.value);
       return Number.isFinite(depth) ? Math.max(0, Math.min(5, Math.floor(depth))) : 3;
