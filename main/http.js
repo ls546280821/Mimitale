@@ -73,6 +73,16 @@ function embeddingsUrl(baseUrl) {
   return `${normalizeBaseUrl(baseUrl)}/embeddings`;
 }
 
+// 本机酒馆桥接服务（D:\TavernAI\tavern-ai\bridge）的端点：
+// 不是 OpenAI 兼容协议，聊天走 /chat_with_image，健康检查走 /health。
+function bridgeChatUrl(baseUrl) {
+  return `${normalizeBaseUrl(baseUrl)}/chat_with_image`;
+}
+
+function bridgeHealthUrl(baseUrl) {
+  return `${normalizeBaseUrl(baseUrl)}/health`;
+}
+
 /**
  * 下一个二进制文件（生图接口有时直接给链接）。
  * 和 requestJson 一个路子，只是把响应体当 Buffer 收着，不当 JSON 解析。
@@ -402,12 +412,215 @@ function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
   });
 }
 
+/**
+ * 本机酒馆桥接的聊天请求：POST /chat_with_image，非流式，一次返回全文。
+ *
+ * 和 streamChat 的区别：
+ *   · 免 API Key；
+ *   · 响应是单个 JSON { text, image, draw_reason }，不是 SSE；
+ *   · image 是 base64 PNG（可能为 null = 本轮没出图）；
+ *   · 出图要把文字模型踢出显存再拉图像模型，一轮可能 30~40 秒，
+ *     所以超时给得很宽（默认 300 秒）。
+ *
+ * 返回 { content, image, drawReason }。image 是拼好 data: 前缀的 dataURL，
+ * 没出图时是 null —— 上层拿它判断「这次有没有图」。
+ */
+function bridgeChat({ settings, messages, characterContext, signal, timeoutMs = 300000 }) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try {
+      target = new URL(bridgeChatUrl(settings.baseUrl));
+    } catch (err) {
+      reject(new Error('接口地址格式不对，请检查「接口地址」这一项。'));
+      return;
+    }
+
+    const transport = target.protocol === 'http:' ? http : https;
+
+    const body = {
+      messages,
+      temperature: Number(settings.temperature),
+      max_tokens: Math.max(1, Number(settings.maxTokens) || 2048),
+      // 关闭画风预设：长相完全由 character_context 决定，避免被固定画风钉死成同一个角色。
+      preset: 'none',
+      force_image: false
+    };
+    if (String(characterContext || '').trim()) {
+      body.character_context = String(characterContext).trim();
+    }
+
+    const payload = Buffer.from(JSON.stringify(body), 'utf8');
+
+    const req = transport.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || (target.protocol === 'http:' ? 80 : 443),
+        path: `${target.pathname}${target.search}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'User-Agent': 'Mimitale/1.0 (+https://github.com/ls546280821/Mimitale)',
+          'Content-Length': payload.length
+        }
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(describeHttpError(res.statusCode, text)));
+            return;
+          }
+
+          let json;
+          try {
+            json = JSON.parse(text);
+          } catch (err) {
+            reject(new Error('接口返回的不是合法 JSON。'));
+            return;
+          }
+
+          resolve({
+            content: String(json.text || ''),
+            image: typeof json.image === 'string' && json.image
+              ? `data:image/png;base64,${json.image}`
+              : null,
+            drawReason: String(json.draw_reason || '')
+          });
+        });
+      }
+    );
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error('请求超时：本地桥接服务没有在限时内响应（出图可能需要 40 秒左右）。'));
+    });
+    req.on('error', (err) => {
+      reject(new Error(normalizeNetworkError(err)));
+    });
+
+    if (signal) {
+      if (signal.aborted) {
+        req.destroy(new Error('已停止生成。'));
+        return;
+      }
+      signal.addEventListener('abort', () => req.destroy(new Error('已停止生成。')), { once: true });
+    }
+
+    req.write(payload);
+    req.end();
+  });
+}
+
+/**
+ * 本机桥接的「只出图」请求：POST /draw。
+ *
+ * 给「配图」按钮用：输入一段已经写好的文字（比如某条 AI 回复），
+ * 直接把它翻译成图像提示词并出图，不经过文字模型（不会重写内容）。
+ *
+ * 返回 { dataUrl, drawReason, promptUsed }。dataUrl 是拼好 data: 前缀的
+ * dataURL，没出图时是 null。
+ */
+function bridgeDraw({ baseUrl, text, characterContext, preset, timeoutMs = 300000 }) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try {
+      target = new URL(`${normalizeBaseUrl(baseUrl)}/draw`);
+    } catch (err) {
+      reject(new Error('接口地址格式不对，请检查「接口地址」这一项。'));
+      return;
+    }
+
+    const transport = target.protocol === 'http:' ? http : https;
+
+    const body = { text: String(text || '') };
+    if (String(characterContext || '').trim()) {
+      body.character_context = String(characterContext).trim();
+    }
+    if (preset !== undefined && preset !== null) {
+      body.preset = String(preset);
+    }
+
+    const payload = Buffer.from(JSON.stringify(body), 'utf8');
+
+    const req = transport.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port || (target.protocol === 'http:' ? 80 : 443),
+        path: `${target.pathname}${target.search}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          'User-Agent': 'Mimitale/1.0 (+https://github.com/ls546280821/Mimitale)',
+          'Content-Length': payload.length
+        }
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const respText = Buffer.concat(chunks).toString('utf8');
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(describeHttpError(res.statusCode, respText)));
+            return;
+          }
+
+          let json;
+          try {
+            json = JSON.parse(respText);
+          } catch (err) {
+            reject(new Error('接口返回的不是合法 JSON。'));
+            return;
+          }
+
+          resolve({
+            dataUrl: typeof json.image === 'string' && json.image
+              ? `data:image/png;base64,${json.image}`
+              : null,
+            drawReason: String(json.draw_reason || ''),
+            promptUsed: String(json.prompt_used || '')
+          });
+        });
+      }
+    );
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error('请求超时：本地桥接服务没有在限时内响应（出图可能需要 40 秒左右）。'));
+    });
+    req.on('error', (err) => {
+      reject(new Error(normalizeNetworkError(err)));
+    });
+
+    req.write(payload);
+    req.end();
+  });
+}
+
+/** 本机桥接的健康检查：GET /health，返回两个引擎是否在线 */
+function bridgeHealth(baseUrl, timeoutMs = 10000) {
+  return requestJson({
+    url: bridgeHealthUrl(baseUrl),
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    timeoutMs
+  });
+}
+
 module.exports = {
   buildHeaders,
   modelsUrl,
   chatUrl,
   imagesUrl,
   embeddingsUrl,
+  bridgeChatUrl,
+  bridgeHealthUrl,
+  bridgeChat,
+  bridgeDraw,
+  bridgeHealth,
   downloadBinary,
   requestJson,
   streamChat

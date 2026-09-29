@@ -26,6 +26,7 @@ import { formatSummaryForPrompt, summarizedCount } from './memory.js';
 import { gmRuleText, isGmMode, narrationInstruction, roleplayRuleText } from './narration.js';
 import { optionsInstruction } from './suggestions.js';
 import { convoPlayer, convoUserName, userName, worldbookCast, playerProfileForPrompt } from './cast.js';
+import { providerById, isBridgeProvider } from './providers.js';
 
 /**
  * 替换角色卡里的占位符。
@@ -118,6 +119,36 @@ export function parseExampleDialogue(text, charName, me) {
 /** 这条消息带的图（用户发的 + AI 生成的都存这儿） */
 export function messageImages(message) {
   return Array.isArray(message.images) ? message.images.filter((s) => typeof s === 'string' && s) : [];
+}
+
+/**
+ * 给本机桥接服务传的「角色外貌」上下文。
+ *
+ * 桥接的图像模型不认识角色名，只认视觉标签，所以要把角色的长相用自然语言
+ * 描述出来，由桥接服务翻译成英文 tag。这里取角色卡的身份三项 + 设定（description），
+ * 描述里通常就带着发色瞳色服装体型。没绑定角色（进世界 / 通用助手）时返回空串。
+ */
+export function characterContextForConvo(convo) {
+  const character = characterForConvo(convo);
+  if (!character) return '';
+
+  const me = convoUserName(convo);
+  const identity = [character.age ? `年龄 ${character.age}` : '', character.gender, character.race]
+    .filter(Boolean)
+    .join('，');
+  const description = String(character.description || '').trim();
+
+  const parts = [];
+  parts.push(identity ? `${character.name}：${identity}` : character.name);
+  if (description) parts.push(applyMacros(description, character, me));
+  return parts.join('\n');
+}
+
+/** 当前会话实际用的服务商是不是本机桥接（只读判断，不改会话） */
+export function convoIsBridge(convo) {
+  const provider =
+    providerById(convo.providerId) || providerById((state.settings || {}).activeProviderId);
+  return isBridgeProvider(provider);
 }
 
 /**

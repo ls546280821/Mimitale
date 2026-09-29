@@ -17,7 +17,7 @@ import { activeConvo, now } from '../core/util.js';
 import { api } from '../core/api.js';
 import { showToast } from '../ui/toast.js';
 import { h, button, clear } from '../ui/build.js';
-import { providers, providerById, currentEndpoint } from '../data/providers.js';
+import { providers, providerById, currentEndpoint, isBridgeProvider } from '../data/providers.js';
 import { characterById } from '../data/library.js';
 import { seedIdentity, seedPanelFromCharacters } from '../data/panel.js';
 import { applyMacros } from '../data/messages.js';
@@ -87,7 +87,8 @@ export function renderModelSwitch() {
 
   for (const p of list) {
     const group = document.createElement('optgroup');
-    group.label = p.apiKey ? p.name : `${p.name}（未填 Key）`;
+    // 本机桥接免 Key，别标「未填 Key」误导用户
+    group.label = isBridgeProvider(p) || p.apiKey ? p.name : `${p.name}（未填 Key）`;
 
     if (!p.models || !p.models.length) {
       const opt = document.createElement('option');

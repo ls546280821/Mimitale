@@ -32,6 +32,7 @@ const {
   normalizeProvider,
   resolveProvider,
   endpointFor,
+  isBridgeProvider,
   loadSettings,
   saveSettings
 } = require('./providers.js');
@@ -42,7 +43,10 @@ const {
   embeddingsUrl,
   downloadBinary,
   requestJson,
-  streamChat
+  streamChat,
+  bridgeChat,
+  bridgeDraw,
+  bridgeHealth
 } = require('./http.js');
 const { getMainWindow, sendToRenderer } = require('./window.js');
 
@@ -136,6 +140,21 @@ function registerIpc() {
   ipcMain.handle('settings:test', async (_event, payload) => {
     const provider = providerFromPayload(payload);
     if (!provider) throw new Error('还没有配置任何服务商。');
+
+    // 本机桥接走 /health，不要求 API Key
+    if (isBridgeProvider(provider)) {
+      const health = await bridgeHealth(provider.baseUrl);
+      const textOk = health.text_engine === true;
+      const imageOk = health.image_engine === true;
+      const model = String(health.text_model || '');
+      return {
+        ok: true,
+        count: model ? 1 : 0,
+        models: model ? [model] : [],
+        message: `桥接服务在线（文字引擎${textOk ? '在线' : '离线'}、图像引擎${imageOk ? '在线' : '离线'}${model ? `，模型 ${model}` : ''}）。`
+      };
+    }
+
     if (!provider.apiKey) throw new Error(`请先填写「${provider.name}」的 API Key。`);
 
     const data = await requestJson({
@@ -158,6 +177,18 @@ function registerIpc() {
   ipcMain.handle('models:list', async (_event, payload) => {
     const provider = providerFromPayload(payload);
     if (!provider) throw new Error('还没有配置任何服务商。');
+
+    // 本机桥接没有 /models 接口，从 /health 拿当前文字模型名
+    if (isBridgeProvider(provider)) {
+      try {
+        const health = await bridgeHealth(provider.baseUrl);
+        const model = String(health.text_model || '').trim();
+        return model ? [model] : [];
+      } catch (err) {
+        throw new Error((err && err.message) || '桥接服务未启动');
+      }
+    }
+
     if (!provider.apiKey) throw new Error(`请先填写「${provider.name}」的 API Key。`);
 
     const data = await requestJson({
@@ -355,7 +386,10 @@ function registerIpc() {
     if (!endpoint) {
       return { ok: false, requestId, error: '还没有配置模型服务，请点左下角「设置」添加。' };
     }
-    if (!endpoint.apiKey) {
+
+    // 本机桥接服务免 Key；其余 OpenAI 兼容服务商照旧要求
+    const isBridge = isBridgeProvider(resolveProvider(settings, request.providerId));
+    if (!isBridge && !endpoint.apiKey) {
       return { ok: false, requestId, error: `还没有填写「${endpoint.providerName}」的 API Key。` };
     }
 
@@ -366,6 +400,23 @@ function registerIpc() {
     const { signal } = activeController;
 
     try {
+      if (isBridge) {
+        const result = await bridgeChat({
+          settings: endpoint,
+          messages,
+          characterContext: request.characterContext,
+          signal
+        });
+        return {
+          ok: true,
+          requestId,
+          providerId: endpoint.providerId,
+          providerName: endpoint.providerName,
+          model: endpoint.model,
+          ...result
+        };
+      }
+
       const result = await streamChat({
         settings: endpoint,
         messages,
@@ -574,6 +625,39 @@ function registerIpc() {
       return { ok: false, error: '接口返回里既没有 b64_json 也没有 url。' };
     } catch (err) {
       return { ok: false, error: (err && err.message) || '生图失败' };
+    }
+  });
+
+  /**
+   * 本机桥接的「配图」：输入一段文字，直接调 /draw 出图。
+   *
+   * 和 images:generate 不同 —— 它走本机桥接（本地 ComfyUI），不是云生图。
+   * 给「配图」按钮在本机桥接会话下用：平时聊天纯文字，点按钮才出图。
+   */
+  ipcMain.handle('bridge:draw', async (_event, payload) => {
+    const request = payload || {};
+    const settings = loadSettings();
+
+    const provider = resolveProvider(settings, request.providerId);
+    const endpoint = endpointFor(settings, request.providerId, request.model);
+    if (!endpoint || !isBridgeProvider(provider)) {
+      return { ok: false, error: '当前会话不是本机桥接服务商，无法用本地模型配图。' };
+    }
+
+    const text = String(request.text || '').trim();
+    if (!text) return { ok: false, error: '没有可用来配图的文字。' };
+
+    try {
+      const result = await bridgeDraw({
+        baseUrl: endpoint.baseUrl,
+        text,
+        characterContext: request.characterContext,
+        // 和聊天保持一致：画风预设关掉，长相完全由角色卡决定
+        preset: 'none'
+      });
+      return { ok: true, ...result };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || '出图失败' };
     }
   });
 

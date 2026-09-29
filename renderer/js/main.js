@@ -47,7 +47,7 @@ import { esc } from './ui/markdown.js';
 import { applyFieldIcons } from './ui/icons.js';
 
 import { persistLibrary, markWorldbooksLoaded } from './data/persist.js';
-import { currentEndpoint } from './data/providers.js';
+import { currentEndpoint, isBridgeProvider } from './data/providers.js';
 import { convoUserName, speakerName } from './data/cast.js';
 import { characters, worldbooks } from './data/library.js';
 import {
@@ -527,7 +527,7 @@ async function init() {
   el.input.focus();
 
   const endpoint = currentEndpoint();
-  if (!endpoint || !endpoint.provider.apiKey) {
+  if (!endpoint || (!endpoint.provider.apiKey && !isBridgeProvider(endpoint.provider))) {
     setTimeout(() => showToast('先点左下角「设置」填入 API Key 就能聊了'), 500);
   }
 }

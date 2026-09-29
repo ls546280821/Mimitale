@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld('mimitale', {
   pickImage: (options) => ipcRenderer.invoke('images:pick', options),
   openImage: (dataUrl) => ipcRenderer.invoke('images:open', dataUrl),
   generateImage: (payload) => ipcRenderer.invoke('images:generate', payload),
+  drawBridgeImage: (payload) => ipcRenderer.invoke('bridge:draw', payload),
   ragRecall: (payload) => ipcRenderer.invoke('rag:recall', payload),
 
   // --- 对话 ---

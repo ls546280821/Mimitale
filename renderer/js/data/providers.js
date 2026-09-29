@@ -22,6 +22,11 @@ export function providerById(id) {
   return providers().find((p) => p.id === id) || null;
 }
 
+/** 是不是本机酒馆桥接服务商（/chat_with_image，免 Key、非流式） */
+export function isBridgeProvider(provider) {
+  return !!(provider && provider.type === 'tavern-bridge');
+}
+
 /** 把会话绑定的服务商/模型补全（老会话没有这两个字段） */
 export function ensureConvoEndpoint(convo) {
   if (!convo) return null;

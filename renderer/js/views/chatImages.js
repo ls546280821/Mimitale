@@ -24,7 +24,7 @@ import { showToast } from '../ui/toast.js';
 import { h, button, clear } from '../ui/build.js';
 import { persistConversations } from '../data/persist.js';
 import { cleanAssistantText, convoFieldDisplayNames, panelGroupNames } from '../data/panel.js';
-import { messageImages } from '../data/messages.js';
+import { messageImages, convoIsBridge, characterContextForConvo } from '../data/messages.js';
 
 // 一张图最长边压到多少再发。视觉模型内部一般也就缩到这个量级，
 // 传原图只是白烧 token 和流量
@@ -182,6 +182,21 @@ export function buildMessageImages(message) {
 }
 
 /**
+ * 把一张生成出来的图挂到某条消息上（压缩后存进 message.images）。
+ *
+ * 两条路径共用：手动「配图」（illustrateMessage）和本机桥接对话里自动出的图
+ * （composer 收到 response.image 后调这里）。生成图（PNG 通常一两 MB）不压缩
+ * 直接存会把 conversations.json 撑爆，所以统一先压一档。
+ */
+export async function attachGeneratedImage(message, dataUrl, model) {
+  if (!dataUrl) return;
+  const shrunk = await shrinkChatImage(dataUrl);
+  if (!Array.isArray(message.images)) message.images = [];
+  message.images.push(shrunk);
+  if (model) message.imageModel = model;
+}
+
+/**
  * 给某条 AI 回复配一张插画。
  *
  * 用的是**生图那一组独立配置**（服务商 + 模型），和聊天模型无关 ——
@@ -201,12 +216,8 @@ export async function illustrateMessage(index) {
   if (!message || message.role !== 'assistant') return;
 
   const settings = state.settings || {};
-  if (!settings.imageProviderId) {
-    showToast('还没有配置生图，请到「设置 → 生图」里选一个服务商', 'error');
-    actions.openSettings();
-    return;
-  }
 
+  // 提取这条回复的文字，作为出图提示词（两条路径共用）
   const panelFields = convoFieldDisplayNames(convo);
   const raw = cleanAssistantText(String(message.content || ''), panelFields, [...panelGroupNames(convo)]);
   // 去掉 markdown 标记和括号里的旁白符号，让提示词更像一句画面描述
@@ -227,23 +238,46 @@ export async function illustrateMessage(index) {
   showToast('正在画…（可能要等十几秒）');
 
   try {
-    const result = await api.generateImage({
-      providerId: settings.imageProviderId,
-      model: settings.imageModel,
-      size: settings.imageSize,
-      prompt
-    });
+    let dataUrl = null;
+    let model = '';
 
-    if (!result || result.ok !== true) {
-      throw new Error((result && result.error) || '生图失败');
+    if (convoIsBridge(convo)) {
+      // 本机桥接：走本地 ComfyUI 的 /draw，长相由角色卡（character_context）决定
+      const result = await api.drawBridgeImage({
+        text: prompt,
+        characterContext: characterContextForConvo(convo),
+        providerId: convo.providerId
+      });
+      if (!result || result.ok !== true) {
+        throw new Error((result && result.error) || '配图失败');
+      }
+      if (!result.dataUrl) {
+        throw new Error((result && result.drawReason) || '没有生成出图片');
+      }
+      dataUrl = result.dataUrl;
+    } else {
+      // 云生图：走独立生图服务商
+      if (!settings.imageProviderId) {
+        showToast('还没有配置生图，请到「设置 → 生图」里选一个服务商', 'error');
+        actions.openSettings();
+        return;
+      }
+      const result = await api.generateImage({
+        providerId: settings.imageProviderId,
+        model: settings.imageModel,
+        size: settings.imageSize,
+        prompt
+      });
+      if (!result || result.ok !== true) {
+        throw new Error((result && result.error) || '生图失败');
+      }
+      dataUrl = result.dataUrl;
+      model = result.model || settings.imageModel;
     }
 
     // 生成的图（PNG 通常一两 MB）先压一档再存进会话，
     // 不然几张图就能把 conversations.json 撑到几十 MB
-    const shrunk = await shrinkChatImage(result.dataUrl);
-    if (!Array.isArray(message.images)) message.images = [];
-    message.images.push(shrunk);
-    message.imageModel = result.model || settings.imageModel;
+    await attachGeneratedImage(message, dataUrl, model);
 
     convo.updatedAt = now();
     persistConversations(0);

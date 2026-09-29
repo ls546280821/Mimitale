@@ -54,6 +54,15 @@ const PROVIDER_PRESETS = [
     models: ['moonshot-v1-8k', 'moonshot-v1-32k']
   },
   {
+    key: 'tavern-bridge',
+    name: '本地 AI 桥接',
+    baseUrl: 'http://127.0.0.1:8000',
+    // 桥接服务走自己的 /chat_with_image 协议（非 OpenAI 兼容、免 Key），
+    // 模型名对它无意义 —— 只是给界面一个看得过去的名字。
+    models: ['本地模型'],
+    type: 'tavern-bridge'
+  },
+  {
     key: 'custom',
     name: '自定义服务商',
     baseUrl: '',
@@ -159,8 +168,16 @@ function normalizeProvider(raw, fallbackId) {
     name: String(p.name || '').trim() || '未命名服务商',
     baseUrl: String(p.baseUrl || '').trim() || DEFAULT_BASE_URL,
     apiKey: typeof p.apiKey === 'string' ? p.apiKey.trim() : '',
-    models: [...new Set(models.map((m) => String(m || '').trim()).filter(Boolean))]
+    models: [...new Set(models.map((m) => String(m || '').trim()).filter(Boolean))],
+    // 服务商协议类型：'openai' 是默认的 OpenAI 兼容协议；'tavern-bridge'
+    // 是本机酒馆桥接服务（/chat_with_image，免 Key、非流式）。
+    type: p.type === 'tavern-bridge' ? 'tavern-bridge' : 'openai'
   };
+}
+
+/** 是不是本机酒馆桥接服务商（协议与 OpenAI 兼容那套完全不同） */
+function isBridgeProvider(provider) {
+  return !!(provider && provider.type === 'tavern-bridge');
 }
 
 /**
@@ -374,6 +391,7 @@ module.exports = {
   normalizeSettings,
   resolveProvider,
   endpointFor,
+  isBridgeProvider,
   loadSettings,
   saveSettings
 };

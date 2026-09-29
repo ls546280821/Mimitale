@@ -20,8 +20,8 @@ import { activeConvo, uid, now } from '../core/util.js';
 import { showToast } from '../ui/toast.js';
 import { h, button, clear } from '../ui/build.js';
 import { persistConversations } from '../data/persist.js';
-import { ensureConvoEndpoint } from '../data/providers.js';
-import { buildApiMessages } from '../data/messages.js';
+import { ensureConvoEndpoint, isBridgeProvider } from '../data/providers.js';
+import { buildApiMessages, characterContextForConvo } from '../data/messages.js';
 import { matchWorldbookSection } from '../data/cast.js';
 import { recallSection } from '../data/rag.js';
 import { syncConvoPanel, syncPlayerNameFromPanel } from '../data/panel.js';
@@ -29,7 +29,7 @@ import { syncConvoOptions } from '../data/suggestions.js';
 import { createConvo } from '../data/conversations.js';
 import { openSettings } from './settings.js';
 import { streamPainter } from './stream.js';
-import { getPendingImages, clearPendingImages } from './chatImages.js';
+import { getPendingImages, clearPendingImages, attachGeneratedImage } from './chatImages.js';
 import { renderAll } from './redraw.js';
 import { maybeSummarize } from './summarize.js';
 
@@ -66,7 +66,7 @@ export async function sendMessage(text) {
     openSettings();
     return;
   }
-  if (!endpoint.provider.apiKey) {
+  if (!endpoint.provider.apiKey && !isBridgeProvider(endpoint.provider)) {
     showToast(`请先填写「${endpoint.provider.name}」的 API Key`, 'error');
     openSettings();
     return;
@@ -221,7 +221,8 @@ async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSect
       requestId,
       providerId: endpoint.provider.id,
       model: endpoint.model,
-      messages
+      messages,
+      characterContext: characterContextForConvo(convo)
     });
 
     if (!response || response.ok !== true) {
@@ -393,7 +394,10 @@ async function requestCompletion(convo, options) {
   if (node) {
     const wait = document.createElement('div');
     wait.className = 'waiting';
-    wait.textContent = '正在思考';
+    // 本机桥接一次返回全文、非流式，出图时整轮可能 30~40 秒 —— 提前说明别让用户干等
+    wait.textContent = isBridgeProvider(endpoint.provider)
+      ? '正在生成（本地模型，出图时可能需要 40 秒左右）'
+      : '正在思考';
     node.innerHTML = '';
     node.appendChild(wait);
   }
@@ -405,7 +409,8 @@ async function requestCompletion(convo, options) {
       requestId,
       providerId: endpoint.provider.id,
       model: endpoint.model,
-      messages: buildApiMessages(convo, worldbookSection, ragSection)
+      messages: buildApiMessages(convo, worldbookSection, ragSection),
+      characterContext: characterContextForConvo(convo)
     });
 
     if (!response || response.ok !== true) {
@@ -418,6 +423,12 @@ async function requestCompletion(convo, options) {
 
     assistant.content = response.content || assistant.content;
     assistant.reasoning = response.reasoning || assistant.reasoning;
+
+    // 本机桥接：出图是夹在对话响应里一起回来的（base64 PNG 或 null）。
+    // 有图就压一档挂到这条消息上，气泡会自动显示。
+    if (response.image) {
+      await attachGeneratedImage(assistant, response.image, response.model);
+    }
 
     // 收尾信号与用量都记在这条消息上（以前只图省事看了一眼 usage，不留痕）：
     //   · finishReason === 'length' 是服务商权威的「撞上限被截断」信号。光看
@@ -460,7 +471,8 @@ async function requestCompletion(convo, options) {
         requestId: retryId,
         providerId: endpoint.provider.id,
         model: endpoint.model,
-        messages: retryMessages
+        messages: retryMessages,
+        characterContext: characterContextForConvo(convo)
       });
 
       if (retry && retry.ok === true) {

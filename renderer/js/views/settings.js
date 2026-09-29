@@ -26,7 +26,7 @@ import { el } from '../core/dom.js';
 import { h, clear } from '../ui/build.js';
 import { showToast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/confirm.js';
-import { providers, providerById } from '../data/providers.js';
+import { providers, providerById, isBridgeProvider } from '../data/providers.js';
 import { renderHeader } from './header.js';
 
 /** 设置弹窗里当前正在编辑的服务商 */
@@ -172,6 +172,9 @@ function fillSettingsForm(settings) {
   clear(el.s.imageProvider);
   el.s.imageProvider.appendChild(h('option', { value: '', text: '（不启用生图）' }));
   for (const provider of providers()) {
+    // 本机桥接的出图是绑在对话里的（/chat_with_image），没有独立的 /images/generations，
+    // 不能选进「生图」这一组，否则会 404
+    if (isBridgeProvider(provider)) continue;
     el.s.imageProvider.appendChild(h('option', { value: provider.id, text: provider.name }));
   }
   el.s.imageProvider.value = providers().some((p) => p.id === settings.imageProviderId)
@@ -196,6 +199,8 @@ function fillSettingsForm(settings) {
   clear(el.s.embeddingProvider);
   el.s.embeddingProvider.appendChild(h('option', { value: '', text: '（不选）' }));
   for (const provider of providers()) {
+    // 本机桥接没有 /embeddings 接口，不能选进语义检索
+    if (isBridgeProvider(provider)) continue;
     el.s.embeddingProvider.appendChild(h('option', { value: provider.id, text: provider.name }));
   }
   el.s.embeddingProvider.value = providers().some((p) => p.id === settings.embeddingProviderId)
@@ -238,7 +243,11 @@ function renderProviderTabs() {
     btn.type = 'button';
     btn.className = `provider-tab${p.id === editingProviderId ? ' active' : ''}`;
     btn.textContent = p.name || '未命名';
-    btn.title = p.apiKey ? `${p.name}（已填 Key）` : `${p.name}（还没有填 API Key）`;
+    btn.title = isBridgeProvider(p)
+      ? `${p.name}（本地桥接，免 Key）`
+      : p.apiKey
+        ? `${p.name}（已填 Key）`
+        : `${p.name}（还没有填 API Key）`;
     btn.setAttribute('role', 'tab');
     btn.setAttribute('aria-selected', p.id === editingProviderId ? 'true' : 'false');
 
@@ -276,7 +285,8 @@ function addProvider(preset) {
     name: preset.name || '新服务商',
     baseUrl: preset.baseUrl || '',
     apiKey: '',
-    models: [...(preset.models || [])]
+    models: [...(preset.models || [])],
+    type: preset.type || 'openai'
   };
 
   state.settings.providers = [...providers(), provider];
@@ -288,8 +298,17 @@ function addProvider(preset) {
   renderProviderTabs();
   fillProviderForm();
 
-  showToast(`已添加「${provider.name}」，填入 API Key 后点保存`, 'ok');
-  el.p.apiKey.focus();
+  showToast(
+    provider.type === 'tavern-bridge'
+      ? `已添加「${provider.name}」，本地桥接免 Key，点保存即可用`
+      : `已添加「${provider.name}」，填入 API Key 后点保存`,
+    'ok'
+  );
+  if (provider.type === 'tavern-bridge') {
+    el.p.baseUrl.focus();
+  } else {
+    el.p.apiKey.focus();
+  }
 }
 
 async function removeProvider() {
