@@ -1023,12 +1023,12 @@ await scenario('无主状态字段：并回主角，不单开世界卡', async (
   panelMod.appendPanelFields(worldLike, [{ name: '上衣', value: '灰色外套', owner: 'wc_x' }]);
   panelMod.appendPanelFields(worldLike, [
     { name: '上衣', value: '灰色外套（搭在了椅背上）' },
-    { name: '性欲值', value: '34/100' }
+    { name: '体力', value: '34/100' }
   ]);
   panelMod.absorbTopLevelIntoPlayer(worldLike);
   check(
     '世界会话里，没带前缀的字段并回主角（规则 4）',
-    worldLike.panel[key('性欲值', 'player')] === '34/100' &&
+    worldLike.panel[key('体力', 'player')] === '34/100' &&
       !worldLike.panelFields.some((k) => !panelMod.panelFieldOwner(worldLike, k)),
     JSON.stringify(worldLike.panelFields.map((k) => [panelMod.panelFieldName(k), panelMod.panelFieldOwner(worldLike, k)]))
   );
@@ -1809,7 +1809,7 @@ await scenario('角色属性：粘贴文本批量生成', async () => {
   // 故意混几种写法 + 两行认不出来的（空行 / 光一个名字 / 保留字）
   setValue(
     '#c-attr-paste-text',
-    ['金币：9900', '【上衣】：衬衫', '年龄 16', '- 下装：裙子', '', '体重', '旁白：不该收进来'].join('\n')
+    ['金币：9900', '【上衣】：衬衫', '年龄 16', '- 下装：裙子', '', '籍贯', '旁白：不该收进来'].join('\n')
   );
   click('#btn-attr-paste-apply');
   await waitFor('属性行出现', () => $$('#c-attr-list .attr-row').length >= 4);
@@ -1827,7 +1827,7 @@ await scenario('角色属性：粘贴文本批量生成', async () => {
     valueOf('金币') === '9900' && valueOf('上衣') === '衬衫' && valueOf('年龄') === '16' && valueOf('下装') === '裙子',
     JSON.stringify({ 金币: valueOf('金币'), 上衣: valueOf('上衣'), 年龄: valueOf('年龄'), 下装: valueOf('下装') })
   );
-  check('认不出的行跳过（光一个名字）', !names.includes('体重'), JSON.stringify(names));
+  check('认不出的行跳过（光一个名字）', !names.includes('籍贯'), JSON.stringify(names));
   check('保留字不收（旁白）', !names.includes('旁白'), JSON.stringify(names));
   check('解析完自动收起粘贴区', !shown('#c-attr-paste'));
 
@@ -3779,8 +3779,8 @@ await scenario('世界书：玩家不同名不误判', async () => {
 });
 
 // ---------------------------------------------------------------------------
-//  场景 32：状态字段分「每轮维护 / 变了才说」。static 只留给几乎不变的设定
-//  （身高/体重/性经历），穿着/随身物必须 dynamic；措辞是「一旦变化就必须输出」。
+//  场景 32：状态字段分「每轮维护 / 变了才说」。static 给几乎不变的设定，
+//  dynamic 给随剧情变的状态；措辞是「一旦变化就必须输出」。
 // ---------------------------------------------------------------------------
 await scenario('面板：静态字段「变了才说」，动态字段每轮维护', async () => {
   let mod = null;
@@ -3796,17 +3796,17 @@ await scenario('面板：静态字段「变了才说」，动态字段每轮维�
   }
   check('panel 模块能动态加载', true);
 
-  // 造一个会话：铜板（动态）+ 身高（静态，真的几乎不动）
+  // 造一个会话：铜板（动态）+ 生日（静态，几乎不变）
   const convo = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
   mod.appendPanelFields(convo, [
     { name: '铜板', type: 'meter', min: 0, max: 100, value: '3/100' },
-    { name: '身高', type: 'text', value: '168cm', mode: 'static' }
+    { name: '生日', type: 'text', value: '3月15日', mode: 'static' }
   ]);
 
   // 1) mode 落进了 panelDefs（静态字段才记 mode，动态字段不记，保持数据干净）
   check(
     '静态字段的 mode 记进 panelDefs',
-    mod.convoPanelDef(convo, '身高') && mod.convoPanelDef(convo, '身高').mode === 'static',
+    mod.convoPanelDef(convo, '生日') && mod.convoPanelDef(convo, '生日').mode === 'static',
     JSON.stringify(convo.panelDefs)
   );
   check(
@@ -3834,14 +3834,14 @@ await scenario('面板：静态字段「变了才说」，动态字段每轮维�
     prompt.includes('判断标准'),
     prompt
   );
-  check('静态字段值仍在注入里（当前值要给模型看）', prompt.includes('168cm'), prompt);
+  check('静态字段值仍在注入里（当前值要给模型看）', prompt.includes('3月15日'), prompt);
   check('动态字段值仍在注入里', prompt.includes('3/100'), prompt);
 
   // 2b) 冷启动分支（一个值都还没有）也必须带上静态字段的说法
   const coldStart = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
   mod.appendPanelFields(coldStart, [
     { name: '铜板', type: 'meter', min: 0, max: 100, value: '' },
-    { name: '身高', type: 'text', value: '', mode: 'static' }
+    { name: '生日', type: 'text', value: '', mode: 'static' }
   ]);
   const coldPrompt = mod.formatPanelForPrompt(coldStart);
   check('冷启动分支里静态字段也提示「一旦发生变化就必须输出」', coldPrompt.includes('一旦发生变化就必须输出'), coldPrompt);
@@ -3849,8 +3849,8 @@ await scenario('面板：静态字段「变了才说」，动态字段每轮维�
   // 3) 全静态字段的会话：不该出现「每轮完整输出」的动态规则（没有动态字段）
   const allStatic = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
   mod.appendPanelFields(allStatic, [
-    { name: '身高', type: 'text', value: '168cm', mode: 'static' },
-    { name: '体重', type: 'text', value: '50kg', mode: 'static' }
+    { name: '生日', type: 'text', value: '3月15日', mode: 'static' },
+    { name: '血型', type: 'text', value: 'O型', mode: 'static' }
   ]);
   const staticPrompt = mod.formatPanelForPrompt(allStatic);
   check(

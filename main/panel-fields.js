@@ -35,8 +35,8 @@ const MAX_GROUP_TITLE = 24;
 const FIELD_TYPES = ['text', 'meter', 'list'];
 
 // 字段的「更新频率」标记：决定它要不要每轮都出现在状态栏里。
-//   · 'dynamic' 每轮维护 —— 铜板/生命/好感度这类随剧情变的状态，默认值。
-//   · 'static'  变了才说 —— 身高/衣物/随身物这类偶尔变的设定，没变化就不输出。
+//   · 'dynamic' 每轮维护 —— 随剧情变的状态，默认值。
+//   · 'static'  变了才说 —— 几乎不变的设定，没变化就不输出。
 // 老数据没有这个键，一律按 dynamic 处理（向后兼容，行为与以前完全一致）。
 const FIELD_MODES = ['dynamic', 'static'];
 const DEFAULT_FIELD_MODE = 'dynamic';

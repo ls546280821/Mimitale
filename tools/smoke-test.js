@@ -1859,8 +1859,8 @@ function probeRag(result) {
 }
 
 /**
- * 文案体检：属性编辑器的「更新频率」引导里，穿着必须归「每轮维护」，不能进
- * 「变了才说」举例。放宿主侧用 fs 读源码，是因为渲染层 CSP 拦 fetch file://。
+ * 文案体检：属性编辑器的「更新频率」提示不该硬编码具体字段名（字段是用户
+ * 卡片/世界书的数据）。放宿主侧用 fs 读源码，是因为渲染层 CSP 拦 fetch file://。
  */
 function probeAttrModeWording(result) {
   const push = (name, pass, detail) =>
@@ -1874,30 +1874,12 @@ function probeAttrModeWording(result) {
     return;
   }
 
-  // 下拉框 title 是用户唯一能看到的引导语 —— 必须点名穿着属于「每轮维护」
+  // 「更新频率」的文案应该是抽象描述：不出现「…这类」的字段举例。
+  const badExamples = src.split('\n').filter((line) => /每轮维护|变了才说/.test(line) && /这类/.test(line));
   push(
-    '文案体检：「更新频率」提示把穿着归到「每轮维护」',
-    /每轮维护[：:][^。\n]{0,60}穿着/.test(src),
-    ''
-  );
-
-  // 反向断言：不能出现「变了才说：…衣物/随身物」这种正向举例。
-  // 否定句（含「别/不要/不属于/不是」）和有意的纠错注记要放行。
-  const wrong = src
-    .split('\n')
-    .filter((line) => !/别|不要|不属于|不是/.test(line))
-    .filter((line) => /变了才说[^。\n]{0,6}[：:（(][^）)\n]{0,30}(衣物|上衣|下衣|穿着|随身物)/.test(line));
-  push(
-    '文案体检：没有把衣物当成「变了才说」的举例',
-    wrong.length === 0,
-    wrong.join(' | ')
-  );
-
-  // 正例：static 的举例该是身高/体重/性经历这类真的几乎不动的
-  push(
-    '文案体检：「变了才说」的举例是身高/体重/性经历',
-    /变了才说[：:][^。\n]{0,40}身高/.test(src) && /变了才说[：:][^。\n]{0,40}性经历/.test(src),
-    ''
+    '文案体检：「更新频率」文案是抽象描述、不含字段举例',
+    badExamples.length === 0,
+    badExamples.join(' | ')
   );
 }
 

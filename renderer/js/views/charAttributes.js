@@ -37,7 +37,7 @@ const ATTR_TYPES = [
 
 /**
  * 字段的「更新频率」选择框：每轮维护（随剧情变的状态）/ 变了才说（几乎不变的设定）。
- * 穿着/随身物必须「每轮维护」；「变了才说」只留给身高/体重/胸围/性经历/上次接客。
+ * 默认「每轮维护」，具体哪个字段标「变了才说」由使用者在卡片上自己决定。
  */
 const ATTR_MODES = [
   { value: 'dynamic', label: '每轮维护' },
@@ -623,8 +623,7 @@ function buildMoreBox(list, attr) {
 }
 
 /**
- * 「更多」里的更新频率行。默认「每轮维护」；只有身高/体重/胸围/性经历这类
- * 几乎不变的才标「变了才说」。
+ * 「更多」里的更新频率行。默认「每轮维护」。
  */
 function buildModeRow(attr) {
   const row = h('div', { class: 'attr-mode-row' }, h('span', { class: 'attr-range-label', text: '更新频率' }));
@@ -634,7 +633,7 @@ function buildModeRow(attr) {
     {
       class: 'attr-mode',
       'aria-label': `${attr.name} 的更新频率`,
-      title: '每轮维护：铜板/好感度/穿着这类随剧情变的；变了才说：身高/体重/性经历这类几乎不变的',
+      title: '每轮维护：随剧情变的状态；变了才说：几乎不变的设定',
       onchange: () => {
         if (modeSelect.value === 'static') attr.mode = 'static';
         else delete attr.mode; // dynamic 是默认，不写进盘，保持数据干净
