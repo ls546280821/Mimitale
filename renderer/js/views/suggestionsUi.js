@@ -141,9 +141,8 @@ export async function suggestNextActions(trigger) {
   }
 
   try {
-    // 和「换一批」一样复用 buildApiMessages：人设、玩家角色、世界书、面板状态、
-    // 剧情选项指令全都带着，模型才知道「你是谁、这是什么世界」，否则它只能看到
-    // 一截裸对话，会把你当 NPC、把主角当外乡人（实测踩过）。再追加一句「帮我想想」。
+    // 和「换一批」一样复用 buildApiMessages（带人设、世界书、面板、选项指令），
+    // 否则模型只能看到一截裸对话。再追加一句「帮我想想」。
     const worldbookSection = await matchWorldbookSection(convo);
     const ragSection = await recallSection(convo);
     const messages = buildApiMessages(convo, worldbookSection, ragSection);

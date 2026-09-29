@@ -800,12 +800,9 @@ function stashCharForm() {
   character.postHistoryInstructions = el.c.post.value;
   character.creatorNotes = el.c.notes.value;
   // 年龄/性别/种族已从表单移除（归入描述文字），不再从输入框写回。
-  // 老卡 / 导入卡可能还带着 age/gender/race，保留不动（messages.js / cast.js
-  // 仍会读它们拼「基本信息」），只是本编辑器不再提供手填入口。
+  // 老卡/导入卡可能还带着 age/gender/race，保留不动（messages.js/cast.js 仍会读）。
   // 属性是编辑期间的草稿（charAttrs），保存时才写回角色卡。
-  // ⚠️ 这里以前是个只搬 name/value 的白名单映射 —— 于是 type/min/max/hint
-  // 会被静默丢掉（和当初「attributes 整个丢过」是同一个坑）。
-  // 现在只摘掉界面自己的临时状态（_moreOpen），其余字段原样带走。
+  // 只摘掉界面自己的临时状态（_moreOpen），其余字段原样带走。
   character.attributes = charAttrs
     .filter((a) => a && typeof a.name === 'string' && a.name.trim())
     .map((a) => {

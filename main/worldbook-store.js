@@ -8,13 +8,11 @@
 //    · makeId              —— 怎么发世界书 id
 //    · normalizeCharacter  —— 书里「角色副本」的归一化器（characters.js 那个）
 //
-//  为什么要单独一层：以前这段直接写在 main.js 里，而 main.js 是 Electron 入口
-//  （顶部就 require('electron')），冒烟测试的假后端没法 require 它 ——
-//  于是「世界书存盘再读回来字段会不会丢」在自动化里完全没有覆盖，
-//  假后端只是把数组 clone 一下就存了。抽出来之后两边跑的是同一份白名单。
+//  为什么要单独一层：以前这段在 main.js（Electron 入口）里，冒烟测试的假后端
+//  没法 require，于是「世界书存盘再读回来字段会不会丢」没被自动化覆盖。
+//  抽出来之后两边跑的是同一份白名单。
 //
-//  ⚠️ normalizeWorldbook 是白名单式的：加字段时记得同步 worldbook-parse.js，
-//  否则就是静默丢失（recursive / opening / characters 都踩过这个坑）。
+//  ⚠️ normalizeWorldbook 是白名单式的：加字段时记得同步 worldbook-parse.js。
 // ============================================================================
 
 const { normalizeWorldbook } = require('./worldbook-parse.js');

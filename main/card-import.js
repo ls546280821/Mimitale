@@ -121,24 +121,11 @@ function attributesFromStatusTemplate(tpl) {
 }
 
 /**
- * 从 v3 卡的 `chat_history` 里取开场白。
- *
- * 背景：**标准 v3 规范里没有 `chat_history`**（v3 只新增 assets / nickname /
- * group_only_greetings / 世界书装饰器这些），开场白仍叫 `first_mes`。
- * 但实际有站点导出的是这种变体：卡里 `first_mes` 不存在，开场白被放进了
- * `chat_history[0].messages` 里那条 assistant 消息。遇到了就得读。
- *
- * 结构（按导出的实际形态）：
- *   chat_history: [
- *     { id, name: '开场对话', messages: [{ role: 'assistant', content: '…' }, …] },
- *     { id, name: '示例对话', messages: [ … ] },   ← 备用 / 示例，这里不用
- *   ]
- *
- * ⚠️ 只读**第一个** session 的第一条 assistant 消息，而且只读纯文本。
- * 为什么不做更多（都是踩坑点）：
- *   · 第二个 session 从名字看像「示例对话」，但那是作者的命名习惯，不是规范约定 ——
- *     拿它去填 mesExample 就是靠猜，猜错会把示例对话塞进提示词。
- *   · 多模态卡里 messages 混着 { type: 'image', … } 这类媒体条目，不能当文本用。
+ * 从 v3 卡的 `chat_history` 里取开场白。标准 v3 规范没有 chat_history（开场白叫
+ * first_mes），但有些站点导出的变体把开场白放在 chat_history[0].messages 里那条
+ * assistant 消息。只读第一个 session 的第一条 assistant 消息（纯文本），
+ * 不拿第二个 session 填 mesExample（那是作者命名习惯，不是规范），
+ * 多模态里的 media 条目不能当文本用。
  */
 function firstMesFromChatHistory(d) {
   const sessions = d && Array.isArray(d.chat_history) ? d.chat_history : null;

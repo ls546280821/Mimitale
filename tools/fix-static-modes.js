@@ -1,30 +1,16 @@
 'use strict';
 
 // ============================================================================
-//  tools/fix-static-modes.js —— 一次性数据修复（2026-09-29）
+//  tools/fix-static-modes.js —— 一次性数据修复
 //
-//  问题：「穿着变了状态栏不更新」在真实存档里还能复现 —— 因为**已开局的面板是快照**，
-//  改角色卡/副本上的 mode 不会回流。而且 mode 标错这件事在**角色库**里也有一份。
+//  把「本该每轮维护、却被误标 static」的字段清掉（删 mode = 退回默认 dynamic），
+//  只保留 KEEP_STATIC 里那批（身高/体重/胸围/性经历/上次接客）。
 //
-//  实测本机（2026-09-29 20:49）：
-//    · 角色库「露西诺」：上衣/下衣/内衣/内裤/随身物  标了 static（穿着不该 static）
-//    · 角色库「露西娅」：生命/铜板                    标了 static（每轮都变的数值）
-//    · 世界书副本「露西娅」：生命/铜板                同上
-//    · 3 个「迷夜酒馆」会话的 panelDefs：姓名/年龄/性别/种族/上衣/下衣/内衣/内裤/
-//      随身物/生命/铜板 各 11 个标了 static（会话删掉后已无对象）
+//  注意：属性在顶层 character.attributes（不是 extensions.mimitale.attributes）；
+//  运行前确认 App 已退出，否则内存旧数据会覆盖本次修改。
 //
-//  本脚本把那批**本该每轮维护**的静态标记清掉（删 mode = 退回默认 dynamic），
-//  保留真的几乎不动的（身高/体重/胸围/性经历/上次接客）。
-//
-//  ⚠️ 两个「数据在哪」的坑（踩过）：
-//    1. 属性在**顶层 `character.attributes`**，不在 `data.extensions.mimitale.attributes`。
-//       两处都探一下只是保险，真正生效的是顶层那个。
-//    2. 运行前必须确认 App 已完全退出（`tasklist | grep electron` 为空）——
-//       否则 App 会用内存里的旧数据把这次修改覆盖掉（踩过两次）。
-//
-//  用法：
-//    node tools/fix-static-modes.js --dry   # 只看会改什么，不写盘
-//    node tools/fix-static-modes.js         # 真改（会先备份）
+//  用法：node tools/fix-static-modes.js --dry   # 空跑
+//        node tools/fix-static-modes.js         # 真改（先备份）
 // ============================================================================
 
 const fs = require('fs');

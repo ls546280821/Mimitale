@@ -510,9 +510,7 @@ async function init() {
     // 键已经变成复合键，就取不到 owner 了（见 data/panel.js 的 migrateConvoPanel）。
     migrateConvoPanel(convo);
     if (convo.panelDefs !== undefined) convo.panelDefs = normalizePanelDefs(convo.panelDefs);
-    // 「世界/场景」这张卡已经去掉了（2026-09-29）。老会话里那批 owner 为空的
-    // 字段要**当场认领**掉，否则打开旧对话会看到一堆没人管的字段：
-    // 角色卡上声明过的归角色，其余并回主角。幂等，跑过之后就没有无主字段了。
+    // 老会话里 owner 为空的字段当场认领（归角色或并回主角），幂等。
     absorbTopLevelIntoPlayer(convo);
     // 选项是程序写进去的，读盘时只要保证形状对（不是数组就当没有）
     if (!Array.isArray(convo.options)) convo.options = [];

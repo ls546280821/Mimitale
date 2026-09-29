@@ -165,9 +165,8 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   if (String(base).trim()) parts.push(applyMacros(base, character, me).trim());
 
   if (character) {
-    // 身份：年龄/性别/种族是「这个人是谁」的一部分，一开始就得说清楚。
-    // 光靠状态面板不够 —— 面板可能被重置、老会话也没有这些字段，
-    // 模型不知道就只能自己编（实测：16 岁的角色被回复成 21 岁）。
+    // 身份：年龄/性别/种族是「这个人是谁」的一部分，一开始就说清楚
+    // （状态面板可能被重置、老会话没有这些字段，不能只靠面板）。
     const identity = [];
     if (character.age) identity.push(`年龄 ${character.age}`);
     if (character.gender) identity.push(`性别 ${character.gender}`);

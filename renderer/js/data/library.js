@@ -41,21 +41,9 @@ export function characterAttrs(character) {
 }
 
 /**
- * 这张卡的状态要不要出现在「当前状态」入口条上（`showInPanel`）。
- *
- * 为什么要这个开关（2026-09-29，用户需求）：
- *   把人加进世界书当副本，本来是希望「TA 人设立得住（有 description/personality）
- *   **并且**状态能看」。但实测发现这俩需求是分开的 —— 一本酒馆十来号 NPC，
- *   真正需要盯状态的就一两个；其余的都出头像，入口条挤爆、也没用。
- *   「人设立得住」由副本本身决定（有没有 description），跟这个开关无关。
- *
- * 语义（只对**世界书副本**有意义）：
- *   · true  → 状态卡进入口条
- *   · 否则  → 不进（默认，老数据 / 导入卡都没这个字段）
- *
- * ⚠️ **单角色聊天绑定的那张卡不受这个开关管** —— 那种会话里 TA 就是主角，
- *   状态栏必须显示（见 cast.js 的 panelEntities 里怎么区分）。这个开关是给
- *   「一本书里一堆 NPC，挑几个出来显示」用的。
+ * 这张卡的状态要不要进「当前状态」入口条（showInPanel）。
+ * 只对世界书副本有意义：true 才显示，默认 false。单角色聊天绑的卡不受此开关管
+ * （那种会话里 TA 就是主角，见 cast.js 的 panelEntities）。
  */
 export function showsInPanel(character) {
   return !!(character && character.showInPanel === true);

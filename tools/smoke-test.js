@@ -20,15 +20,10 @@
 
 const { app, BrowserWindow, ipcMain } = require('electron');
 
-// 测试只做 DOM 断言，用不到 GPU。某些环境（无独显 / 远程桌面 / 驱动状态异常）
-// 的 GPU 进程会反复崩溃并把主进程一起带走（日志里是
-// `FATAL: GPU process isn't usable. Goodbye.`），表现却是
-// 「页面加载失败：ERR_FAILED」—— 看着像代码坏了，其实和代码无关。
-// 关掉硬件加速就没有这个噪声（软件渲染对测试速度影响可以忽略）。
-//
-// 另一半在 package.json：`npm run smoke` 带了 `--no-sandbox`。
-// 2026-09-23 实测这台机器上光关硬件加速还不够，沙箱也要关，否则一样是 ERR_FAILED。
-// 这两个脚本不加载任何外部内容、IPC 全是内存里的假后端，关沙箱的代价可以忽略。
+// 测试只做 DOM 断言，用不到 GPU。某些环境（无独显/远程桌面/驱动异常）的 GPU
+// 进程会反复崩溃把主进程一起带走，表现为「页面加载失败：ERR_FAILED」。
+// 关硬件加速就没有这个噪声；另一半在 package.json 的 --no-sandbox。
+// 这两个脚本不加载外部内容、IPC 全是内存假后端，关掉无副作用。
 app.disableHardwareAcceleration();
 
 const fs = require('fs');
@@ -647,18 +642,10 @@ function report(result, consoleErrors, consoleWarnings, crashed) {
 /**
  * 悬停验证：卡片上的删除按钮必须「鼠标移上去才浮出来」。
  *
- * 为什么这条断言不能写在页面里，也不能用模拟指针：
- *   1. `:hover` 只认真实指针，页面里 dispatchEvent('mouseover') 不算数；
- *   2. 用 sendInputEvent 真移指针也不行 —— 窗口是隐藏的（show:false），
- *      Chromium 不会给它算 hover 状态；
- *   3. 所以走 CDP 的 CSS.forcePseudoState 强制加 `:hover`（已验证能用，
- *      拿左侧会话列表那套生产环境正常的 .convo-del 做过对照）。
- *
- * 还有一个坑（踩过，记在这免得下次又查一遍）：
- *   `.char-card-del` 上有 `transition: opacity 0.12s`，而**隐藏窗口不产生动画帧**，
- *   过渡永远不会推进 —— 强制 hover 之后等 1.5 秒 opacity 依然是 0。
- *   所以这里先把过渡临时关掉，让计算值直接跳到位。
- *   真实窗口里过渡正常播放（那就是我们要的淡入效果）。
+ * 为什么放宿主侧：:hover 只认真实指针，页面里 dispatchEvent 不算；隐藏窗口
+ * 也不算 hover，所以走 CDP 的 CSS.forcePseudoState 强制加 :hover。
+ * 注意：删除按钮有 transition，隐藏窗口不产生动画帧、过渡永不推进，
+ * 所以先临时关掉过渡让计算值直接跳到位（真实窗口里过渡正常播放）。
  */
 async function probeHover(win, result) {
   const probe = result && result.hoverProbe;
@@ -1491,12 +1478,8 @@ function probePanelFields(result) {
 }
 
 /**
- * 世界书存盘归一化的白名单验证。
- *
- * normalizeWorldbook 是**白名单式**的：没列进返回对象的字段直接消失。
- * recursive / opening / characters 都踩过这个坑 ——
- * 表现是「存一次盘，递归开关全变回关」，不报错、不提示。
- * 这里用真的落盘归一化跑一遍往返。
+ * 世界书存盘归一化的白名单验证。normalizeWorldbook 是白名单式的：没列的字段
+ * 直接消失。这里用真的落盘归一化跑一遍往返。
  */
 function probeWorldbookStore(result) {
   const push = (name, pass, detail) => result.results.push({ name, pass: !!pass, detail: detail || '' });
@@ -1757,7 +1740,7 @@ function probeVectors(result) {
     [cosineSimilarity(a, a), cosineSimilarity(a, b), cosineSimilarity(a, c)].join(' / ')
   );
 
-  // 没归一化的向量也要能比（各家服务商不一样，这也是当初选余弦的原因）
+  // 没归一化的向量也要能比（各家服务商不一样）
   const un = new Float32Array([10, 0]);
   push('向量：没归一化也算得对', Math.abs(cosineSimilarity(a, un) - 1) < 1e-6, String(cosineSimilarity(a, un)));
   push('向量：维度不一样返回 0（不瞎算）', cosineSimilarity(new Float32Array([1, 2, 3]), a) === 0);
@@ -1876,14 +1859,8 @@ function probeRag(result) {
 }
 
 /**
- * 文案体检：属性编辑器的「更新频率」引导别再把穿着划进「变了才说」。
- *
- * 为什么放宿主侧而不是页面里：页面有 CSP（`default-src 'none'`），
- * `fetch('file:///…')` 会被拦掉 —— 只能在这里用 fs 直接读源码。
- *
- * 踩过的坑（2026-09-29）：老文案写「变了才说：身高/体重/衣物/随身物」，
- * 用户照着标 → 穿着被判 static → 模型下轮整行省掉 → 穿着变了状态栏却不更新。
- * 所以这条断言是**防止文案回退**，和 data/panel.js 里的措辞改动配套。
+ * 文案体检：属性编辑器的「更新频率」引导里，穿着必须归「每轮维护」，不能进
+ * 「变了才说」举例。放宿主侧用 fs 读源码，是因为渲染层 CSP 拦 fetch file://。
  */
 function probeAttrModeWording(result) {
   const push = (name, pass, detail) =>

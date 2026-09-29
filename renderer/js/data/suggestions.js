@@ -105,9 +105,7 @@ export function extractOptionsFromText(text) {
   if (tail === null) return [];
 
   const out = [];
-  // 只认「/」「｜」这类**明确的分隔符**。
-  // 不能拿顿号/逗号来切 —— 选项本身就是中文句子，里面天然带「，」，
-  // 一切就把「我想先喝一杯，压压惊」拆成两条没头没尾的碎片（实测踩过）。
+  // 只认「/」「｜」这类明确的分隔符，不拿顿号/逗号切（选项本身是中文句子，带「，」）。
   for (const piece of tail.split(/[\/｜|]/)) {
     let item = piece.trim();
     if (!item) continue;
@@ -133,9 +131,7 @@ export function extractOptionsFromText(text) {
  * 关键是要它**别再给和上一批一样的**，否则点了等于没点。所以明确把上一批
  * 列出来，要求避开。选项格式和 optionsInstruction 保持一致（一行、用「 / 」隔开）。
  *
- * 格式示例里给的是**真实内容**而不是「A / B / C」—— 占位字母会被模型照抄，
- * 给每个选项都安上字母标签（输出成「A / 选项一 / B / 选项二 …」），拆出来就是
- * 一堆没头没尾的单字母按钮（实测踩过）。
+ * 格式示例里给的是真实内容而不是「A / B / C」—— 占位字母会被模型照抄成单字母标签。
  */
 export function rerollOptionsInstruction(convo) {
   const spec = convoOptionsSpec(convo);
@@ -177,9 +173,7 @@ export function optionsInstruction(convo) {
   ];
   if (spec.hint) lines.push(`额外要求：${spec.hint}`);
 
-  // 上一轮已经给过的选项，这轮别照抄 —— 局面没怎么变的时候模型会「原地打转」，
-  // 一遍遍给出同一批选项（实测：不写这句，玩家连看几轮都是同样的三个）。
-  // 「换一批」之所以能换出新东西，就是因为它显式要求避开上一批，这里补上同一句。
+  // 显式要求避开上一批，否则模型会「原地打转」给出同一批选项。
   const previous = (Array.isArray(convo.options) ? convo.options : []).filter(Boolean);
   if (previous.length) {
     lines.push(
