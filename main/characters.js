@@ -130,6 +130,12 @@ function normalizeCharacter(raw, source) {
     // 开关：关掉后这张角色在哪儿都不带入自带的那些书。
     // 缺省视为开启（导入即可用）；只有显式 false 才算关。
     worldbookEnabled: r.worldbookEnabled !== false,
+    // 「在状态栏显示」：只对**世界书副本**有意义 —— 勾了才让这个 NPC 的
+    // 状态出现在「当前状态」入口条上（一本书十来号 NPC 全出头像会挤爆）。
+    // ⚠️ 这个字段必须在这儿显式保留！本函数是**白名单式**的，漏一行就会
+    // 一存盘就被静默丢掉（2026-09-29 实测：勾了开关、启动一次 App 就变回 undefined）。
+    // 只在显式 true 时才写出来，免得给角色库那一大堆卡都添个没用的 false。
+    ...(r.showInPanel === true ? { showInPanel: true } : {}),
     source: ['png', 'json', 'manual'].includes(r.source) ? r.source : source || 'manual',
     createdAt: Number(r.createdAt) || Date.now(),
     updatedAt: Number(r.updatedAt) || Date.now()

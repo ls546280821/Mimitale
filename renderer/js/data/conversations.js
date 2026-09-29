@@ -39,10 +39,13 @@ export function createConvo(activate) {
     worldbookIds: [],
     // 状态面板：fields 是出现过的字段顺序，panel 是当前值。
     // panelDefs 是字段的类型/范围/变化规则（可选，老会话没有这个键也照常工作）。
+    // panelManual 记「哪些字段是玩家手动改过的」—— AI 每轮会重发状态栏，
+    // 不记的话手改的值下一轮就被顶掉（可选，老会话没有也照常工作）。
     // 世界模型开局通常是空的，第一条带面板的回复会自动填上。
     panel: {},
     panelFields: [],
     panelDefs: {},
+    panelManual: {},
     // 剧情选项：options 是这一轮模型给的可点选项（点完就清），
     // optionsSpec 是「每轮给几个 + 额外要求」，null = 这个会话不开剧情选项。
     options: [],
@@ -80,6 +83,8 @@ export function branchSkeleton(convo, cut) {
     panel: { ...convoPanel(convo) },
     // 字段的范围/hint 也要跟着分叉走，否则新线的数值从此不再受约束
     panelDefs: JSON.parse(JSON.stringify(convoPanelDefs(convo))),
+    // 「手改过」的标记也跟着走 —— 新线里那些手改的值同样不该被 AI 顶掉
+    panelManual: { ...(convo.panelManual || {}) },
     // 剧情选项配置跟着走；这一轮的选项本身不搬（新线还没生成过）
     optionsSpec: convo.optionsSpec ? { ...convo.optionsSpec } : null,
     options: [],

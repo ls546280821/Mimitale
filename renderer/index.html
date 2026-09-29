@@ -67,24 +67,15 @@
         </div>
       </header>
 
-      <!-- 状态面板：世界模型的状态栏，可折叠，字段值可直接改。
-           收起后不消失，只留这一条细条 —— 这样随时有地方点开。 -->
-      <section id="panel-box" class="panel-box hidden" aria-label="当前状态面板">
-        <div id="panel-head" class="panel-head">
-          <button id="btn-panel-collapse" class="panel-toggle" type="button"
-                  title="收起 / 展开状态面板" aria-expanded="true" aria-controls="panel-fields">
-            <svg class="panel-caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="m6 9 6 6 6-6" />
-            </svg>
-            <span class="panel-title">当前状态</span>
-          </button>
-          <span id="panel-hint" class="panel-hint">每轮自动更新</span>
-          <button id="btn-panel-reset" class="btn btn-ghost btn-sm" type="button" title="清空面板（下一条带状态栏的回复会重新建立）">重置</button>
-        </div>
-        <!-- 本局有状态的人：我 + 出现的角色卡。点头像打开那张状态卡（AI 现编的
-              NPC 不进这里，场景也不进）。 -->
+      <!-- 状态卡入口条：本局有状态的每一个人（我 / 各角色）一个头像。
+           点头像打开那张状态卡 —— 字段的看和改都在卡里。
+           以前这里是一块「当前状态」折叠面板，一个面板只能显示一个角色的状态，
+           是旧版单角色的遗留，已经去掉。
+           左边那四个字「当前状态」是**留下的路标**：整块区域还是叫这个名字，
+           方便对着界面说「当前状态那里不对」，别删。 -->
+      <section id="panel-box" class="panel-box hidden" aria-label="当前状态（状态卡入口）">
+        <span class="panel-title">当前状态</span>
         <div id="panel-cast" class="panel-cast" aria-label="本局角色状态卡入口"></div>
-        <div id="panel-fields" class="panel-fields"></div>
       </section>
 
       <section id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions"></section>
@@ -118,7 +109,7 @@
         </div>
       </footer>
 
-      <!-- 状态卡：可拖动的浮动卡片，点「我」的头像或面板栏的头像打开。
+      <!-- 状态卡：可拖动的浮动卡片，点入口条上的头像打开。
            默认只读（文本展示），点卡片上的「编辑」才变成可改。 -->
       <div id="state-cards" class="state-cards"></div>
 
@@ -709,6 +700,22 @@
                   </label>
                 </div>
               </div>
+
+              <!-- 在状态栏显示：只对**世界书副本**有意义。
+                   一本酒馆十来号 NPC，默认全列会把入口条挤爆；想看谁的状态就勾谁。
+                   副本的「人设立不立得住」由描述/性格决定，跟这个开关无关 ——
+                   不勾只是不出头像，人设照旧进 GM 名单。 -->
+              <div id="c-show-in-panel-box" class="char-options-box">
+                <label class="check">
+                  <input id="c-show-in-panel" type="checkbox" />
+                  <span>在状态栏显示（「当前状态」那排头像里加上 TA）</span>
+                </label>
+                <span class="field-help" id="c-show-in-panel-help">
+                  勾上之后，这张卡的状态会出现在「当前状态」入口条上。<br />
+                  <b>不勾不影响人设</b> —— 描述和性格照样进提示词，只是不占头像位。<br />
+                  一本书里 NPC 多的时候，只勾你真正想盯的那几个。
+                </span>
+              </div>
             </div>
 
             <!-- 角色自带的世界书：导入带 character_book 的角色卡时会自动绑上，
@@ -804,6 +811,8 @@
                 <div class="wb-chars-actions">
                   <button id="btn-add-wb-chars" class="btn btn-ghost btn-sm" type="button">＋ 从角色库加入</button>
                   <button id="btn-new-wb-char" class="btn btn-ghost btn-sm" type="button">＋ 新建</button>
+                  <button id="btn-sync-wb-attrs" class="btn btn-ghost btn-sm" type="button"
+                          title="按名字找角色库里同名的卡，把它的属性补进这里的副本（副本是快照，加进来之后角色库又补了属性的话，副本不会自己跟着变）">↻ 同步属性</button>
                 </div>
               </div>
               <div id="wb-char-list" class="wb-char-list"></div>

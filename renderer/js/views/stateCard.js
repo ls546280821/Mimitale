@@ -6,15 +6,21 @@
 //  一张卡 = 某个人（owner）的状态字段。owner 的取值见 data/panel.js：
 //    · 'player'   —— 我自己（玩世界书时种的就是这个）
 //    · 角色卡 id  —— 某个角色（单角色聊天 / 世界书里的本书角色）
-//  场景（owner 为空）不属于「某个人」，不在这里展示 —— 它留在顶部面板里。
+//
+//  ★ 没有「世界/场景」这张卡了（2026-09-29 去掉）。
+//    owner 为空的零散字段曾经归它，但实测那批里几乎全是**主角自己的**
+//    （AI 不肯给主角加「角色名·」前缀），于是「世界」卡里装的是主角的状态，
+//    还和「我的状态」卡各存一份、值对不上。现在扫完一轮先把它们并回主角，
+//    剩下真没人认领的直接丢掉 —— 见 data/panel.js 的 absorbTopLevelIntoPlayer
+//    （absorbTopLevelIntoPlayer）。
 //
 //  卡片默认**只读**（纯文本展示，方便看）—— 用户的原话是「主要是用来查看」，
 //  点「编辑」才把值切成输入框。可以拖动，位置按 owner 各记各的（视图状态，不落盘）。
 //
 //  写入复用 data/panel.js 的 setPanelField / appendPanelFields，
-//  所以卡片里改的值和顶部面板改的值走的是**同一条**落盘路径，不会两边打架。
+//  所以卡片里改的值和游戏内改的值走的是**同一条**落盘路径，不会两边打架。
 //
-//  谁打开它：views/panelUi.js 的头像行、views/chatMessages.js 里「我」的头像。
+//  谁打开它：views/panelUi.js 的状态卡入口条、views/chatMessages.js 里「我」的头像。
 // ============================================================================
 
 import { el } from '../core/dom.js';
@@ -382,7 +388,9 @@ export function renderStateCards() {
   clear(host);
   if (!convo || !openCards.size) return;
 
-  // 已经不在场的人（面板被重置 / 换绑角色）→ 收掉那张卡
+  // 已经不在场的人（换绑角色 / 字段被清光）→ 收掉那张卡。
+  // ⚠️ 唯一的例外是「我」和「角色卡」本身要小心：player 永远在 panelEntities 里，
+  // 所以这里的判定只对角色卡生效，删掉一个角色的字段就会关掉它的卡（合理）。
   const live = new Set(panelEntities(convo).map((e) => e.owner));
   for (const owner of [...openCards.keys()]) {
     if (!live.has(owner)) openCards.delete(owner);

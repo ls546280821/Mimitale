@@ -39,14 +39,9 @@ export const el = {
   providerTabs: $('provider-tabs'),
   providerPresets: $('provider-presets'),
   modelSwitch: $('model-switch'),
-  // 状态面板
+  // 状态卡入口条（点头像开各人的状态卡）
   panelBox: $('panel-box'),
-  panelHead: $('panel-head'),
-  panelFields: $('panel-fields'),
   panelCast: $('panel-cast'),
-  panelHint: $('panel-hint'),
-  btnPanelCollapse: $('btn-panel-collapse'),
-  btnPanelReset: $('btn-panel-reset'),
   // 状态卡（点「我」/角色的头像打开的浮动卡片）
   stateCards: $('state-cards'),
   // 对话窗口外观
@@ -162,6 +157,10 @@ export const el = {
     optionsConfig: $('c-options-config'),
     optionsCount: $('c-options-count'),
     optionsHint: $('c-options-hint'),
+    // 在状态栏显示（`showInPanel`）：只对世界书副本有意义
+    showInPanelBox: $('c-show-in-panel-box'),
+    showInPanel: $('c-show-in-panel'),
+    showInPanelHelp: $('c-show-in-panel-help'),
     // 角色自带的世界书：清单 + 绑定按钮 + 开关
     wbBox: $('c-worldbook-box'),
     wbList: $('c-wb-list'),
@@ -218,6 +217,7 @@ export const el = {
     charList: $('wb-char-list'),
     btnAddChars: $('btn-add-wb-chars'),
     btnNewChar: $('btn-new-wb-char'),
+    btnSyncAttrs: $('btn-sync-wb-attrs'),
     formEmpty: $('wb-form-empty'),
     form: $('wb-form'),
     footHint: $('wb-foot-hint'),

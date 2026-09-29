@@ -31,7 +31,7 @@ import { confirmDialog } from '../ui/confirm.js';
 import { h, button, clear } from '../ui/build.js';
 import { saveExport } from '../data/export.js';
 import { persistLibrary, persistConversations } from '../data/persist.js';
-import { seedWorldbookCharactersIntoConvos } from '../data/panel.js';
+import { seedWorldbookCharactersIntoConvos, syncCopyAttrsFromSource } from '../data/panel.js';
 import {
   characters,
   worldbooks,
@@ -78,6 +78,7 @@ export function initWorldbook(opts = {}) {
   el.wb.btnPreview.addEventListener('click', previewWorldbook);
   el.wb.btnAddChars.addEventListener('click', openWorldbookCharPicker);
   el.wb.btnNewChar.addEventListener('click', newWorldbookCharacter);
+  if (el.wb.btnSyncAttrs) el.wb.btnSyncAttrs.addEventListener('click', syncWorldbookCharAttrs);
 
   // 从角色库多选加入
   el.wbPicker.btnClose.addEventListener('click', closeWorldbookCharPicker);
@@ -318,6 +319,19 @@ export function renderWorldbookChars() {
           c.avatar ? h('img', { src: c.avatar, alt: '' }) : c.name.slice(0, 1)
         ),
         h('span', { class: 'wb-char-chip-name', text: c.name }),
+        // 「显示状态」：勾上之后这个副本的状态会出现在「当前状态」入口条上。
+        // 不做成按钮是因为它是个**每本书各自一份**的持久开关，勾选状态要一眼看见。
+        h(
+          'label',
+          { class: 'wb-char-chip-show', title: '把这个副本的状态显示在「当前状态」入口条上' },
+          (() => {
+            const cb = h('input', { type: 'checkbox' });
+            cb.checked = c.showInPanel === true;
+            cb.addEventListener('change', () => toggleWorldbookCharShowInPanel(c.id, cb.checked));
+            return cb;
+          })(),
+          h('span', { text: '显示状态' })
+        ),
         button({
           class: 'wb-char-chip-btn',
           text: '编辑',
@@ -416,6 +430,90 @@ function editWorldbookCharacter(id) {
   const book = currentWorldbook();
   if (!book) return;
   openInBook(id);
+}
+
+/**
+ * 把角色库里**同名卡**的属性补进本书的副本。
+ *
+ * 为什么需要（2026-09-29，用户报的）：「加入副本」是**整卡深拷贝**，属性本来会
+ * 一起带过来 —— 但副本是**快照**：如果当初加进来时角色库那张卡还没有属性
+ * （属性是后来才补的），副本就永远是个空壳，状态卡点开是空的、入口条上也不出
+ * 头像。用户实际就踩了这个：世界书里 5 个副本属性全是 0，而角色库里同名的
+ * 「露西娅」有 20 个属性。
+ *
+ * 匹配只认**名字**（副本和角色库那张卡没有 id 关联，副本 id 是另发的 wc…）。
+ * 只补**副本自己没有**的属性名，已有的一律不覆盖 —— 副本上你可能改过值，
+ * 那是这本书里的当前状态，不能被角色库的初始值顶掉。
+ *
+ * 只补属性，不动 description / personality 等其它字段（那些你可能在副本里
+ * 单独调过，而且同步它们等于把「副本是快照」这个约定推翻）。
+ */
+async function syncWorldbookCharAttrs() {
+  const book = currentWorldbook();
+  if (!book) return;
+
+  const copies = worldbookCharacters(book);
+  if (!copies.length) {
+    showToast('这本书里还没有角色副本', 'error');
+    return;
+  }
+
+  const { touched, added, missing } = syncCopyAttrsFromSource(copies, characters());
+  if (!touched) {
+    const why = missing.length
+      ? `这些副本在角色库里没有同名卡：${missing.join('、')}`
+      : '所有副本的属性都已经是最新的了';
+    showToast(why, 'error');
+    return;
+  }
+
+  book.updatedAt = now();
+  const saved = await persistLibrary();
+  renderWorldbookChars();
+  renderWorldbookPage();
+
+  if (saved) {
+    // 正在玩这本书的会话：把补上的属性也种进面板，头像 / 状态卡立刻可见。
+    // 属性是「新副本才有」还是「老副本补的」对种子层没区别 —— 按 owner 去重。
+    const seeded = seedWorldbookCharactersIntoConvos(state.conversations, book, copies);
+    if (seeded) {
+      persistConversations(0);
+      if (activeConvo() && convoWorldbookIds(activeConvo()).includes(book.id)) {
+        renderAll();
+      }
+    }
+    showToast(`已补 ${added} 个属性到 ${touched} 个副本`, 'ok');
+  } else {
+    showToast('补属性失败，没能写入磁盘', 'error');
+  }
+}
+
+/**
+ * 切换某个副本「在状态栏显示」。
+ *
+ * `showInPanel` 存在**这本世界书里的副本**上（不是角色库那张卡）—— 同一个角色
+ * 放进不同的书，可以这本书显示、那本书不显示。改完立刻重绘当前会话：
+ * 勾上的人头像马上出现在「当前状态」入口条上（属性早就种在面板里了，只是原先
+ * 被 panelEntities 过滤掉），取消则立刻收掉。
+ */
+async function toggleWorldbookCharShowInPanel(id, on) {
+  const book = currentWorldbook();
+  if (!book) return;
+
+  const target = worldbookCharacters(book).find((c) => c.id === id);
+  if (!target) return;
+
+  target.showInPanel = on === true;
+  target.updatedAt = now();
+  book.updatedAt = now();
+
+  await persistLibrary();
+  // 「当前状态」入口条是按当前会话的面板画的 —— 正在玩这本书就得重绘一次，
+  // 头像才会立刻增删。别的会话不动。
+  if (activeConvo() && convoWorldbookIds(activeConvo()).includes(book.id)) {
+    renderAll();
+  }
+  showToast(on ? `「${target.name}」的状态会显示了` : `「${target.name}」的状态已隐藏`, 'ok');
 }
 
 // --- 从角色库多选加入 ---

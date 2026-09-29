@@ -732,27 +732,30 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   click(buttonByText(card, '聊天'));
   await waitFor('切到聊天视图', () => shown('#view-chat'));
 
-  await waitFor('状态面板出现', () => shown('#panel-box'));
+  await waitFor('状态卡入口条出现', () => shown('#panel-box'));
 
-  // 角色字段现在**不在面板里**了 —— 都搬进了角色状态卡（同一天的新设计：
-  // 面板只留「认不出归属」的字段，角色卡种进来的一律进各自的卡）
-  const panelNames = $$('#panel-fields .panel-name').map((n) => n.textContent);
+  // 「当前状态」那块折叠面板的**字段列表面板**已经去掉（一个面板只能显示一个
+  // 角色的状态，是旧版单角色的遗留）—— 入口条上只留头像。
+  // 但「当前状态」这四个字**要留着**：它是这块区域的路标，用户靠它指认位置。
   check(
-    '角色的属性不再挤在面板里（搬进了状态卡）',
-    !panelNames.includes('金币') && !panelNames.includes('好感度') && !panelNames.includes('姓名'),
-    JSON.stringify(panelNames)
+    '旧的状态面板字段区已经没有了',
+    !byId('panel-fields') && !byId('btn-panel-collapse') && !byId('panel-hint'),
+    JSON.stringify({
+      fields: !!byId('panel-fields'),
+      collapse: !!byId('btn-panel-collapse'),
+      hint: !!byId('panel-hint')
+    })
   );
+  check('入口条上保留了「当前状态」这个路标标题', /当前状态/.test(byId('panel-box').textContent || ''));
   check(
-    '面板正文不是一片空白（给了指路的话）',
-    (($('#panel-fields .panel-empty') || {}).textContent || '').includes('头像'),
-    ($('#panel-fields') || {}).textContent
+    '「当前状态」是个纯标签，不是能折叠的按钮',
+    (() => {
+      const t = byId('panel-box').querySelector('.panel-title');
+      return !!t && t.tagName === 'SPAN' && !byId('btn-panel-collapse');
+    })()
   );
 
-  // --- 点面板栏上的角色头像 → 打开角色状态卡 ---
-  if (byId('panel-box').classList.contains('collapsed')) {
-    click('#btn-panel-collapse');
-    await sleep(160);
-  }
+  // --- 点入口条上的角色头像 → 打开角色状态卡 ---
   const charAvatar = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner !== 'player');
   check('面板栏上有角色的头像', !!charAvatar);
   click(charAvatar);
@@ -857,56 +860,207 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     );
   }
 
-  // 收拾现场：把卡关掉、面板收起 —— 下一个场景假定面板是**收起**状态（它自己验「默认收起」）
+  // 收拾现场：把卡关掉 —— 下一个场景验「入口条常驻、点头像开卡」
   const closeCharCard = charCard().querySelector('.sc-close');
   if (closeCharCard) click(closeCharCard);
-  if (!byId('panel-box').classList.contains('collapsed')) {
-    click('#btn-panel-collapse');
-    await sleep(150);
-  }
+  await sleep(150);
 });
 
 // ---------------------------------------------------------------------------
-//  场景 9：状态面板 —— 默认收起，随时展开
+//  场景 9：状态卡入口条 —— 一直在这儿，点头像开卡
 // ---------------------------------------------------------------------------
-await scenario('状态面板：默认收起 / 随时展开', async () => {
-  await waitFor('面板在', () => shown('#panel-box') && !!byId('btn-panel-collapse'));
+await scenario('状态卡入口条：常驻 + 点头像开卡', async () => {
+  await waitFor('入口条在', () => shown('#panel-box') && !!byId('panel-cast'));
 
-  const fieldsH = () => byId('panel-fields').getBoundingClientRect().height;
-  const boxH = () => Math.round(byId('panel-box').getBoundingClientRect().height);
+  // 旧面板的折叠开关/字段区/提示行都去掉了 —— 入口条只有一行头像，没有可收的内容
+  check(
+    '旧面板的折叠开关 / 字段区 / 提示行都已移除',
+    !byId('btn-panel-collapse') && !byId('panel-fields') && !byId('panel-hint') && !byId('btn-panel-reset'),
+    JSON.stringify({
+      collapse: !!byId('btn-panel-collapse'),
+      fields: !!byId('panel-fields'),
+      hint: !!byId('panel-hint'),
+      reset: !!byId('btn-panel-reset')
+    })
+  );
 
-  // 默认收起：只留一条细条，但一直在那儿
-  check('默认就是收起的', byId('panel-box').classList.contains('collapsed'));
-  check('收起时字段区不显示', fieldsH() === 0, `字段区高度 ${fieldsH()}`);
-  const collapsedH = boxH();
-  check('收起时面板还在（一根细条）', shown('#panel-box') && collapsedH > 0 && collapsedH < 80, `${collapsedH}px`);
+  const boxH = Math.round(byId('panel-box').getBoundingClientRect().height);
+  check('入口条一直可见（一条细条）', boxH > 0 && boxH < 90, `${boxH}px`);
 
-  // 关键：收起之后那个开关还得看得见、点得到，否则「随时打开」就是空话
-  const toggleBox = byId('btn-panel-collapse').getBoundingClientRect();
-  check('收起后开关仍然可见可点', toggleBox.height > 0 && toggleBox.width > 0, `${Math.round(toggleBox.width)}×${Math.round(toggleBox.height)}`);
+  // 头像行就是入口：第一个永远是「我」
+  const owners = $$('#panel-cast .panel-avatar').map((b) => b.dataset.owner);
+  check('入口条上第一个头像是「我」', owners[0] === 'player', JSON.stringify(owners));
+  const avatarBox = $$('#panel-cast .panel-avatar')[0].getBoundingClientRect();
+  check('头像可见可点', avatarBox.height > 0 && avatarBox.width > 0, `${Math.round(avatarBox.width)}×${Math.round(avatarBox.height)}`);
 
-  click('#btn-panel-collapse');
-  await sleep(120);
-  const expandedH = boxH();
-  check('点一下就展开', fieldsH() > 0 && !byId('panel-box').classList.contains('collapsed'));
-  check('展开后 aria 也对', byId('btn-panel-collapse').getAttribute('aria-expanded') === 'true');
-  check('展开确实比收起高', expandedH > collapsedH, `${collapsedH} → ${expandedH}`);
+  // 点「我」的头像 → 开我的状态卡；再点 ✕ 收掉
+  click($$('#panel-cast .panel-avatar')[0]);
+  await waitFor('我的状态卡从入口条打开', () => !!$('#state-cards .state-card[data-owner="player"]'));
+  click($('#state-cards .state-card[data-owner="player"] .sc-close'));
+  await sleep(150);
+  check('点 ✕ 把卡收掉了', !$('#state-cards .state-card[data-owner="player"]'));
 
-  click('#btn-panel-collapse');
-  await sleep(120);
-  check('再点一下又收起', fieldsH() === 0);
-
-  // 整条标题栏都能点（不必瞄准那个小箭头）
-  click('#panel-head');
-  await sleep(120);
-  check('点标题栏空白处也能展开', fieldsH() > 0);
-
-  click('#panel-head');
-  await sleep(120);
-  check('点标题栏空白处也能收起', fieldsH() === 0);
-
-  // 右上角那个「状态」按钮已经去掉了，别再回来
+  // 顶栏那个「状态」按钮早就去掉了，别再回来
   check('顶栏的「状态」按钮已移除', !byId('btn-panel-toggle'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 9.5：认不出归属的字段 —— 并回主角，不再单开一张「世界」卡
+//
+//  用户在真实对局里发现的坑：AI 输出状态栏时**不会给主角加「角色名·」前缀**，
+//  于是主角的字段全解析成「无主」，跑到一张单独的卡里去了。
+//  结果是「我的状态」显示的是开局初值、「世界」卡显示的是当下的真实值 ——
+//  同一批字段分两份、值还对不上。
+//
+//  现在：扫描收尾时把无主字段**全部并回 player**（同名用 AI 那份覆盖、
+//  新字段整个搬过去），入口条上不再有「世界」这个入口。
+//  会话里认不出主角是谁时（既没绑卡、也没玩家角色）原样不动，不瞎认领。
+//
+//  ⚠️ 这一段**不发消息** —— 后面几个场景都依赖「当前会话的最后一条回复」
+//     是它们自己造的那条；在这里多发一轮会把那条顶掉。所以只走数据层。
+// ---------------------------------------------------------------------------
+await scenario('无主状态字段：并回主角，不单开世界卡', async () => {
+  await waitFor('入口条在', () => shown('#panel-box') && !!byId('panel-cast'));
+
+  const panelMod = await import(new URL('js/data/panel.js', document.baseURI).href);
+  const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+
+  const convo = (stateMod.state.conversations || []).find((c) => c.id === stateMod.state.activeId);
+  check('拿到当前会话', !!convo);
+  if (!convo) return;
+
+  const key = (name, owner) => panelMod.panelKey(name, owner);
+  const ownerOf = (k) => panelMod.panelFieldOwner(convo, k);
+  const nameOf = (k) => panelMod.panelFieldName(k);
+
+  // --- 1) 认得出主角时：无主字段并回 player --------------------------------
+  // 这个会话绑了角色卡（上面的场景绑的），所以主角名 = 那张卡的名字。
+  const cardMod = await import(new URL('js/data/library.js', document.baseURI).href);
+  const boundCard = cardMod.characterById(convo.characterId);
+  check('会话绑了角色卡（主角名能从卡上认出来）', !!boundCard, String(convo.characterId));
+  if (!boundCard) return;
+
+  // 造三个无主字段（模拟 AI 没带前缀时的输出），覆盖三种认领规则：
+  //   · 上衣   —— 角色卡上有这个名字 → 规则 1，归**角色**
+  //   · 醉意   —— 主角那边没有、角色卡也没有 → 规则 3，归**主角**
+  //   · 好感度 —— 同上（主角那边没这个名字）→ 归主角
+  panelMod.appendPanelFields(convo, [
+    { name: '上衣', value: '（AI 改成的新衣服）' },
+    { name: '好感度', value: '63/100' },
+    { name: '醉意', value: '10/100' }
+  ]);
+  check(
+    '造出三个无主字段（模拟 AI 没带前缀时的输出）',
+    convo.panelFields.filter((k) => !ownerOf(k)).length === 3,
+    JSON.stringify(convo.panelFields.filter((k) => !ownerOf(k)).map((k) => [nameOf(k), ownerOf(k)]))
+  );
+
+  panelMod.absorbTopLevelIntoPlayer(convo);
+
+  check(
+    '并完之后一个无主字段都不剩',
+    !convo.panelFields.some((k) => !ownerOf(k)),
+    JSON.stringify(convo.panelFields.map((k) => [nameOf(k), ownerOf(k)]))
+  );
+  check(
+    '规则1：角色卡上声明过的字段名归角色（不是归主角）',
+    convo.panel[key('上衣', boundCard.id)] === '（AI 改成的新衣服）',
+    JSON.stringify({
+      cardOwner: boundCard.id,
+      got: convo.panel[key('上衣', boundCard.id)],
+      playerGot: convo.panel[key('上衣', 'player')]
+    })
+  );
+  check(
+    '规则2：单角色聊天里，AI 自己编的新字段也归那张卡（不归玩家）',
+    // 这个会话绑了角色卡、没有玩家角色 → 是单角色聊天，无主字段全归那张卡。
+    convo.panelFields.some((k) => ownerOf(k) === boundCard.id && nameOf(k) === '醉意') &&
+      !!convo.panel[key('醉意', boundCard.id)],
+    JSON.stringify(convo.panelFields.filter((k) => ownerOf(k) === boundCard.id).map(nameOf))
+  );
+
+  // --- 2) 认不出主角时：原样不动，不瞎认领 --------------------------------
+  const bare = {
+    id: 'bare', panel: {}, panelFields: [], panelDefs: {}, messages: [],
+    player: null, characterId: null
+  };
+  panelMod.appendPanelFields(bare, [{ name: '天气', value: '阴' }]);
+  panelMod.absorbTopLevelIntoPlayer(bare);
+  check(
+    '认不出主角是谁时不动无主字段（宁可留着也不瞎认领）',
+    bare.panelFields.length === 1 && !panelMod.panelFieldOwner(bare, bare.panelFields[0]),
+    JSON.stringify(bare.panelFields)
+  );
+
+  // --- 3) 手改优先：player 那边手改过就不被 AI 那份顶掉 --------------------
+  const manualConvo = {
+    id: 'mc', player: { name: '阿甲' }, characterId: null,
+    panel: {}, panelFields: [], panelDefs: {}, messages: []
+  };
+  panelMod.appendPanelFields(manualConvo, [{ name: '金币', value: '50', owner: 'player' }]);
+  panelMod.setPanelField(manualConvo, key('金币', 'player'), '88');
+  panelMod.appendPanelFields(manualConvo, [{ name: '金币', value: '12' }]);
+  panelMod.absorbTopLevelIntoPlayer(manualConvo);
+  check(
+    '手改过的值不会被无主那份顶掉',
+    manualConvo.panel[key('金币', 'player')] === '88',
+    JSON.stringify(manualConvo.panel)
+  );
+  check(
+    '顶掉不成立时无主那份也要清掉（不留重复）',
+    !manualConvo.panelFields.some((k) => !panelMod.panelFieldOwner(manualConvo, k)),
+    JSON.stringify(manualConvo.panelFields)
+  );
+
+  // --- 4) 世界会话（有玩家角色 + 多个角色）：认不出的新字段归主角 ----------
+  // 这是规则 4 的独立验证 —— 上面那个会话是单角色聊天，会走规则 2，
+  // 覆盖不到「主角」这条分支。这里用一份合成数据（不碰真实会话）。
+  const worldLike = {
+    id: 'world-like',
+    characterId: null,
+    player: { name: '露西诺' },
+    worldbookIds: [],
+    panel: {},
+    panelFields: [],
+    panelDefs: {},
+    messages: []
+  };
+  // 造一个「角色持有上衣」的形状 → 规则 1 该把无主的上衣认给这个角色
+  panelMod.appendPanelFields(worldLike, [{ name: '上衣', value: '灰色外套', owner: 'wc_x' }]);
+  panelMod.appendPanelFields(worldLike, [
+    { name: '上衣', value: '灰色外套（搭在了椅背上）' },
+    { name: '性欲值', value: '34/100' }
+  ]);
+  panelMod.absorbTopLevelIntoPlayer(worldLike);
+  check(
+    '世界会话里，没带前缀的字段并回主角（规则 4）',
+    worldLike.panel[key('性欲值', 'player')] === '34/100' &&
+      !worldLike.panelFields.some((k) => !panelMod.panelFieldOwner(worldLike, k)),
+    JSON.stringify(worldLike.panelFields.map((k) => [panelMod.panelFieldName(k), panelMod.panelFieldOwner(worldLike, k)]))
+  );
+
+  // --- 5) 入口条上不再有「世界/场景」这个入口 ------------------------------
+  const sceneBtn = $$('#panel-cast .panel-avatar').find(
+    (b) => b.dataset.owner === 'scene' || b.dataset.kind === 'scene'
+  );
+  check(
+    '入口条上没有「世界/场景」入口了',
+    !sceneBtn,
+    JSON.stringify($$('#panel-cast .panel-avatar').map((b) => [b.dataset.owner, b.dataset.kind]))
+  );
+
+  // --- 收拾现场：把刚才造的字段恢复原样，别影响后面的场景 -------------------
+  // 上衣：规则 1 把它并给了角色卡，恢复成卡上的初始值（「布衣」是那张卡上的值）
+  convo.panel[key('上衣', boundCard.id)] = '布衣';
+  // 好感度 / 醉意：这次被认领了，删掉（后面 21 场景会自己扫出来）
+  for (const n of ['好感度', '醉意']) {
+    for (const k of [key(n, 'player'), key(n, boundCard.id)]) {
+      convo.panelFields = convo.panelFields.filter((x) => x !== k);
+      delete convo.panel[k];
+      delete convo.panelDefs[k];
+    }
+  }
+  delete convo.panelManual;
 });
 
 // ---------------------------------------------------------------------------
@@ -1514,25 +1668,20 @@ await scenario('进入世界：用角色卡当自己', async () => {
   setValue('#player-name', '改过的名字');
   check('选了之后名字仍然可改', byId('player-name').value === '改过的名字');
 
-  // --- 开始游玩：你自己的状态挪进「我的状态」卡，面板只留角色/世界的 ---
+  // --- 开始游玩：你自己的状态挪进「我的状态」卡，入口条只留人 ---
   click('#btn-start-play');
   await waitFor('进入世界', () => shown('#view-chat') && !shown('#player-modal'));
-  await waitFor('状态面板出现', () => shown('#panel-box'));
+  await waitFor('状态卡入口条出现', () => shown('#panel-box'));
 
-  const panelNames = $$('#panel-fields .panel-name').map((n) => n.textContent);
+  // 旧面板的**字段列表**已经不在了 —— 玩家自己的属性只在「我的状态」卡里。
+  // 「当前状态」四个字作为区域路标保留（见上面那条断言）。
   check(
-    '玩家自己的属性从「当前状态」里拆出去了',
-    !panelNames.includes('金币') && !panelNames.includes('上衣') && !panelNames.includes('姓名'),
-    JSON.stringify(panelNames)
+    '旧的「当前状态」字段区已经不在了',
+    !byId('panel-fields') && !byId('btn-panel-collapse') && /当前状态/.test(byId('panel-box').textContent || '')
   );
 
-  // 面板栏上有「我」的头像；面板默认收起，先展开再点
-  if (byId('panel-box').classList.contains('collapsed')) {
-    click('#btn-panel-collapse');
-    await sleep(120);
-  }
   const myAvatar = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner === 'player');
-  check('面板栏上有「我」的头像', !!myAvatar);
+  check('入口条上有「我」的头像', !!myAvatar);
   click(myAvatar);
   await waitFor('我的状态卡出现', () => !!$('#state-cards .state-card[data-owner="player"]'));
 
@@ -2586,12 +2735,7 @@ await scenario('剧情选项', async () => {
   await waitFor('回复完成', () => byId('btn-send').disabled === false, 12000);
   await sleep(300);
 
-  // 面板默认收起 → 展开
-  if (byId('panel-box').classList.contains('collapsed')) {
-    click('#btn-panel-collapse');
-    await sleep(200);
-  }
-  // 剧情选项挂在最新一条 AI 回复的气泡下面（不在状态面板里）
+  // 剧情选项挂在最新一条 AI 回复的气泡下面（不在状态卡里）
   const optionBtns = $$('#messages .msg-option-btn');
   check('气泡下面出现了剧情选项按钮', optionBtns.length > 0, `实际 ${optionBtns.length} 个`);
   check(
@@ -2658,59 +2802,76 @@ await scenario('剧情选项', async () => {
   check('消息正文里看不到「【剧情选项】：」原文', !bodyText.includes('【剧情选项】：'), bodyText.slice(-160));
   check('状态栏原文也不在气泡里', !bodyText.includes('【好感度】：63/100'), bodyText.slice(-160));
 
-  // 这一轮的状态栏也照常被面板收下（选项和状态栏是一起回来的）
-  check(
-    '同一条回复里的状态栏也被面板收下了',
-    $$('#panel-fields .panel-name').some((n) => n.textContent === '好感度'),
-    JSON.stringify($$('#panel-fields .panel-name').map((n) => n.textContent))
-  );
+  // 这一轮的状态栏照常被收下（选项和状态栏是一起回来的）。
+  // ⚠️ 状态字段现在不存在「当前状态」面板里了 —— 面板已去掉，
+  // 字段按 owner 分给了各人的状态卡。这个会话是单角色聊天，所以字段归那张卡。
+  {
+    // 读**内存里**的会话（不是盘上那份）：面板是每轮回复后同步的，
+    // 落盘有防抖，此时读盘可能还是上一次的快照（原来用 DOM 断言，读的就是内存）。
+    const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+    const ca = (stateMod.state.conversations || []).find((c) => c.id === stateMod.state.activeId);
+    check(
+      '同一条回复里的状态栏被收下了（「好感度」进了会话状态）',
+      !!ca && panelValByName(ca.panel, '好感度') === '63/100',
+      JSON.stringify(ca && ca.panel)
+    );
 
-  // 「剧情选项」是**程序读的指令行**，不是面板字段。
-  // 它的形状和面板行一模一样（行首【】、值也不长），所以扫描时很容易被误收 ——
-  // 而 cleanAssistantText 又把它剥掉了，于是表现为「气泡里看不见、面板上却多一个字段」。
-  // 这条断言盯的就是那个分裂：选项行和状态栏同一条消息回来，它绝不能进面板。
-  check(
-    '「剧情选项」没被当成面板字段收下',
-    !$$('#panel-fields .panel-name').some((n) => n.textContent === '剧情选项'),
-    JSON.stringify($$('#panel-fields .panel-name').map((n) => n.textContent))
-  );
-  check(
-    '面板里也没有「剧情选项」的输入框',
-    !$$('#panel-fields .panel-value').some((i) => i.dataset.field === '剧情选项'),
-    JSON.stringify($$('#panel-fields .panel-value').map((i) => i.dataset.field))
-  );
+    // 「剧情选项」是**程序读的指令行**，不是状态字段。
+    // 它的形状和面板行一模一样（行首【】、值也不长），所以扫描时很容易被误收 ——
+    // 而 cleanAssistantText 又把它剥掉了，于是表现为「气泡里看不见、状态里却多一个字段」。
+    // 这条断言盯的就是那个分裂：选项行和状态栏同一条消息回来，它绝不能进字段表。
+    check(
+      '「剧情选项」没被当成状态字段收下',
+      !!ca && !panelValByName(ca.panel, '剧情选项') && !panelDefByName(ca.panelDefs, '剧情选项'),
+      JSON.stringify({ panel: ca && Object.keys(ca.panel || {}), defs: ca && Object.keys(ca.panelDefs || {}) })
+    );
+  }
 
   // 「好感度」是模型自己输出、这个角色卡上没声明过的字段。
   // 它的值写成「63/100」，从形状就能看出是个带范围的数值 —— 该有进度条。
   // （以前只认角色卡上声明过的属性，模型自己冒出来的数值永远没有进度条。）
+  // 这条现在去状态卡里验：字段归角色（owner = 本局的角色），不在面板里。
   {
-    const favorRow = $$('#panel-fields .panel-row').find(
-      (r) => (r.querySelector('.panel-name') || {}).textContent === '好感度'
-    );
-    check('模型自己给的数值字段也认出了满值（/100）', !!favorRow && !!favorRow.querySelector('.panel-unit'),
-      favorRow ? favorRow.innerHTML.slice(0, 160) : '没找到「好感度」那一行');
-    const inferredBar = favorRow && favorRow.querySelector('.panel-bar');
-    check('模型自己给的数值字段也有进度条（从「63/100」的形状推断）', !!inferredBar,
-      favorRow ? favorRow.innerHTML.slice(0, 160) : '没找到');
-    check(
-      '推断出来的满值接进了进度条（63/100 → 63%）',
-      !!inferredBar && inferredBar.querySelector('.panel-bar-fill').style.width === '63%',
-      inferredBar ? inferredBar.querySelector('.panel-bar-fill').style.width : '没有进度条'
-    );
+    const charAvatar = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner !== 'player');
+    check('入口条上有角色头像（模型自己冒的字段归它）', !!charAvatar);
+    if (charAvatar) {
+      click(charAvatar);
+      await waitFor('角色状态卡出现', () => $$('#state-cards .state-card').some((c) => c.dataset.owner !== 'player'));
 
-    // 推断出来的范围也要真的生效：手填越界值会被夹回来
-    const input = favorRow && favorRow.querySelector('.panel-value');
-    if (input) {
-      setValue(input, '150');
-      input.dispatchEvent(new Event('blur', { bubbles: true }));
-      await sleep(250);
-      const cv = await window.mimitale.getConversations();
-      const ca = cv.conversations.find((c) => c.id === cv.activeId);
-      check(
-        '推断出来的范围也真的夹得住（150 → 100/100）',
-        !!ca && ca.panel && panelValByName(ca.panel, '好感度') === '100/100',
-        JSON.stringify(ca && panelValByName(ca.panel, '好感度'))
+      const charCard = () => $$('#state-cards .state-card').find((c) => c.dataset.owner !== 'player');
+      const favorRow = Array.from(charCard().querySelectorAll('.sc-row')).find(
+        (r) => (r.querySelector('.sc-name') || {}).textContent === '好感度'
       );
+      check('模型自己给的数值字段也认出了满值（/100）', !!favorRow && !!favorRow.querySelector('.sc-bar'),
+        favorRow ? favorRow.outerHTML.slice(0, 160) : '没找到「好感度」那一行');
+      const inferredBar = favorRow && favorRow.querySelector('.sc-bar');
+      check(
+        '推断出来的满值接进了进度条（63/100 → 63%）',
+        !!inferredBar && inferredBar.querySelector('.sc-bar-fill').style.width === '63%',
+        inferredBar ? inferredBar.querySelector('.sc-bar-fill').style.width : '没有进度条'
+      );
+
+      // 推断出来的范围也要真的生效：在卡里手填越界值会被夹回来
+      click(charCard().querySelector('.sc-edit'));
+      await waitFor('卡切到编辑态', () => !!charCard().querySelector('input.sc-input'));
+      const input = Array.from(charCard().querySelectorAll('.sc-row')).find(
+        (r) => (r.querySelector('.sc-name') || {}).textContent === '好感度'
+      ).querySelector('input.sc-input');
+      if (input) {
+        setValue(input, '150');
+        input.dispatchEvent(new Event('blur', { bubbles: true }));
+        await sleep(300);
+        const cv = await window.mimitale.getConversations();
+        const ca = cv.conversations.find((c) => c.id === cv.activeId);
+        check(
+          '推断出来的范围也真的夹得住（150 → 100/100）',
+          !!ca && panelValByName(ca.panel, '好感度') === '100/100',
+          JSON.stringify(ca && panelValByName(ca.panel, '好感度'))
+        );
+      }
+      // 把卡关掉，别影响下面的选项断言（它们抓的是气泡里的按钮，不冲突）
+      click(charCard().querySelector('.sc-close'));
+      await sleep(150);
     }
   }
 
@@ -2981,7 +3142,7 @@ await scenario('正文：分组小标题也要剥掉', async () => {
     '—— 关系 ——',
     '【好感度】：40/100',
     '',
-    '「主人，今天想怎么玩我？」'
+    '「主人，今晚想聊点什么？」'
   ].join('\n');
 
   const fields = ['姓名', '年龄', '时间', '地点', '好感度'];
@@ -2995,7 +3156,7 @@ await scenario('正文：分组小标题也要剥掉', async () => {
     cleaned
   );
   check('字段行也被剥掉了', !cleaned.includes('【姓名】') && !cleaned.includes('【好感度】'), cleaned);
-  check('正文（动作描写 + 台词）完好保留', cleaned.includes('她抬头看向你') && cleaned.includes('今天想怎么玩我'), cleaned);
+  check('正文（动作描写 + 台词）完好保留', cleaned.includes('她抬头看向你') && cleaned.includes('今晚想聊点什么'), cleaned);
 
   // 破折号引语不该被误删：组名不在 knownGroups 里
   const prose = ['他顿了顿，说：', '—— 我有点累了 ——', '然后就走了。'].join('\n');
@@ -3005,6 +3166,35 @@ await scenario('正文：分组小标题也要剥掉', async () => {
   // 没传分组名时，标题保留原样（向后兼容，不会乱删）
   const noGroups = mod.cleanAssistantText(text, fields);
   check('不传分组名时不误删标题（保持旧行为）', noGroups.includes('—— 身份 ——'), noGroups);
+
+  // ⚠️ 2026-09-29 用户报的 bug：模型会在状态块最前面加一行 `【状态栏】`
+  // （把第一个分组名套上方括号当块标题），既不是字段行、不是 `—— 组名 ——`、
+  // 也不是 `【当前状态】`，三个剥离器都认不出 → 孤零零留在气泡里。
+  const real = [
+    '她扶着门框，僵在原地，没敢回头。',
+    '',
+    '【状态栏】',
+    '—— 状态栏 ——',
+    '【露西诺·时间】：深夜',
+    '【露西诺·地点】：迷夜酒馆·二楼走廊',
+    '',
+    '—— 穿着 ——',
+    '【露西诺·披风】：已解下（搭在椅背上）',
+  ].join('\n');
+  const realCleaned = mod.cleanAssistantText(
+    real,
+    ['露西诺·时间', '露西诺·地点', '露西诺·披风'],
+    ['状态栏', '穿着']
+  );
+  check('模型自加的「【状态栏】」标题被剥掉', !realCleaned.includes('【状态栏】'), realCleaned);
+  check('「—— 状态栏 ——」小标题也剥掉', !realCleaned.includes('—— 状态栏 ——'), realCleaned);
+  check('字段行照旧剥掉', !realCleaned.includes('【露西诺·时间】'), realCleaned);
+  check('正文完好保留', realCleaned.includes('她扶着门框，僵在原地'), realCleaned);
+
+  // 正文里恰好整行是「【不是组名的东西】」的，不能误删
+  const quote = ['她指了指门牌。', '【迷夜酒馆·休息室】', '门牌上这么写着。'].join('\n');
+  const quoteCleaned = mod.cleanAssistantText(quote, [], ['状态栏']);
+  check('正文里「【非组名】」整行引用不被误删', quoteCleaned.includes('【迷夜酒馆·休息室】'), quoteCleaned);
 });
 
 // ---------------------------------------------------------------------------
@@ -3027,14 +3217,14 @@ await scenario('选项：字母标签容错', async () => {
 
   // 截图里的实际形状：字母标签和内容交替，全在一行用「 / 」隔开
   const labeled = mod.extractOptionsFromText(
-    '【剧情选项】：A / 把手指插进去，命令她自己报出湿了几次 / B / 捏住她的下巴，让她张嘴舔你手指 / C / 让她把衬衫脱了，跪着给你口交'
+    '【剧情选项】：A / 推门进去，问她今晚打烊前还有没有空位 / B / 在吧台坐下，点一杯麦酒顺便打听镇上的传闻 / C / 把几个铜板放在桌上，预订二楼的房间'
   );
   check(
     '孤立字母标签被丢掉，只剩 3 条真选项',
     labeled.length === 3 &&
-      labeled[0] === '把手指插进去，命令她自己报出湿了几次' &&
-      labeled[1] === '捏住她的下巴，让她张嘴舔你手指' &&
-      labeled[2] === '让她把衬衫脱了，跪着给你口交',
+      labeled[0] === '推门进去，问她今晚打烊前还有没有空位' &&
+      labeled[1] === '在吧台坐下，点一杯麦酒顺便打听镇上的传闻' &&
+      labeled[2] === '把几个铜板放在桌上，预订二楼的房间',
     JSON.stringify(labeled)
   );
 
@@ -3173,13 +3363,9 @@ await scenario('状态卡：点头像查看与编辑', async () => {
     JSON.stringify($$('#state-cards .state-card[data-owner="player"] .sc-name').map((n) => n.textContent))
   );
 
-  // --- 面板栏：我（+ 角色）的头像都在，点角色头像开那张卡 ---
-  if (byId('panel-box').classList.contains('collapsed')) {
-    click('#btn-panel-collapse');
-    await sleep(150);
-  }
+  // --- 入口条：我（+ 角色）的头像都在，点角色头像开那张卡 ---
   const castOwners = $$('#panel-cast .panel-avatar').map((b) => b.dataset.owner);
-  check('面板栏上第一个头像是「我」', castOwners[0] === 'player', JSON.stringify(castOwners));
+  check('入口条上第一个头像是「我」', castOwners[0] === 'player', JSON.stringify(castOwners));
 
   // --- ✕ 收掉我那张卡 ---
   click(myCard().querySelector('.sc-close'));
@@ -3194,10 +3380,6 @@ await scenario('状态卡：点头像查看与编辑', async () => {
   if (charConvo) {
     click(charConvo);
     await sleep(400);
-    if (byId('panel-box').classList.contains('collapsed')) {
-      click('#btn-panel-collapse');
-      await sleep(150);
-    }
     const owners = $$('#panel-cast .panel-avatar').map((b) => b.dataset.owner);
     check(
       '绑了角色的会话里「我」和那个角色都在头像行上',
@@ -3650,10 +3832,16 @@ await scenario('世界书：玩家不同名不误判', async () => {
 // ---------------------------------------------------------------------------
 //  场景 32：状态字段分「每轮维护 / 变了才说」，静态字段不再每轮照抄
 //
-//  背景：状态字段爆炸到 50+（大量是身高/衣物/随身物这类不常变的设定），
+//  背景：状态字段爆炸到 50+（大量是身高/体重/性经历这类不常变的设定），
 //  模型每轮都要照抄一遍，负担太重就摆烂不写状态栏 → 铜板花了面板不更新。
 //  修复：字段加 mode（dynamic 每轮维护 / static 变了才说），formatPanelForPrompt
 //  把静态字段单列、告诉模型「只在变化时输出」，动态字段照旧每轮维护。
+//
+//  ⚠️ 2026-09-29 追加教训：原先把「衣物/随身物」也划进了 static 的举例里，
+//  结果模型判「我还记得原值，没变」→ 整行省掉，穿着变了状态栏却不更新。
+//  现在 static 只留给身高/体重/性经历这类**真的几乎不动**的设定，
+//  穿着类一律 dynamic；措辞也从「只在变化时输出」改成「一旦变化就必须输出」，
+//  见 data/panel.js 和 views/charAttributes.js 里的 ⚠️ 注记。
 // ---------------------------------------------------------------------------
 await scenario('面板：静态字段「变了才说」，动态字段每轮维护', async () => {
   let mod = null;
@@ -3669,17 +3857,17 @@ await scenario('面板：静态字段「变了才说」，动态字段每轮维�
   }
   check('panel 模块能动态加载', true);
 
-  // 造一个会话：铜板（动态）+ 上衣（静态，偶尔换）
+  // 造一个会话：铜板（动态）+ 身高（静态，真的几乎不动）
   const convo = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
   mod.appendPanelFields(convo, [
     { name: '铜板', type: 'meter', min: 0, max: 100, value: '3/100' },
-    { name: '上衣', type: 'text', value: '红裙子', mode: 'static' }
+    { name: '身高', type: 'text', value: '168cm', mode: 'static' }
   ]);
 
   // 1) mode 落进了 panelDefs（静态字段才记 mode，动态字段不记，保持数据干净）
   check(
     '静态字段的 mode 记进 panelDefs',
-    mod.convoPanelDef(convo, '上衣') && mod.convoPanelDef(convo, '上衣').mode === 'static',
+    mod.convoPanelDef(convo, '身高') && mod.convoPanelDef(convo, '身高').mode === 'static',
     JSON.stringify(convo.panelDefs)
   );
   check(
@@ -3688,18 +3876,43 @@ await scenario('面板：静态字段「变了才说」，动态字段每轮维�
     JSON.stringify(convo.panelDefs && convo.panelDefs['铜板'])
   );
 
-  // 2) 注入提示词：动态字段的规则说「每轮完整输出」；静态字段说「变了才说」
+  // 2) 注入提示词：动态字段的规则说「每轮完整输出」；静态字段说「变了就必须说」
   const prompt = mod.formatPanelForPrompt(convo);
   check('注入里有「完整输出一遍」的动态字段规则', prompt.includes('完整输出一遍'), prompt);
-  check('注入里点名静态字段「只在变化时输出」', prompt.includes('只在') && prompt.includes('发生变化'), prompt);
-  check('静态字段值仍在注入里（当前值要给模型看）', prompt.includes('红裙子'), prompt);
+  // ⚠️ 静态字段有两处措辞，按分支不同：
+  //    · 已有值的主分支：'只要剧情里发生了变化（换了、脱了、被拿走…），就必须在状态栏里输出那行新值'
+  //    · 冷启动分支（一个值都还没有）：'一旦发生变化就必须输出（没变化才省略）'
+  //    两条都表达了同一个意思，这里掐「必须…输出」这个核心承诺。
+  check(
+    '注入里点名静态字段「变化了就必须输出」',
+    /必须[^。\n]{0,20}输出/.test(prompt) && prompt.includes('发生了变化'),
+    prompt
+  );
+  // ⚠️ 2026-09-29 回归：老措辞是「只在发生变化时才输出」—— 把「变没变」的判断
+  //    完全交给模型，它觉得自己「记得原值」就整行省掉 → 穿着字段的变化没进状态栏。
+  //    现在必须出现「判断标准」这句，把门槛挪到「这一轮有没有发生跟它有关的事」。
+  check(
+    '静态字段的措辞把门槛挪到「有没有发生」，而不是「变没变」',
+    prompt.includes('判断标准'),
+    prompt
+  );
+  check('静态字段值仍在注入里（当前值要给模型看）', prompt.includes('168cm'), prompt);
   check('动态字段值仍在注入里', prompt.includes('3/100'), prompt);
+
+  // 2b) 冷启动分支（一个值都还没有）也必须带上静态字段的说法
+  const coldStart = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
+  mod.appendPanelFields(coldStart, [
+    { name: '铜板', type: 'meter', min: 0, max: 100, value: '' },
+    { name: '身高', type: 'text', value: '', mode: 'static' }
+  ]);
+  const coldPrompt = mod.formatPanelForPrompt(coldStart);
+  check('冷启动分支里静态字段也提示「一旦发生变化就必须输出」', coldPrompt.includes('一旦发生变化就必须输出'), coldPrompt);
 
   // 3) 全静态字段的会话：不该出现「每轮完整输出」的动态规则（没有动态字段）
   const allStatic = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
   mod.appendPanelFields(allStatic, [
-    { name: '上衣', type: 'text', value: '红裙子', mode: 'static' },
-    { name: '身高', type: 'text', value: '168cm', mode: 'static' }
+    { name: '身高', type: 'text', value: '168cm', mode: 'static' },
+    { name: '体重', type: 'text', value: '50kg', mode: 'static' }
   ]);
   const staticPrompt = mod.formatPanelForPrompt(allStatic);
   check(
@@ -4015,6 +4228,204 @@ await scenario('选项：同步只认最新一轮，不回退旧选项', async (
     Array.isArray(endsWithUser.options) && endsWithUser.options.length === 0,
     JSON.stringify(endsWithUser.options)
   );
+});
+
+// ---------------------------------------------------------------------------
+//  场景 33：世界书副本的「在状态栏显示」开关（`showInPanel`）
+//
+//  用户诉求（2026-09-29）：往世界书加副本，本来是希望副本「人设立得住 + 状态能看」。
+//  但一本酒馆十来号 NPC，全出头像会把「当前状态」入口条挤爆；真正要盯状态的
+//  就一两个。于是拆成两件事：
+//    · 「人设立得住」= 副本有 description → 照旧进 GM 名单，**不受开关影响**；
+//    · 「状态显不显示」= 副本卡上的 showInPanel，默认 false。
+//
+//  关键是**单角色会话绑的那张卡不受这个开关管** —— 那种会话里 TA 就是主角，
+//  状态栏不显示才是 bug（用户原话「我现在的状态栏也不显示角色卡的状态了」）。
+//  这四条边界全在这儿钉住。
+// ---------------------------------------------------------------------------
+await scenario('世界书：副本的「在状态栏显示」开关', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/cast.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('cast 模块能动态加载（场景33）', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.panelEntities !== 'function') {
+    check('cast 模块能动态加载（场景33）', false);
+    return;
+  }
+  check('cast 模块能动态加载（场景33）', true);
+
+  const key = (name, owner) => `${name}\u0000${owner}`;
+  // 造一个「进了世界」的会话：player 有字段，另有两个副本各有一个字段
+  const mkConvo = () => ({
+    gmMode: true,
+    characterId: null,
+    player: { name: '我', profile: '', characterId: null },
+    worldbookIds: ['bk1'],
+    panel: {
+      [key('姓名', 'player')]: '我',
+      [key('生命', 'wc_show')]: '80/100',
+      [key('生命', 'wc_hide')]: '50/100'
+    },
+    panelFields: [key('姓名', 'player'), key('生命', 'wc_show'), key('生命', 'wc_hide')],
+    panelDefs: {
+      [key('姓名', 'player')]: { type: 'text', owner: 'player' },
+      [key('生命', 'wc_show')]: { type: 'meter', min: 0, max: 100, owner: 'wc_show' },
+      [key('生命', 'wc_hide')]: { type: 'meter', min: 0, max: 100, owner: 'wc_hide' }
+    },
+    messages: []
+  });
+
+  // 把两张副本塞进「本会话绑定的世界书」，一个勾了一个没勾。
+  // 直接改真模块读的那份 state —— 和页面共用同一个模块实例。
+  let lib = null;
+  try {
+    lib = await import(new URL('js/data/library.js', document.baseURI).href);
+  } catch (err) {
+    check('library 模块能动态加载（场景33）', false, (err && err.message) || String(err));
+  }
+  if (!lib || typeof lib.worldbooks !== 'function') return;
+  check('library 模块能动态加载（场景33）', true);
+
+  const wbList = lib.worldbooks();
+  const saved = wbList.slice();
+  wbList.push({
+    id: 'bk1',
+    name: '开关测试世界',
+    entries: [],
+    characters: [
+      { id: 'wc_show', name: '要显示的NPC', showInPanel: true, attributes: [{ name: '生命', value: '80/100' }] },
+      { id: 'wc_hide', name: '不显示的NPC', attributes: [{ name: '生命', value: '50/100' }] }
+    ]
+  });
+
+  try {
+    const owners = mod.panelEntities(mkConvo()).map((e) => e.owner);
+    check('勾了的副本出现在入口条上', owners.includes('wc_show'), JSON.stringify(owners));
+    check('没勾的副本不出现在入口条上', !owners.includes('wc_hide'), JSON.stringify(owners));
+    check('「我」永远在第一个', owners[0] === 'player', JSON.stringify(owners));
+
+    // 关键边界：单角色聊天绑的那张卡**不看开关**（TA 就是这局主角）。
+    // 「wc_hide」在世界书里是 showInPanel:false，但当它成为会话的绑定卡时，
+    // 依然必须出头像 —— 用户反馈里「状态栏不显示角色卡状态」就是这条被破坏了。
+    const soloHide = {
+      gmMode: false,
+      characterId: 'wc_hide',
+      player: null,
+      worldbookIds: ['bk1'],
+      panel: { [key('金币', 'wc_hide')]: '100' },
+      panelFields: [key('金币', 'wc_hide')],
+      panelDefs: { [key('金币', 'wc_hide')]: { type: 'text', owner: 'wc_hide' } },
+      messages: []
+    };
+    const so = mod.panelEntities(soloHide).map((e) => e.owner);
+    check(
+      '单角色会话绑的副本即使没勾开关也显示（TA 是这局主角）',
+      so.includes('wc_hide'),
+      JSON.stringify(so)
+    );
+
+    // 角色库的卡（没有 showInPanel 字段）当单卡主角 → 同样豁免
+    const libChars = lib.characters ? lib.characters() : [];
+    if (libChars.length) {
+      const c = libChars[0];
+      const soloLib = {
+        gmMode: false,
+        characterId: c.id,
+        player: null,
+        worldbookIds: [],
+        panel: { [key('金币', c.id)]: '7' },
+        panelFields: [key('金币', c.id)],
+        panelDefs: { [key('金币', c.id)]: { type: 'text', owner: c.id } },
+        messages: []
+      };
+      const so2 = mod.panelEntities(soloLib).map((e) => e.owner);
+      check('角色库的卡当单卡主角也显示（豁免开关）', so2.includes(c.id), JSON.stringify(so2));
+    }
+  } finally {
+    // 还原世界书列表，别污染后面的场景
+    wbList.length = 0;
+    wbList.push(...saved);
+  }
+});
+
+// ---------------------------------------------------------------------------
+//  场景 34：「同步属性」把角色库同名卡的属性补进世界书副本
+//
+//  用户实际踩的坑（2026-09-29）：世界书里 5 个副本属性全是 0（加入时角色库
+//  那张卡还没属性 —— 副本是快照），而角色库里同名的「露西娅」有 20 个属性。
+//  于是状态卡点开是空的、入口条也不出头像。
+//
+//  这里钉住纯函数 syncCopyAttrsFromSource 的四条语义：
+//    · 按名字匹配，把源卡的属性补进去；
+//    · 副本**已有**的字段名不覆盖（副本上是这本书的当前值）；
+//    · 源卡都没有的副本（角色库里没同名卡）→ 进 missing、不动它；
+//    · 补进去的是深拷贝（改副本不回流到角色库那张卡）。
+// ---------------------------------------------------------------------------
+await scenario('世界书：同步属性把角色库的属性补进副本', async () => {
+  let mod = null;
+  try {
+    const url = new URL('js/data/panel.js', document.baseURI).href;
+    mod = await import(url);
+  } catch (err) {
+    check('panel 模块能动态加载（场景34）', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.syncCopyAttrsFromSource !== 'function') {
+    check('panel 模块能动态加载（场景34）', false);
+    return;
+  }
+  check('panel 模块能动态加载（场景34）', true);
+
+  // 角色库：露西娅有 2 个属性；「路人甲」在角色库里没有同名卡
+  const sources = [
+    {
+      id: 'lib_lucy',
+      name: '露西娅',
+      attributes: [
+        { name: '生命', type: 'meter', min: 0, max: 100, value: '100/100', group: '生存' },
+        { name: '心情', type: 'text', value: '闯祸了的慌', group: '状态栏' }
+      ]
+    }
+  ];
+
+  const copies = [
+    // 空壳副本 —— 该被补满
+    { id: 'wc_a', name: '露西娅', attributes: [] },
+    // 副本上已经有「生命」（这本书的当前值）→ 只补缺的「心情」，不覆盖生命
+    { id: 'wc_b', name: '露西娅', attributes: [{ name: '生命', value: '42/100' }] },
+    // 角色库里没有同名卡 → 进 missing，一动不动
+    { id: 'wc_c', name: '路人甲', attributes: [] }
+  ];
+
+  const res = mod.syncCopyAttrsFromSource(copies, sources);
+
+  check('补了 2 个副本（有同名卡且缺属性）', res.touched === 2, JSON.stringify(res));
+  check('一共补上 3 条属性（2 + 1）', res.added === 3, JSON.stringify(res));
+  check('角色库里没同名卡的副本进 missing', res.missing.length === 1 && res.missing[0] === '路人甲', JSON.stringify(res.missing));
+
+  check('空壳副本被补满 2 个属性', copies[0].attributes.length === 2, JSON.stringify(copies[0].attributes));
+  check(
+    '副本已有的「生命」不被角色库的初始值覆盖',
+    copies[1].attributes.length === 2 &&
+      copies[1].attributes.find((a) => a.name === '生命').value === '42/100' &&
+      copies[1].attributes.some((a) => a.name === '心情'),
+    JSON.stringify(copies[1].attributes)
+  );
+  check('没同名卡的副本完全没被碰', copies[2].attributes.length === 0, JSON.stringify(copies[2].attributes));
+
+  // 深拷贝：改副本上的属性值，不该影响角色库那张卡
+  copies[0].attributes[0].value = '改了副本';
+  check(
+    '补进去的是深拷贝（改副本不回流角色库）',
+    sources[0].attributes[0].value === '100/100',
+    sources[0].attributes[0].value
+  );
+
+  // 幂等：再同步一次，已经没有可补的了
+  const again = mod.syncCopyAttrsFromSource(copies, sources);
+  check('再同步一次没什么可补的（幂等）', again.touched === 0 && again.added === 0, JSON.stringify(again));
 });
 
 return { results, notes, hoverProbe };

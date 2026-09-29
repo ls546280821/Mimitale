@@ -1937,8 +1937,8 @@ body {
 }
 
 /* ------------------------------ 角色「属性」编辑区 ------------------------------
-   属性 = 游玩时状态面板里的字段。这里只填初始值，进游戏后在面板里改的是当前值。
-   行样式刻意和游玩时的 .panel-row 长得像，让人一眼看出是同一个东西。
+   属性 = 每个角色那批状态字段的**模板**（有哪些字段、什么类型/范围/怎么变）。
+   进游戏后各人的当前值存在会话里、在各自的状态卡上改（views/stateCard.js）。
 
    整块做成一张「卡」：卡头是分组标签栏，卡身是这一组的字段 + 加字段那一行。
    属性在数据上仍是一维数组（分组记在每个字段自己的 group 上），
@@ -2289,8 +2289,8 @@ body {
   color: var(--text-dim);
 }
 
-/* .panel-del 平时是透明的，靠「悬停行」浮现 —— 但那只对 .panel-row 生效，
-   属性区这一行是 .attr-row，得自己补一条，否则删除按钮永远看不见 */
+/* .panel-del 平时是透明的，靠「悬停行」浮现 —— 属性区这一行是 .attr-row，
+   得自己补一条，否则删除按钮永远看不见 */
 .attr-row:hover .panel-del { opacity: 1; }
 
 /* 加字段：卡身最下面一条，用虚线跟上面的字段列表分开 ——
@@ -2824,7 +2824,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-card);
-  max-width: 230px;
+  max-width: 320px;
   min-width: 0;
 }
 
@@ -2867,6 +2867,25 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 }
 
 .wb-char-chip-btn:hover { color: var(--text); background: var(--border-soft); }
+
+/* 副本 chip 上的「显示状态」勾选框：勾了才让这个 NPC 出头像。
+   做成勾选框而不是按钮 —— 它是个持久开关，勾没勾要一眼看得见。 */
+.wb-char-chip-show {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.wb-char-chip-show:hover { color: var(--text); background: var(--border-soft); }
+.wb-char-chip-show input { margin: 0; cursor: pointer; }
+.wb-char-chip-show:has(input:checked) { color: var(--accent); }
 
 /* 从角色库多选加入的弹窗 */
 .wb-picker-card { max-width: 520px; }
@@ -3082,262 +3101,45 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   .wb-entry { flex: 0 0 auto; max-width: 200px; }
 }
 
-/* ------------------------------ 状态面板 ------------------------------ */
+/* --------------------------- 状态卡入口条 --------------------------- */
 
-/* 世界模型的状态栏。放在消息区上方，可折叠；字段值可以直接改。 */
-/* 世界模型的状态栏。放在消息区上方，可折叠；字段值可以直接改。
-   高度必须有个上限（否则字段多的会话会把聊天区挤没），
-   但也不能太紧 —— 里面现在有进度条和可点的剧情选项，
-   上限太小会从按钮中间切断、看着像坏了。超出时内部滚动。 */
+/* 本局有状态的每个人（我 / 各角色）一个头像，点开看那张状态卡。
+   以前这里是一整块「当前状态」折叠面板 —— 一个面板只能显示一个角色的状态，
+   是旧版单角色的遗留；字段现在按 owner 分给了各人的状态卡，这里只留入口。
+   左边那四个字「当前状态」是留下的路标（见下面 .panel-title），不是折叠按钮。 */
 .panel-box {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin: 0 0 10px;
-  padding: 10px 12px;
+  padding: 6px 10px;
   border: 1px solid var(--border-soft);
   border-radius: 10px;
   background: var(--bg-side);
-  max-height: 42vh;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
 }
 
-/* 收起 = 只留标题那一条细条（不是整个消失）。
-   这样「随时能点开」这件事是看得见的，也不占地方。
-   头像行这时**并排**进这一行（不叠到下一行）—— 它是「点开看谁的状态」的入口，
-   藏起来就没人找得到了，但也不能把细条又撑成两行。 */
-.panel-box.collapsed {
-  padding-bottom: 10px;
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
-}
-.panel-box.collapsed .panel-fields { display: none; }
-.panel-box.collapsed .panel-head { margin-bottom: 0; flex: 0 1 auto; min-width: 0; }
-.panel-box.collapsed .panel-cast { margin: 0; flex: 0 0 auto; }
-
-.panel-head {
+/* 「当前状态」这个标签是**故意留的**：这块区域永远叫这个名字，
+   方便用户指着界面描述问题（「当前状态那里不对」）。
+   它不是按钮、不可折叠 —— 只是一个路标，别把它接上开关。 */
+.panel-title {
   flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
   user-select: none;
 }
 
-/* 「当前状态」+ 箭头整体是一个按钮：一眼看出能开能合 */
-.panel-toggle {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 6px 2px 2px;
-  border: none;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  border-radius: 6px;
-  font: inherit;
-}
-
-.panel-toggle:hover { background: var(--border-soft); }
-
-.panel-caret {
-  width: 14px;
-  height: 14px;
-  color: var(--text-faint);
-  transition: transform 0.15s ease;
-}
-
-/* 收起时箭头转成「指向右」，和展开时的「指向下」区分开 */
-.panel-box.collapsed .panel-caret { transform: rotate(-90deg); }
-
-.panel-title { font-size: 12.5px; color: var(--text); font-weight: 600; }
-.panel-hint { flex: 1 1 auto; font-size: 11px; color: var(--text-faint); }
-
-/* 图标按钮的小尺寸版本 */
-.icon-btn-sm { width: 22px; height: 22px; }
-.icon-btn-sm svg { width: 12px; height: 12px; }
-
-/* 面板的列宽/行距。分组块内部复用同一套，字段排列才一致 ——
-   写两遍字符串容易改了一处忘了另一处。 */
-.panel-fields,
-.panel-group {
-  --panel-cols: repeat(auto-fill, minmax(240px, 1fr));
-  display: grid;
-  grid-template-columns: var(--panel-cols);
-  gap: 8px 10px;
-  align-items: start;
-  min-width: 0;
-}
-
-.panel-fields {
-  flex: 1 1 auto;
-  overflow-y: auto;
-  min-height: 0;
-  /* 未分组的字段直接铺在网格里；分组则是各自一块（见 .panel-group） */
-}
-
-/* 带进度条的数值行跨满整块：进度条要够长才看得出比例，
-   而且这样不管网格分成几列，行都是齐的（不会出现上面两列、下面一列）。 */
-.panel-row.has-bar { grid-column: 1 / -1; flex-wrap: wrap; }
-
-/* 数值行（血条式）：标签和数值挤在同一行 —— 「好感度 63/100」一眼读完，
-   进度条独占下一行贴卡片底。经典游戏状态栏的样子。 */
-.panel-row.has-bar .panel-name { flex: 1 1 auto; }
-
-/* 分组标题跨满整块 —— 它是标题，不该占一列 */
-.panel-group > .panel-group-title { grid-column: 1 / -1; }
-
-/* 字段行 = 一张小卡片：标签一行小字，值一行无边框输入框，
-   数值字段的进度条贴在卡片底部。以前是「标签+输入框」挤在一条裸行里，
-   字段一多就糊成一片；卡片化后每项的边界一眼可辨。 */
-.panel-row {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 6px;
-  min-width: 0;
-  padding: 6px 26px 7px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-card);
-  transition: border-color 0.15s;
-}
-
-/* 悬停描边加深，聚焦时用强调色 —— 整张卡片就是聚焦范围，
-   不用再靠输入框自己的边框指认「我在编辑哪个」。 */
-.panel-row:hover { border-color: var(--border); }
-.panel-row:focus-within { border-color: var(--accent-border); }
-
-/* 分组小标题。跟面板标题同一套语气：小一号、用 faint 色，不用重色块。 */
-.panel-group-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-faint);
-  letter-spacing: 0.02em;
-  border-bottom: 1px solid var(--border-soft);
-  padding-bottom: 3px;
-  margin-bottom: 1px;
-}
-
-/* 进度条：贴在卡片底部占满整行。轨道用 border 色（白卡上刚好可见），
-   填充用主题强调色，和按钮/选中态同一个色，不引入第二种颜色。 */
-.panel-bar {
-  flex: 1 0 100%;
-  height: 5px;
-  border-radius: 999px;
-  background: var(--border);
-  overflow: hidden;
-  margin-top: 4px;
-}
-
-.panel-bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
-  transition: width 0.18s ease-out;
-}
-
-/* 列表型字段的项数 */
-.panel-list-count {
-  flex: 0 0 auto;
-  font-size: 10.5px;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-
-/* 面板正文没有可显示的字段时的交代（世界里只种了玩家自己的状态就是这种） */
-.panel-empty {
-  grid-column: 1 / -1;
-  font-size: 11.5px;
-  color: var(--text-faint);
-  padding: 2px 0;
-}
-
-/* 剧情选项那块挪到了聊天区（气泡下面），面板里不再有；见 .msg-options */
-
-/* 角色编辑器里的「剧情选项」配置区 */
-.char-options-box {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.c-options-config {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-left: 22px;
-  padding-left: 10px;
-  border-left: 2px solid var(--border);
-}
-
-.c-options-config .field { margin: 0; }
-
-/* 带 Progress 条的数值行：值通常就几个字符（63），输入框不用占满 ——
-   占满了后面拖一大片空白，还得把「/100」推到很远。 */
-.panel-row.has-bar input.panel-value {
-  flex: 1 1 auto;
-  max-width: 64px;
-  text-align: right;
-}
-
-/* 数值字段的「/100」后缀：不是可编辑内容，所以挪到输入框外面 */
-.panel-unit {
-  flex: 0 0 auto;
-  font-size: 11.5px;
-  color: var(--text-faint);
-}
-
-.panel-name {
-  flex: 1 1 100%;
-  width: auto;
-  font-size: 10.5px;
-  line-height: 1.4;
-  color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: left;
-}
-
-/* 面板里的输入框无边框、透明底，直接融进卡片 —— 卡片本身就是它的容器。
-   :hover/:focus 一并覆盖（全局那条 input[type="text"]:hover 同特异性，
-   但写在它后面，后者胜出），聚焦态交给卡片的 :focus-within。 */
-.panel-row input.panel-value {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 22px;
-  padding: 2px 0;
-  font-size: 13px;
-  border: none;
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.panel-row input.panel-value:hover,
-.panel-row input.panel-value:focus {
-  border: none;
-  background: transparent;
-  box-shadow: none;
-}
-
-/* --------------------------- 状态面板：头像行 --------------------------- */
+/* --------------------------- 入口条：头像行 --------------------------- */
 
 /* 「本局有谁」：我 + 出现过的角色卡。点头像开那张状态卡。
-   （AI 现编的 NPC 没卡，不进这里；场景也不进。） */
+   （AI 现编的 NPC 没卡，不进这里。） */
 .panel-cast {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
 }
 
 .panel-cast:empty { display: none; }
@@ -3582,17 +3384,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   transition: opacity 0.15s;
 }
 
-/* 状态面板的卡片里，删除按钮钉在卡片右上角（不占值那一行的空间）。
-   只对状态面板的行生效（.attr-row 里的删除按钮还是行内流式），
-   编辑器那边的布局不受影响。 */
-.panel-row .panel-del {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-}
-
-/* 删除按钮平时不显示，悬停才出现，避免面板显得吵 */
-.panel-row:hover .panel-del { opacity: 1; }
+/* 删除按钮平时不显示，悬停才出现，避免界面显得吵 */
 .panel-del:hover { color: var(--danger-text, #d9534f); background: var(--bg-input); }
 
 /* ------------------------------ 视角设置弹窗 ------------------------------ */
@@ -3693,10 +3485,6 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 
 .perspective-card { max-width: 560px; }
 .perspective-note { margin: 4px 0 0; }
-
-@media (max-width: 720px) {
-  .panel-fields { grid-template-columns: minmax(0, 1fr); }
-}
 
 /* ------------------------------ 记忆（分段摘要） ------------------------------ */
 

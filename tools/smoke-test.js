@@ -542,6 +542,7 @@ function registerStubs() {
     let CONTENT = `冒烟测试回复 #${replySeq}：我收到了。**这是加粗**，==这是高亮==。`;
     let pieces = [`冒烟测试回复 #${replySeq}`, '：我收到了。', '**这是加粗**，', '==这是高亮==。'];
 
+
     // 开了「剧情选项」的会话：多回一行状态栏 + 一行选项。
     // 顺带故意写几个「不听话」的地方（编号、引号、多余空格、重复项），
     // 测试要能容忍 —— 真模型就是会这么写。
@@ -1280,9 +1281,10 @@ function probeImport(result) {
   }
   push('导入：chat_history 是脏数据时不崩，开场白留空', v3DirtyOk, v3DirtyDetail);
 
-  // --- 真卡回归样本：某站点导出的 v3 变体（没有 first_mes） ---
-  // 上面那些是自造卡，这条用的是**真实导出文件的原始字节**，
-  // 形状一模一样（含 chat_history 两个 session、extensions.status_template）。
+  // --- v3 变体回归样本（没有 first_mes） ---
+  // 上面那些是自造卡，这条用的是**仓库里的完整样本字节**，
+  // 形状照着真实导出文件构造（含 chat_history、extensions.status_template），
+  // 文本内容是中性占位 —— 仓库里不夹带任何剧情文本。
   // 夹具就放在 tools/fixtures/ 下，改坏了会直接红。
   let realOk = false;
   let realDetail = '';
@@ -1292,8 +1294,8 @@ function probeImport(result) {
     const rc = (real.characters || [])[0];
     realOk =
       !!rc &&
-      rc.name === '纯爱芭芭拉' &&
-      String(rc.firstMes || '').includes('图书馆的义工芭芭拉') &&
+      rc.name === '图书馆的义工' &&
+      String(rc.firstMes || '').includes('图书馆的义工') &&
       String(rc.firstMes || '').includes('好感度：0/100') &&
       String(rc.description || '').includes('数值系统');
     realDetail = rc
@@ -1304,7 +1306,7 @@ function probeImport(result) {
   }
   push('导入：真 v3 变体卡（仓库里的回归样本）开场白能读出来', realOk, realDetail);
 
-  // 同一张真卡还要验「互动模板 → 角色属性」的映射。
+  // 同一张样本卡还要验「互动模板 → 角色属性」的映射。
   // 卡里 extensions.status_template 有 7 个字段（含一个带范围的 meter），
   // 以前整个被忽略，导入后属性是空的。
   let tplOk = false;
@@ -1873,6 +1875,55 @@ function probeRag(result) {
   });
 }
 
+/**
+ * 文案体检：属性编辑器的「更新频率」引导别再把穿着划进「变了才说」。
+ *
+ * 为什么放宿主侧而不是页面里：页面有 CSP（`default-src 'none'`），
+ * `fetch('file:///…')` 会被拦掉 —— 只能在这里用 fs 直接读源码。
+ *
+ * 踩过的坑（2026-09-29）：老文案写「变了才说：身高/体重/衣物/随身物」，
+ * 用户照着标 → 穿着被判 static → 模型下轮整行省掉 → 穿着变了状态栏却不更新。
+ * 所以这条断言是**防止文案回退**，和 data/panel.js 里的措辞改动配套。
+ */
+function probeAttrModeWording(result) {
+  const push = (name, pass, detail) =>
+    result.results.push({ name, pass: !!pass, detail: detail || '' });
+
+  let src = '';
+  try {
+    src = fs.readFileSync(path.join(APP_DIR, 'renderer', 'js', 'views', 'charAttributes.js'), 'utf8');
+  } catch (err) {
+    push('文案体检：能读到 charAttributes.js', false, (err && err.message) || String(err));
+    return;
+  }
+
+  // 下拉框 title 是用户唯一能看到的引导语 —— 必须点名穿着属于「每轮维护」
+  push(
+    '文案体检：「更新频率」提示把穿着归到「每轮维护」',
+    /每轮维护[：:][^。\n]{0,60}穿着/.test(src),
+    ''
+  );
+
+  // 反向断言：不能出现「变了才说：…衣物/随身物」这种正向举例。
+  // 否定句（含「别/不要/不属于/不是」）和有意的纠错注记要放行。
+  const wrong = src
+    .split('\n')
+    .filter((line) => !/别|不要|不属于|不是/.test(line))
+    .filter((line) => /变了才说[^。\n]{0,6}[：:（(][^）)\n]{0,30}(衣物|上衣|下衣|穿着|随身物)/.test(line));
+  push(
+    '文案体检：没有把衣物当成「变了才说」的举例',
+    wrong.length === 0,
+    wrong.join(' | ')
+  );
+
+  // 正例：static 的举例该是身高/体重/性经历这类真的几乎不动的
+  push(
+    '文案体检：「变了才说」的举例是身高/体重/性经历',
+    /变了才说[：:][^。\n]{0,40}身高/.test(src) && /变了才说[：:][^。\n]{0,40}性经历/.test(src),
+    ''
+  );
+}
+
 app.whenReady().then(async () => {
   registerStubs();
 
@@ -1931,6 +1982,7 @@ app.whenReady().then(async () => {
       probeImageGen(result);
       probeVectors(result);
       probeRag(result);
+      probeAttrModeWording(result);
       await probeHover(win, result);
     } catch (err) {
       crashed = '宿主侧验证失败：' + ((err && err.message) || err);
@@ -1968,13 +2020,12 @@ app.whenReady().then(async () => {
         panel: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
+          // 找「状态卡入口条上有多个头像」的会话（多人才看得出这一条的意义）
           for (const it of $$('#convo-list .convo-item')) {
             it.click();
             await new Promise(r => setTimeout(r, 500));
-            if ($$('#panel-fields .panel-row').length) break;
+            if ($$('#panel-cast .panel-avatar').length > 1) break;
           }
-          const box = $('#panel-box');
-          if (box && box.classList.contains('collapsed')) { $('#btn-panel-collapse')?.click(); await new Promise(r => setTimeout(r, 300)); }
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         chars: `
           document.querySelector('#btn-chars')?.click();
@@ -2296,9 +2347,6 @@ app.whenReady().then(async () => {
           }
           if (chosen) { chosen.click(); await nap(500); }
 
-          const box = $('#panel-box');
-          if (box && box.classList.contains('collapsed')) { $('#btn-panel-collapse')?.click(); await nap(300); }
-
           const avatars = $$('#panel-cast .panel-avatar');
           const mine = avatars.find(b => b.dataset.owner === 'player') || avatars[0];
           if (mine) { mine.click(); await nap(320); }
@@ -2325,9 +2373,6 @@ app.whenReady().then(async () => {
           }
           if (chosen) { chosen.click(); await nap(500); }
 
-          const box = $('#panel-box');
-          if (box && box.classList.contains('collapsed')) { $('#btn-panel-collapse')?.click(); await nap(300); }
-
           const avatars = $$('#panel-cast .panel-avatar');
           const mine = avatars.find(b => b.dataset.owner === 'player') || avatars[0];
           if (mine) { mine.click(); await nap(320); }
@@ -2336,8 +2381,8 @@ app.whenReady().then(async () => {
           if (eb) { eb.click(); await nap(360); }
 
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
-        // 面板**收起态**下的头像行：收起后再把入口藏起来就谁也找不到了，
-        // 所以这一行要一直在（并排进细条里，不撑成两行）。
+        // 状态卡入口条：一行头像（我 / 各角色）。旧面板的收起态已经没有了，
+        // 「世界」那个入口也去掉了（无主字段要么并回主角、要么丢掉）。
         panelCast: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
@@ -2349,9 +2394,6 @@ app.whenReady().then(async () => {
             return t && t.textContent.trim().startsWith('选项测试');
           });
           if (target) { target.click(); await nap(550); }
-
-          const box = $('#panel-box');
-          if (box && !box.classList.contains('collapsed')) { $('#btn-panel-collapse')?.click(); await nap(320); }
 
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`
       };

@@ -21,6 +21,7 @@ import {
   convoWorldbookIds,
   worldbookById,
   worldbookCharacters,
+  showsInPanel,
   WORLDBOOK_SCAN_DEPTH,
   recursiveDepthSetting
 } from './library.js';
@@ -143,11 +144,47 @@ export function findCardById(convo, id) {
 }
 
 /**
- * 「当前状态」栏上要显示哪些人：我（玩家）+ 本局状态面板里出现过的角色卡。
+ * 场景（世界本身）的 owner 标识 —— **已停用**（2026-09-29）。
+ *
+ * 来龙去脉：顶部那块「当前状态」面板去掉之后，owner 为空的零散字段没人画了，
+ * 于是这里做过一版 `SCENE_OWNER = 'scene'`，给它们一张「世界」卡当归宿。
+ *
+ * 但实测发现这个归宿是错的：那些「认不出归属」的字段**几乎全是主角自己的**
+ * —— AI 输出状态栏时不会给主角加「角色名·」前缀，所以主人认不出来，全落这儿了。
+ * 于是「世界」卡里装的是主角的状态，还和「我的状态」卡各存一份、值还对不上
+ * （用户原话：世界的弹窗卡片的内容应该是角色里的）。
+ *
+ * 现在改成：扫完一轮先把这些字段**并回主角**（data/panel.js 的
+ * absorbTopLevelIntoPlayer），剩下真正没人认领的（天气/时节/传闻）**直接丢掉**
+ * （absorbTopLevelIntoPlayer）—— 入口条上只留「我」和各个角色，没有「世界」卡。
+ *
+ * 这个常量保留下来只是为了兼容可能已存在于老数据里的 owner 值：读到 `'scene'`
+ * 时按「无主」处理，别再新增。
+ */
+export const SCENE_OWNER = 'scene';
+
+/** 是不是「场景」那张卡（世界本身的状态，不归属任何人） */
+export function isSceneOwner(owner) {
+  return String(owner || '') === SCENE_OWNER;
+}
+
+/**
+ * 状态卡入口条上要显示哪些人：我（玩家）+ 要显示状态的角色卡。
  *
  * 为什么不把 AI 现编的 NPC 也列上：它们没有卡、没有头像，见一个列一个会挤爆。
- * 场景（owner 为空）也不列 —— 它不是「某个人」。我永远排第一个，即使还没种过
- * 字段也要在，这样随时能点开给自己加状态。
+ * 我永远排第一个，即使还没种过字段也要在，这样随时能点开给自己加状态。
+ *
+ * 「谁算要显示状态的角色卡」（`library.showsInPanel` 的 `showInPanel` 开关）：
+ *   · **单角色聊天**绑定的那张卡 → **永远显示** —— 那种会话里 TA 就是主角，
+ *     状态栏不显示才是坏的（用户 2026-09-29 报过「角色卡的状态也不显示了」）。
+ *   · **世界书副本** → 只有 `showInPanel === true` 的才出头像。一本酒馆十来号
+ *     NPC，默认全列会挤爆入口条；想看谁的就在角色编辑器里勾上。
+ *     副本的**属性照旧种进面板**（只是不显示），勾上开关头像立刻出来。
+ *
+ * 「世界」那个入口**已经去掉**（2026-09-29）：owner 为空的字段里绝大多数是
+ * 主角自己（AI 不肯给主角加前缀），剩下的真·世界状态（天气/时节）没有地方放，
+ * 现在统一并回主角（见 data/panel.js 的 absorbTopLevelIntoPlayer）——
+ * 留一张只能看不能认领的卡，比不留更让人困惑。
  *
  * 返回 [{ owner, kind, name, avatar }]，owner 直接喂给 openStateCard。
  */
@@ -167,12 +204,22 @@ export function panelEntities(convo) {
   });
   seen.add('player');
 
+  // 单卡会话绑的那张卡：不管开关，永远显示（TA 就是这局的主角）。
+  // gmMode 的会话 characterId 为空，这里自然拿不到。
+  const soloCardId = !player && convo.characterId ? String(convo.characterId) : '';
+
   for (const name of convoPanelFields(convo)) {
     const owner = panelFieldOwner(convo, name);
-    if (!owner || seen.has(owner)) continue;
-    seen.add(owner);
+    // 无主字段不归任何人（正常情况下扫描收尾时已经并给主角或丢掉了，
+    // 这里只是兜底：读到老数据里的 'scene' 也当无主跳过，不再冒出一个入口）
+    if (!owner || owner === SCENE_OWNER) continue;
+    if (seen.has(owner)) continue;
 
     const card = findCardById(convo, owner);
+    // 世界书副本要勾了「在状态栏显示」才出头像；单卡会话绑的那张豁免。
+    if (owner !== soloCardId && !showsInPanel(card)) continue;
+
+    seen.add(owner);
     out.push({
       owner,
       kind: 'character',

@@ -55,6 +55,7 @@ import {
   cleanAssistantText,
   convoFieldDisplayNames,
   migrateConvoPanel,
+  absorbTopLevelIntoPlayer,
   panelGroupNames,
   cutTrailingStatusBlock
 } from './data/panel.js';
@@ -119,9 +120,10 @@ function registerRefreshListeners() {
   onRefresh(renderConvoList);
   initHeader(); // → onRefresh(renderHeader)
   onRefresh(renderModelSwitch);
-  // 面板只管状态字段；剧情选项挂在气泡下面，它的动作（点选项/换一批/收起）
-  // 由 chatMessages.js 直接接 suggestionsUi.js，不经过这里。
-  initPanelUi(); // → onRefresh(syncPanelVisibilityForConvo) + onRefresh(renderPanel)
+  // 状态卡入口条：只列「本局有谁」，点头像开那张状态卡（字段在卡里看/改）。
+  // 剧情选项挂在气泡下面，它的动作（点选项/换一批/收起）由 chatMessages.js
+  // 直接接 suggestionsUi.js，不经过这里。
+  initPanelUi(); // → onRefresh(renderPanel)
   initMemoryUi(); // → onRefresh(renderMemoryIndicator)
   onRefresh(renderMessages);
   // 浮动状态卡（点「我」/角色的头像打开）。登记在消息之后：它读的是同一份面板数据，
@@ -210,7 +212,7 @@ function bindEvents() {
 
   el.btnExportChar.addEventListener('click', exportCharacter);
   el.btnExportConvo.addEventListener('click', exportConversation);
-  // 状态面板的绑定（展开 / 收起 / 清空）在 views/panelUi.js 的 initPanelUi() 里。
+  // 状态卡入口条不用在这里绑事件 —— 头像的点击由 views/panelUi.js 铺的时候就地挂上。
 
   // 记忆管理：弹窗本体（开关 / 摘要增删改 / 存档点）在 views/memoryUi.js 里绑定。
   // 这里只留「手动压一段」—— 它要改头部的「正在整理记忆…」提示，
@@ -508,6 +510,10 @@ async function init() {
     // 键已经变成复合键，就取不到 owner 了（见 data/panel.js 的 migrateConvoPanel）。
     migrateConvoPanel(convo);
     if (convo.panelDefs !== undefined) convo.panelDefs = normalizePanelDefs(convo.panelDefs);
+    // 「世界/场景」这张卡已经去掉了（2026-09-29）。老会话里那批 owner 为空的
+    // 字段要**当场认领**掉，否则打开旧对话会看到一堆没人管的字段：
+    // 角色卡上声明过的归角色，其余并回主角。幂等，跑过之后就没有无主字段了。
+    absorbTopLevelIntoPlayer(convo);
     // 选项是程序写进去的，读盘时只要保证形状对（不是数组就当没有）
     if (!Array.isArray(convo.options)) convo.options = [];
     if (convo.optionsSpec && typeof convo.optionsSpec !== 'object') convo.optionsSpec = null;

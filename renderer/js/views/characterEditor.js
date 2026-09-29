@@ -520,6 +520,12 @@ function fillCharForm(character) {
   el.c.optionsHint.value = optSpec ? optSpec.hint || '' : '';
   renderOptionsConfig();
 
+  // 在状态栏显示（`showInPanel`）：只有**世界书副本**用得上。
+  // 角色库的卡是「你自己建来玩的」，绑进单角色会话时永远显示状态 ——
+  // 那个开关对它们没意义，整块收起来，免得以为「不勾就没状态」。
+  el.c.showInPanel.checked = character.showInPanel === true;
+  renderShowInPanelBox();
+
   el.charFootHint.textContent = charFootHintText(character);
 
   showCharForm(true);
@@ -535,6 +541,18 @@ function fillCharForm(character) {
 function renderOptionsConfig() {
   if (!el.c.optionsConfig) return;
   el.c.optionsConfig.classList.toggle('hidden', !el.c.optionsOn.checked);
+}
+
+/**
+ * 「在状态栏显示」这个开关：只给**世界书作用域**用。
+ *
+ * 角色库的卡绑进单角色会话时，TA 就是这局的主角，状态栏必须显示 ——
+ * 那种场景下这个开关没意义，整块收起来（省得用户以为不勾就看不到状态）。
+ * 这里按当前编辑作用域（`charEditorScope`）决定显示与否。
+ */
+function renderShowInPanelBox() {
+  if (!el.c.showInPanelBox) return;
+  el.c.showInPanelBox.classList.toggle('hidden', charEditorScope !== 'worldbook');
 }
 
 // ---------------------------------------------------------------------------
@@ -810,6 +828,14 @@ function stashCharForm() {
   // 免得给没有书的角色平白加一个属性。
   if ((character.worldbookIds || []).length) {
     character.worldbookEnabled = charDraftWbEnabled;
+  }
+  // 在状态栏显示：**只对世界书副本写**。角色库的卡写了也没用（单角色会话
+  // 永远显示状态，见 cast.js 的 panelEntities），索性不落这个字段，
+  // 免得数据里一片 showInPanel:false 看着像「关了」。
+  if (charEditorScope === 'worldbook') {
+    character.showInPanel = el.c.showInPanel.checked === true;
+  } else {
+    delete character.showInPanel;
   }
   character.updatedAt = now();
 }

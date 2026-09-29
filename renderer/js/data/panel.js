@@ -1,7 +1,7 @@
 'use strict';
 
 // ============================================================================
-//  data/panel.js —— 状态面板（世界模型的状态栏）：解析 / 归一化 / 夹取 / 注入
+//  data/panel.js —— 状态（世界模型的状态栏）：解析 / 归一化 / 夹取 / 注入
 //
 //  模型每轮输出一段固定格式的状态栏，比如：
 //      【金币】：100
@@ -10,11 +10,18 @@
 //  一旦截出去模型就开始编数值。所以这里把它解析出来存到会话上，
 //  每轮由程序权威注入，数值就不会漂了。
 //
+//  ★ 字段是「字段名 + owner」的复合键（owner 空 = 场景字段）。
+//    以前这些字段画在顶部那块「当前状态」面板里；那个面板已经去掉
+//    （一个面板只能显示一个角色的状态，是旧版单角色的遗留），
+//    现在按 owner 分给各人的状态卡（views/stateCard.js），面板只剩入口条。
+//    → 本文件里「面板」这些叫法都指「状态字段本身」，跟那块已经删掉的
+//      界面面板不是一回事，别被名字带偏。
+//
 //  纯逻辑，不碰 DOM。字段的类型/范围/变化规则由 main/panel-fields.js 定义，
 //  主进程加载的是同一个文件，所以「范围怎么夹」两边跑的是同一份代码。
 //
 //  剧情选项（【剧情选项】：A / B / C）的解析也在这里：它和状态栏是同一类东西 ——
-//  程序读的中间产物，解析出来之后正文里就该剥掉（值已经由面板权威注入、
+//  程序读的中间产物，解析出来之后正文里就该剥掉（值已经由状态字段权威注入、
 //  选项已经变成可点的按钮，原文留在气泡里只会吵）。
 // ============================================================================
 
@@ -339,15 +346,30 @@ export function panelGroupNames(convo) {
 /** 分组标题正则：`—— 组名 ——`。中文全角破折号，两边可有空格。 */
 const GROUP_HEADER_RE = /^——\s*([^—\n]{1,24})\s*——$/;
 
+/**
+ * 裸方括号组名：`【组名】`。
+ *
+ * 模型把分组名套上全角方括号当「状态块标题」写回来的变体 —— 实测
+ * （2026-09-29，用户报「对话里显示【状态栏】这几个字」）：模型在状态块最前面
+ * 加了一行 `【状态栏】`（第一个分组名），下一行才是 `—— 状态栏 ——`。
+ * 这行既不是字段行（没有冒号）、不是 `—— 组名 ——`、也不是 `【当前状态】`，
+ * 三个剥离器都认不出，就孤零零留在气泡里。
+ * 处理上和 `—— 组名 ——` 同等对待：组名在 knownGroups 里才剥，
+ * 正文里恰好整行只有 `【xxx】` 的普通文字（xxx 不是组名）不受影响。
+ */
+const GROUP_BRACKET_RE = /^【\s*([^】【\n]{1,24})\s*】$/;
+
 // 状态块抬头：程序注入的是 ASCII 的 `[当前状态]`（见 formatPanelForPrompt），
 // 模型照抄回来时可能原样带 ASCII 方括号，也可能写成全角 `【当前状态】`。
 // 两者都是给模型看的块标题，不是正文，正文里留着很突兀。
 const STATUS_HEADER_RE = /^[\[【]\s*当前状态\s*[\]】]$/;
 
 /**
- * 从一段文本里剥掉分组小标题（`—— 组名 ——`）。
- * 只剥 knownGroups 里列出的组名 —— 正文里「—— 他顿了顿 ——」这种破折号引语
- * 组名不在列表里，不会被误删。
+ * 从一段文本里剥掉分组小标题。认两种形状：
+ *   · `—— 组名 ——`（程序注入的形状，模型照抄）
+ *   · `【组名】`（模型自己发明的变体，把组名套上方括号当块标题）
+ * 都只剥 knownGroups 里列出的组名 —— 正文里「—— 他顿了顿 ——」这种破折号引语、
+ * 或整行只有 `【别的什么】` 的引用，组名不在列表里，不会被误删。
  */
 export function stripPanelGroupHeaders(text, knownGroups) {
   const source = String(text || '');
@@ -357,9 +379,11 @@ export function stripPanelGroupHeaders(text, knownGroups) {
 
   const out = source.split('\n').filter((rawLine) => {
     const line = rawLine.trim();
-    if (!GROUP_HEADER_RE.test(line)) return true;
-    const m = line.match(GROUP_HEADER_RE);
-    return m ? !known.has(m[1].trim()) : true;
+    let m = line.match(GROUP_HEADER_RE);
+    if (m) return !known.has(m[1].trim());
+    m = line.match(GROUP_BRACKET_RE);
+    if (m) return !known.has(m[1].trim());
+    return true;
   });
 
   return collapseBlankLines(out.join('\n')).trim();
@@ -691,10 +715,169 @@ export function syncConvoPanel(convo) {
   convo.panel = panel;
   convo.panelDefs = defs;
 
-  return beforeFields !== order.join('\u0001') || beforePanel !== JSON.stringify(panel);
+  // 扫描收尾：把「AI 没带前缀、落到无主批里」的字段并回主角。
+  // 入口条上已经没有「世界」这张卡了，所以不归属任何人的字段必须有个归处 ——
+  // 而 AI 输出的状态栏本来就是「你此刻的状态」，归给主角是唯一说得通的解释。
+  absorbTopLevelIntoPlayer(convo);
+
+  const afterFields = convoPanelFields(convo).join('\u0001');
+  return beforeFields !== afterFields || beforePanel !== JSON.stringify(convoPanel(convo));
 }
 
-/** 手动改一个字段的值（面板 UI 里直接编辑） */
+/**
+ * 把「AI 自己冒出来、没带角色前缀」的字段认领给合适的人。
+ *
+ * ★ 为什么需要这一步（2026-09-29 实测的坑）：
+ *   玩世界书时，你扮演的那张卡（点「用角色库里的人物当自己」选的那张）在种下去
+ *   那一刻归 `player`。可 AI 每轮输出的状态栏里，主角是它视角里的 NPC 之一，
+ *   它**不会**给自己加「角色名·」前缀 —— 于是这些值解析出来 owner 为空，
+ *   飘在外面成了一群「无主字段」。
+ *   结果就是：你点开「我的状态」看到的是**开局时的初值**（上衣：灰布外套），
+ *   另一张卡里却是**当下的真实值**（上衣：灰布外套（搭在椅背上））。
+ *   同一批字段分了两份、值还对不上 —— 用户反馈的「数据不相连」就是这个，
+ *   以及「为什么冒出一张装的却是角色内容的世界卡」。
+ *
+ * ── 认领规则（按顺序判断每条无主字段） ─────────────────────────────────
+ *   1. **角色卡上声明过这个字段名** → 归那张角色（「好感度」「醉意」这类是
+ *      NPC 对你的态度，归玩家说不通；卡里声明过就是最硬的证据）。
+ *   2. **单角色聊天**（绑了一张卡、没有玩家角色）→ 全归那张卡。
+ *      这一局只有它一个角色，状态栏里那些没带前缀的字段本来就是它/这场戏的。
+ *   3. **主角那边已经有同名字段** → 并回主角（用 AI 那份的值覆盖，手改过的除外）。
+ *   4. 其余（AI 自己编的新字段）→ 归主角。
+ *      世界会话的状态栏就是「你此刻的状态」，归给主角是唯一说得通的默认解释。
+ *
+ * 什么时候**不**并：会话里既没有角色卡、也没有玩家角色 —— 认不出「主角是谁」，
+ * 那就原样不动（宁可留着，也不要瞎认领）。
+ *
+ * 返回是否发生了改动。幂等：并过一次之后就没有无主字段了。
+ */
+export function absorbTopLevelIntoPlayer(convo) {
+  if (!convo) return false;
+  // 认不出主角是谁就不动（普通会话刚开局时就是这样）
+  if (!absorbingOwnerName(convo)) return false;
+
+  const ownerOf = (key) => panelFieldOwner(convo, key);
+  const orphans = convoPanelFields(convo).filter((key) => !ownerOf(key));
+  if (!orphans.length) return false;
+
+  // 角色卡上声明过的字段名 → 那张卡的 owner。
+  // 只算「本局真实持有字段的 owner」（避免把角色库里没进这局的卡也算进来）。
+  const ownerByFieldName = new Map();
+  const activeOwners = new Set(convoPanelFields(convo).map(ownerOf).filter(Boolean));
+  for (const owner of activeOwners) {
+    if (owner === 'player') continue;
+    const card = findCardForOwner(convo, owner);
+    if (!card) continue;
+    for (const attr of characterAttrs(card)) {
+      const n = String((attr && attr.name) || '').trim();
+      if (n && !ownerByFieldName.has(n)) ownerByFieldName.set(n, owner);
+    }
+  }
+
+  // 单角色聊天（绑了卡、但没进世界）→ 无主字段全归那张卡。
+  // 判据：会话绑了角色卡，且没有被当成玩家角色（没有 convo.player）。
+  const soloOwner = (!convo.player && convo.characterId && activeOwners.has(convo.characterId))
+    ? convo.characterId
+    : '';
+
+  const fields = [...convoPanelFields(convo)];
+  const panel = { ...convoPanel(convo) };
+  const defs = { ...convoPanelDefs(convo) };
+  const remove = new Set();
+
+  // 把一条无主字段认领给某个 owner（搬键/值/定义，或覆盖同名）
+  const claim = (key, owner) => {
+    const fieldName = panelFieldName(key);
+    const value = panel[key];
+    const target = panelKey(fieldName, owner);
+    if (fields.includes(target)) {
+      // 那边已经有同名字段 → 用无主这份（这一轮的）覆盖，手改过的除外
+      if (!(convo.panelManual && convo.panelManual[target]) && String(value || '').trim()) {
+        panel[target] = value;
+      }
+    } else if (fields.length < MAX_PANEL_FIELDS) {
+      fields.push(target);
+      if (value !== undefined) panel[target] = value;
+      if (defs[key]) defs[target] = { ...defs[key], owner };
+    }
+    remove.add(key);
+  };
+
+  for (const key of orphans) {
+    const fieldName = panelFieldName(key);
+
+    // 规则 1：角色卡上声明过这个字段名 → 归那张角色
+    const cardOwner = ownerByFieldName.get(fieldName);
+    if (cardOwner) {
+      claim(key, cardOwner);
+      continue;
+    }
+
+    // 规则 2：单角色聊天 → 全归那张卡
+    if (soloOwner) {
+      claim(key, soloOwner);
+      continue;
+    }
+
+    // 规则 3 / 4：并回主角
+    const target = panelKey(fieldName, 'player');
+    if (fields.includes(target)) {
+      // 主角已经有同名字段 —— 值怎么取舍：
+      //   · 主角那边是**空的**（种进去时没值）→ 用无主这份填上；
+      //   · 主角那边有值、但**玩家手动改过**→ 保留手改的；
+      //   · 其余情况（两边都是 AI 写的）→ 无主那份是这一轮的，覆盖掉旧的。
+      const had = String(panel[target] || '').trim();
+      const now = String(panel[key] || '').trim();
+      if (!had) {
+        if (now) panel[target] = panel[key];
+      } else if (convo.panelManual && convo.panelManual[target]) {
+        // 手改优先，不动
+      } else {
+        panel[target] = panel[key];
+      }
+      remove.add(key);
+    } else if (fields.length < MAX_PANEL_FIELDS) {
+      // AI 新发现的字段 → 整个搬到主角名下（键、值、定义都搬）
+      const newKey = panelKey(fieldName, 'player');
+      fields.push(newKey);
+      if (panel[key] !== undefined) panel[newKey] = panel[key];
+      if (defs[key]) defs[newKey] = { ...defs[key], owner: 'player' };
+      remove.add(key);
+    }
+  }
+
+  if (!remove.size) return false;
+
+  convo.panelFields = fields.filter((key) => !remove.has(key));
+  convo.panel = panel;
+  for (const key of remove) delete panel[key];
+  for (const key of remove) delete defs[key];
+  convo.panelDefs = defs;
+  return true;
+}
+
+/**
+ * 主角的「名字」——用来认哪些无主字段其实是主角的。
+ * 会话绑了卡就用卡名（单角色聊天）；没绑卡但进了世界就用玩家名。
+ * 都拿不到就返回空（= 不做任何合并，避免瞎猜）。
+ */
+function absorbingOwnerName(convo) {
+  const cardId = convo && convo.characterId;
+  if (cardId) {
+    const card = findCardForOwner(convo, cardId);
+    const cardName = card && String(card.name || '').trim();
+    if (cardName) return cardName;
+  }
+  const p = convo && convo.player;
+  const playerName = p && String(p.name || '').trim();
+  return playerName || '';
+}
+
+/**
+ * 手动改一个字段的值（面板 UI 里直接编辑）。
+ * 顺手给这个字段打上「手动改过」的标记 —— 下一轮扫描时，无主那份不会
+ * 把它顶掉（见 absorbTopLevelIntoPlayer 的手改优先）。
+ */
 export function setPanelField(convo, name, value) {
   if (!convo) return;
   const fields = [...convoPanelFields(convo)];
@@ -708,8 +891,24 @@ export function setPanelField(convo, name, value) {
   const merged = mergeMeterValue(text, prev, convoPanelDef(convo, name));
 
   convo.panel = { ...convoPanel(convo), [name]: clampPanelValue(convo, name, merged) };
+  markPanelManual(convo, name);
   convo.updatedAt = now();
   persistConversations(0);
+}
+
+/**
+ * 记下「这个字段是玩家手动改过的」。
+ *
+ * 为什么要记：AI 每轮会把状态栏原样再输出一遍，玩家的手改会在下一轮扫描时
+ * 被 AI 的旧值顶掉（这正是「我改了但一会儿又变回去」的由来）。
+ * 有了这张表，扫描遇到「无主那份 vs 主角那份」时就知道该听谁的。
+ *
+ * 存在会话上的 `panelManual`（复合键 → true）。老会话没有这个键 = 谁都没手改过。
+ */
+function markPanelManual(convo, key) {
+  if (!convo) return;
+  const table = convo.panelManual && typeof convo.panelManual === 'object' ? convo.panelManual : {};
+  convo.panelManual = { ...table, [key]: true };
 }
 
 /**
@@ -858,7 +1057,7 @@ export function formatPanelForPrompt(convo) {
     parts.push('请在每次回复的末尾，用「【字段】：值」的格式把它们完整输出一遍' +
       '（还不知道的写「未知」）；之后每轮照抄并更新，不要凭空改动已有数值。');
     if (staticNames.length) {
-      parts.push(`下面这些字段不常变，只在变化时才输出一行，没变化就省略：${staticNames.join('、')}`);
+      parts.push(`下面这些字段平时不变，但**一旦发生变化就必须输出**（没变化才省略）：${staticNames.join('、')}`);
     }
     return (
       '[当前状态]\n' + parts.join('\n') + groupNote + legendBlock
@@ -876,9 +1075,16 @@ export function formatPanelForPrompt(convo) {
     );
   }
   if (staticKeys.length) {
+    // ⚠️ 这里的措辞很关键（2026-09-29 改）。以前写的是「不是每轮都变的（衣服、
+    // 随身物之类）：只在发生变化时才输出那一行」—— 把「变化」这个词交给模型
+    // 自己判断，它就会觉得「我还记得那衣服啊，没变」，于是**该输出的也省掉**。
+    // 实测：穿着变了，那一行压根没出现，用户来问「为什么没更新」。
+    // 现在改成「一旦变化就必须输出」，把判断门槛挪到「发生了吗」而不是「变了吗」。
     rules.push(
-      '另外这些字段不是每轮都变的（衣服、随身物之类）：只在它们**发生变化**时，\n' +
-      '才在状态栏里输出那一行新的值；没有变化就整行省略，不要照抄。'
+      '另外这些字段平时不用照抄（身高/体重/性经历这类几乎不动的），\n' +
+      '但**只要剧情里发生了变化（换了、脱了、被拿走、受伤、状态改变），就必须在\n' +
+      '状态栏里输出那行新值**，不能省。判断标准是「这一轮有没有发生跟它有关的事」，\n' +
+      '不是「你还记不记得它原来是什么」。'
     );
   }
 
@@ -1106,4 +1312,58 @@ export function seedWorldbookCharactersIntoConvos(conversations, book, copies) {
     if (seedPanelFromCharacters(convo, copies)) seeded += 1;
   }
   return seeded;
+}
+
+/**
+ * 把角色库里**同名卡**的属性补进世界书的副本（纯函数，只改传入的 copies）。
+ *
+ * 为什么需要（2026-09-29，用户报的）：「加入副本」走的是整卡深拷贝，属性本来
+ * 会一起带过来 —— 但副本是**快照**：如果当初加进来时角色库那张卡还没有属性
+ * （属性是后来才补的），副本就永远是个空壳，状态卡点开是空的、入口条也不出头像。
+ * 用户实际就踩了这个：世界书里 5 个副本属性全是 0，而角色库里同名的「露西娅」
+ * 有 20 个属性。
+ *
+ * 匹配只认**名字**（副本和角色库那张卡之间没有 id 关联，副本 id 是另发的 wc…）。
+ * 只补副本**自己没有**的属性名 —— 已有的一律不覆盖，副本上你可能改过值，
+ * 那是这本书里的当前状态，不能被角色库的初始值顶掉。
+ *
+ * 返回 { touched, added, missing }：touched = 改动的副本数，added = 补上的属性条数，
+ * missing = 在角色库里找不到同名卡的副本名（调用方拿来提示用户）。
+ */
+export function syncCopyAttrsFromSource(copies, sources) {
+  const empties = { touched: 0, added: 0, missing: [] };
+  if (!Array.isArray(copies) || !copies.length) return empties;
+
+  const byName = new Map();
+  for (const s of Array.isArray(sources) ? sources : []) {
+    const n = String((s && s.name) || '').trim();
+    if (n && !byName.has(n)) byName.set(n, s);
+  }
+
+  let touched = 0;
+  let added = 0;
+  const missing = [];
+
+  for (const copy of copies) {
+    if (!copy) continue;
+    const src = byName.get(String(copy.name || '').trim());
+    if (!src) {
+      missing.push(copy.name);
+      continue;
+    }
+    const srcAttrs = characterAttrs(src);
+    if (!srcAttrs.length) continue;
+
+    if (!Array.isArray(copy.attributes)) copy.attributes = [];
+    const have = new Set(copy.attributes.map((a) => String((a && a.name) || '').trim()));
+    const fresh = srcAttrs.filter((a) => a && a.name && !have.has(String(a.name).trim()));
+    if (!fresh.length) continue;
+
+    // 深拷贝一份再塞（别把角色库的数组引进来，两边要各自独立）
+    for (const a of fresh) copy.attributes.push(JSON.parse(JSON.stringify(a)));
+    touched += 1;
+    added += fresh.length;
+  }
+
+  return { touched, added, missing };
 }
