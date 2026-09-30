@@ -319,11 +319,11 @@ export function renderWorldbookChars() {
           c.avatar ? h('img', { src: c.avatar, alt: '' }) : c.name.slice(0, 1)
         ),
         h('span', { class: 'wb-char-chip-name', text: c.name }),
-        // 「显示状态」：勾上之后这个副本的状态会出现在「当前状态」入口条上。
+        // 「显示状态」：勾上之后这个副本的状态会出现在右栏「在场角色」入口条上。
         // 不做成按钮是因为它是个**每本书各自一份**的持久开关，勾选状态要一眼看见。
         h(
           'label',
-          { class: 'wb-char-chip-show', title: '把这个副本的状态显示在「当前状态」入口条上' },
+          { class: 'wb-char-chip-show', title: '把这个副本的状态显示在右栏「在场角色」入口条上' },
           (() => {
             const cb = h('input', { type: 'checkbox' });
             cb.checked = c.showInPanel === true;

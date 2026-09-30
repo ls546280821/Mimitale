@@ -9,90 +9,125 @@
    换主题只切换 <html> 上的 data-theme，不碰任何具体规则。
    ========================================================================== */
 
+/* ==========================================================================
+   配色方案 ①：草莓奶昔（默认，不带 data-accent 属性时就是它）
+   暖粉底 + 玫红强调。**底色本身带粉、描线也是粉的** —— 「可爱」主要靠这个，
+   光把按钮变圆是变不出来的。换气质只换这一组值，结构/间距/字号一个都不动。
+   ========================================================================== */
+
 :root {
   color-scheme: light;
-  /* 一套克制的配色：只有「一个」强调色（玫红/粉），其余都是中性灰。
-     灵感来自 shadcn 的粉色主题（--primary: 346 95% 60%），
-     主色用 HSL 转换成 RGB：hsl(346, 95%, 60%) = #fb3d68。 */
-  --bg: #f6f6f8;             /* 暖白底，对应 --background: 240 5% 96.5% */
-  --bg-side: #fbfafa;        /* 侧边栏偏暖的白 */
+  --bg: #fff5f8;             /* 暖粉底（不是中性灰） */
+  --bg-side: #ffeef4;        /* 侧边栏：比主区再粉一点，形成层次 */
   --bg-elev: #ffffff;
   --bg-card: #ffffff;
-  --bg-input: #ffffff;
-  --border: #e7e5e8;         /* 240 6% 88% */
-  --border-hover: #d5cfd6;
-  --text: #24232c;           /* 240 10% 3.9% */
-  --text-dim: #5c5963;
-  --text-faint: #96919b;
-  --accent: #fb3d68;         /* 346 95% 60% —— 可爱的玫红 */
-  --accent-hover: #fc6486;   /* 346 80% 70% */
-  --accent-pressed: #d92f57; /* 346 60% 50% */
-  --accent-soft: rgba(251, 61, 104, 0.10);
-  --accent-soft-strong: rgba(251, 61, 104, 0.16);
-  /* 强调色的边框 / 底纹变体（不同透明度），让蓝色方案能统一覆盖 */
-  --accent-line: rgba(251, 61, 104, 0.35);   /* 心理描写左边框 */
-  --accent-wash: rgba(251, 61, 104, 0.06);   /* 心理描写底纹 */
-  --accent-border: rgba(251, 61, 104, 0.35); /* hover/active 边框 */
-  --accent-border-strong: rgba(251, 61, 104, 0.5); /* 强激活边框 */
-  --accent-border-soft: rgba(251, 61, 104, 0.28);  /* 弱激活边框 */
-  --accent-border-faint: rgba(251, 61, 104, 0.25); /* 更弱的条目边框 */
-  /* 品牌渐变（左上角小圆点 + 标题字），跟随配色方案 */
-  --brand-grad: linear-gradient(135deg, #fb3d68 0%, #ff9fc8 100%);
-  --brand-glow: 0 0 12px rgba(252, 100, 134, 0.7), 0 0 6px rgba(255, 159, 200, 0.55);
-  --danger: #e04a52;         /* 0 84.2% 60.2% */
-  --danger-bg: #fdf2f2;
-  --danger-hover: #c9302c;
-  --danger-text: #a83b38;
-  --danger-border: #f2d5d4;
-  --danger-bg-hover: #fbe9e9;
-  --danger-border-hover: #e8bfbe;
-  --ok-text: #2e7d55;
-  --ok-border: #cfe6da;
-  --overlay: rgba(32, 28, 36, 0.28);   /* 240 6% 8% */
-  --user-bubble: #fdeef1;              /* 自己消息气泡：淡粉，呼应玫红主色 */
-  --border-soft: #f0edf0;              /* 240 5% 92% */
-  /* 代码块 / 表头 / 弹窗底栏这些零散底色，也统一收进变量 */
-  --pre-bg: #f5f3f6;
-  --code-bg: rgba(52, 47, 60, 0.06);
-  --code-text: #4a4453;
-  --th-bg: rgba(52, 47, 60, 0.04);
-  --foot-bg: #fbfafb;
-  --toggle-track: #ddd9dd;
-  --scrollbar: #d2ced3;
-  --scrollbar-hover: #bdb8c0;
-  --focus-ring: 0 0 0 3px rgba(251, 61, 104, 0.18);
-  /* 下拉框右侧的小箭头（用 CSS 画，这样不会被原生箭头挤到文字） */
-  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2396919b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  /* 阴影用带一点紫灰的中性调、且非常轻，避免「到处都是投影」的廉价感 */
-  --shadow-sm: 0 1px 2px rgba(40, 34, 48, 0.05);
-  --shadow-lg: 0 16px 40px rgba(40, 34, 48, 0.14);
-  --radius: 1rem;             /* 对应 --radius: 1rem，圆角更大更可爱 */
-  --radius-sm: 9px;
+  --bg-input: #fff7fa;
+  --border: #f8dee8;
+  --border-hover: #f0cbd9;
+  --border-soft: #fbeaf1;
+  --text: #2b1f26;           /* 不用纯黑：深莓褐，压在粉底上不脏 */
+  --text-dim: #5f4f58;
+  --text-faint: #7f6f78;     /* 白卡片上 4.7:1，过 WCAG AA */
+  --accent: #d92968;
+  --accent-hover: #e8558a;
+  --accent-pressed: #b81f57;
+  --accent-soft: rgba(217, 41, 104, 0.10);
+  --accent-soft-strong: rgba(217, 41, 104, 0.16);
+  --accent-line: rgba(217, 41, 104, 0.35);   /* 心理描写左边框 */
+  --accent-wash: rgba(217, 41, 104, 0.06);   /* 心理描写底纹 */
+  --accent-border: rgba(217, 41, 104, 0.35);
+  --accent-border-strong: rgba(217, 41, 104, 0.5);
+  --accent-border-soft: rgba(217, 41, 104, 0.28);
+  --accent-border-faint: rgba(217, 41, 104, 0.25);
+  --brand-grad: linear-gradient(135deg, #ff9dc4 0%, #c78cff 100%);
+  --brand-glow: 0 0 12px rgba(255, 157, 196, 0.7), 0 0 6px rgba(199, 140, 255, 0.55);
+  --danger: #d94a52;
+  --danger-bg: #fff1f1;
+  --danger-hover: #b93a42;
+  --danger-text: #a0242c;
+  --danger-border: #f6d3d4;
+  --danger-bg-hover: #ffe7e8;
+  --danger-border-hover: #eeb9bb;
+  --ok-text: #1a7d52;
+  --ok-border: #cbe9d9;
+  --overlay: rgba(43, 31, 38, 0.28);
+  --user-bubble: #ffd9e6;    /* 自己消息气泡：淡粉 */
+  --pre-bg: #fdf0f5;
+  --code-bg: rgba(217, 41, 104, 0.07);
+  --code-text: #6b3a4d;
+  --th-bg: rgba(217, 41, 104, 0.05);
+  --foot-bg: #fff7fa;
+  --toggle-track: #f5d6e1;
+  --scrollbar: #f2d3df;
+  --scrollbar-hover: #e6b6c8;
+  --focus-ring: 0 0 0 3px rgba(217, 41, 104, 0.18);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%237f6f78' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  /* 阴影带主色、但很淡 —— 扁平感有一半来自「影子是彩色的、而且铺得开」。
+     对齐设计稿：范围大一点（10px/22px）、透明度低一点（.10/.14），
+     卡片/按钮靠这一层影子分层，不靠 1px 边框。 */
+  --shadow-sm: 0 2px 10px rgba(217, 41, 104, 0.10);
+  --shadow-lg: 0 6px 22px rgba(217, 41, 104, 0.14);
+  --radius: 16px;
+  --radius-sm: 12px;
 }
 
 /* ==========================================================================
-   配色方案：商务蓝（正经色）
-   data-accent="blue" 时覆盖主色系。默认粉（可爱）写在 :root 里，这里只换
-   强调色 + 少数几个随主色走的衍生色，中性灰底保持不变 —— 这样切到蓝
-   只「换气质」不「换结构」，办公室看着克制，回家切回粉又可爱。
-   和 data-theme 正交：light/dark × pink/blue 四种组合都成立。
+   配色方案 ②：苏打气泡（data-accent="blue"）
+   ⚠️ 这里必须把**整套表面色**都重新声明一遍，不能只换 --accent：
+   默认那套底色 / 描线是带粉的，只换强调色会变成「粉底上的蓝按钮」，两种气质打架。
+   ③ 抹茶奶绿（matcha）写在下面，同一套规矩。
+   和 data-theme 正交：light / dark × 每种 accent 都成立。
    ========================================================================== */
 [data-accent='blue'] {
-  --accent: #3b82f6;         /* 商务蓝 */
-  --accent-hover: #6aa5f7;
-  --accent-pressed: #2f6ad0;
-  --accent-soft: rgba(59, 130, 246, 0.10);
-  --accent-soft-strong: rgba(59, 130, 246, 0.16);
-  --accent-line: rgba(59, 130, 246, 0.35);
-  --accent-wash: rgba(59, 130, 246, 0.06);
-  --accent-border: rgba(59, 130, 246, 0.35);
-  --accent-border-strong: rgba(59, 130, 246, 0.5);
-  --accent-border-soft: rgba(59, 130, 246, 0.28);
-  --accent-border-faint: rgba(59, 130, 246, 0.25);
-  --user-bubble: #e8f0fb;    /* 淡蓝气泡 */
-  --focus-ring: 0 0 0 3px rgba(59, 130, 246, 0.18);
-  --brand-grad: linear-gradient(135deg, #3b82f6 0%, #6aa5f7 100%);
-  --brand-glow: 0 0 12px rgba(91, 157, 255, 0.7), 0 0 6px rgba(106, 165, 247, 0.55);
+  --bg: #f4f9ff;
+  --bg-side: #e8f3fd;
+  --bg-elev: #ffffff;
+  --bg-card: #ffffff;
+  --bg-input: #f7fbff;
+  --border: #dceaf7;
+  --border-hover: #c6ddf1;
+  --border-soft: #e7f1fb;
+  --text: #16222e;
+  --text-dim: #4a6076;
+  --text-faint: #63788e;     /* 白卡片上 4.6:1 */
+  --accent: #1670b8;
+  --accent-hover: #2b8ad4;
+  --accent-pressed: #125c99;
+  --accent-soft: rgba(22, 112, 184, 0.10);
+  --accent-soft-strong: rgba(22, 112, 184, 0.16);
+  --accent-line: rgba(22, 112, 184, 0.35);
+  --accent-wash: rgba(22, 112, 184, 0.06);
+  --accent-border: rgba(22, 112, 184, 0.35);
+  --accent-border-strong: rgba(22, 112, 184, 0.5);
+  --accent-border-soft: rgba(22, 112, 184, 0.28);
+  --accent-border-faint: rgba(22, 112, 184, 0.25);
+  --brand-grad: linear-gradient(135deg, #7cc4ff 0%, #4d8cff 100%);
+  --brand-glow: 0 0 12px rgba(124, 196, 255, 0.7), 0 0 6px rgba(77, 140, 255, 0.55);
+  --danger: #d94a52;
+  --danger-bg: #f2f7fd;
+  --danger-hover: #b93a42;
+  --danger-text: #a0242c;
+  --danger-border: #d5e3f2;
+  --danger-bg-hover: #eaf2fb;
+  --danger-border-hover: #bcd2e9;
+  --ok-text: #1a7d52;
+  --ok-border: #cbe9d9;
+  --overlay: rgba(22, 34, 46, 0.28);
+  --user-bubble: #d3e9ff;
+  --pre-bg: #f1f7fe;
+  --code-bg: rgba(22, 112, 184, 0.07);
+  --code-text: #33536e;
+  --th-bg: rgba(22, 112, 184, 0.05);
+  --foot-bg: #f7fbff;
+  --toggle-track: #d3e4f4;
+  --scrollbar: #cbdff2;
+  --scrollbar-hover: #b0cde8;
+  --focus-ring: 0 0 0 3px rgba(22, 112, 184, 0.18);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2363788e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --shadow-sm: 0 2px 10px rgba(22, 112, 184, 0.10);
+  --shadow-lg: 0 6px 22px rgba(22, 112, 184, 0.14);
+  --radius: 16px;
+  --radius-sm: 12px;
 }
 
 [data-accent='blue'][data-theme='dark'] {
@@ -111,6 +146,83 @@
   --focus-ring: 0 0 0 3px rgba(91, 157, 255, 0.28);
   --brand-grad: linear-gradient(135deg, #5b9dff 0%, #7fb2ff 100%);
   --brand-glow: 0 0 12px rgba(91, 157, 255, 0.7), 0 0 6px rgba(127, 178, 255, 0.55);
+}
+
+/* ==========================================================================
+   配色方案 ③：抹茶奶绿（data-accent="matcha"）
+   奶绿底 + 深绿强调。同样把整套表面色重声明一遍（见上面 ② 的说明）。
+   深绿当按钮底时白字 5.1:1，当正文强调色时对白底也是 5.1:1 —— 两头都过 AA。
+   ========================================================================== */
+[data-accent='matcha'] {
+  --bg: #f3faf5;
+  --bg-side: #e8f5ed;
+  --bg-elev: #ffffff;
+  --bg-card: #ffffff;
+  --bg-input: #f6fbf8;
+  --border: #d9eee1;
+  --border-hover: #c2e2cf;
+  --border-soft: #e9f5ee;
+  --text: #17241d;           /* 深墨绿，不是纯黑 */
+  --text-dim: #4d6156;
+  --text-faint: #647a6d;     /* 白卡片上 4.6:1，过 WCAG AA */
+  --accent: #1a7d52;
+  --accent-hover: #22995f;
+  --accent-pressed: #146342;
+  --accent-soft: rgba(26, 125, 82, 0.10);
+  --accent-soft-strong: rgba(26, 125, 82, 0.16);
+  --accent-line: rgba(26, 125, 82, 0.35);
+  --accent-wash: rgba(26, 125, 82, 0.06);
+  --accent-border: rgba(26, 125, 82, 0.35);
+  --accent-border-strong: rgba(26, 125, 82, 0.5);
+  --accent-border-soft: rgba(26, 125, 82, 0.28);
+  --accent-border-faint: rgba(26, 125, 82, 0.25);
+  --brand-grad: linear-gradient(135deg, #8fe0b4 0%, #4fbf8b 100%);
+  --brand-glow: 0 0 12px rgba(143, 224, 180, 0.7), 0 0 6px rgba(79, 191, 139, 0.55);
+  --danger: #d94a52;
+  --danger-bg: #f1f8f4;
+  --danger-hover: #b93a42;
+  --danger-text: #a0242c;
+  --danger-border: #d3e9dd;
+  --danger-bg-hover: #e9f4ee;
+  --danger-border-hover: #bcdcc9;
+  --ok-text: #1a7d52;
+  --ok-border: #cbe9d9;
+  --overlay: rgba(23, 36, 29, 0.28);
+  --user-bubble: #d6f0e2;    /* 自己消息气泡：奶绿 */
+  --pre-bg: #f0f9f4;
+  --code-bg: rgba(26, 125, 82, 0.07);
+  --code-text: #356151;
+  --th-bg: rgba(26, 125, 82, 0.05);
+  --foot-bg: #f6fbf8;
+  --toggle-track: #d5e8dd;
+  --scrollbar: #cbe4d8;
+  --scrollbar-hover: #b2d4c3;
+  --focus-ring: 0 0 0 3px rgba(26, 125, 82, 0.18);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23647a6d' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  --shadow-sm: 0 2px 10px rgba(26, 125, 82, 0.10);
+  --shadow-lg: 0 6px 22px rgba(26, 125, 82, 0.14);
+  --radius: 16px;
+  --radius-sm: 12px;
+}
+
+/* 抹茶 × 夜间：底子沿用 [data-theme='dark'] 的中性暗底，只把主色系调亮，
+   和 blue 的处理方式一样（夜间不做绿底，绿底在暗色下会发脏）。 */
+[data-accent='matcha'][data-theme='dark'] {
+  --accent: #4cc98a;
+  --accent-hover: #6dd9a3;
+  --accent-pressed: #33a86e;
+  --accent-soft: rgba(76, 201, 138, 0.18);
+  --accent-soft-strong: rgba(76, 201, 138, 0.26);
+  --accent-line: rgba(76, 201, 138, 0.35);
+  --accent-wash: rgba(76, 201, 138, 0.08);
+  --accent-border: rgba(76, 201, 138, 0.35);
+  --accent-border-strong: rgba(76, 201, 138, 0.5);
+  --accent-border-soft: rgba(76, 201, 138, 0.28);
+  --accent-border-faint: rgba(76, 201, 138, 0.25);
+  --user-bubble: #1e3a2c;
+  --focus-ring: 0 0 0 3px rgba(76, 201, 138, 0.28);
+  --brand-grad: linear-gradient(135deg, #4cc98a 0%, #6dd9a3 100%);
+  --brand-glow: 0 0 12px rgba(76, 201, 138, 0.7), 0 0 6px rgba(109, 217, 163, 0.55);
 }
 
 [data-theme='dark'] {
@@ -181,13 +293,34 @@ body {
   height: 100vh;
 }
 
+/* ------------------------------ 头像底色 ------------------------------ */
+
+/* 设计稿的 .g1~.g6 / .gme —— 一整套渐变底色，头像、会话条目、状态卡、
+   消息区四处**共用同一套**，同一个人在哪都是同一个颜色。
+   刻意不带任何前缀：只挂在 .ava 上的话，换个元素就"透明圆 + 白字"直接隐形。
+
+   颜色由 JS 从名字/owner id 哈希出来（js/ui/avatarTone.js），
+   同一个人每次都是同一个色 —— 不用 Map 记、也不会因为刷新换色。 */
+.g1 { background: linear-gradient(135deg, #ffb0d0, #b98cff); }
+.g2 { background: linear-gradient(135deg, #b9f0d8, #5fd6a8); }
+.g3 { background: linear-gradient(135deg, #ffd9a8, #ffab5e); }
+.g4 { background: linear-gradient(135deg, #c8d4ff, #8a9dff); }
+.g5 { background: linear-gradient(135deg, #e0d4ff, #a98cff); }
+.g6 { background: linear-gradient(135deg, #ffc9c9, #ff8f8f); }
+/* 「我」单独一支蓝，跟角色的暖色系分开 —— 满屏里一眼找到自己那几条 */
+.gme { background: linear-gradient(135deg, #9fd4ff, #6aa8ff); }
+
 /* ------------------------------ 侧边栏 ------------------------------ */
 
 .sidebar {
-  width: 252px;
-  flex: 0 0 252px;
+  /* 224 而不是 252：右边多了 300 的在场角色栏，左边就得让一点出来，
+     否则对话列反而比改造前更窄（1440-252-300 = 888 < 老的 928）。
+     252→224 之后是 916，至少不倒退。 */
+  width: 224px;
+  flex: 0 0 224px;
   background: var(--bg-side);
-  border-right: 1px solid var(--border);
+  /* 不再画那条右分隔线：设计稿的 .rail 也没有 —— 侧栏底色本来就比对话区深一点，
+     靠底色分层比靠 1px 线分层干净（线在浅色系里反而是最显「鼓」的那一笔）。 */
   display: flex;
   flex-direction: column;
   padding: 16px 13px 13px;
@@ -243,8 +376,10 @@ body {
 .sidebar-label {
   font-size: 11px;
   color: var(--text-faint);
-  padding: 6px 4px 0;
-  letter-spacing: 0.6px;
+  /* 和设计稿的 .rail-cap 对齐：贴在上面那颗按钮下面，下面留一点给列表 */
+  padding: 2px 8px 8px;
+  /* 拉开字距的小标签（设计稿的 .rail-cap）—— 一眼看出是「分组标题」不是列表项 */
+  letter-spacing: 0.1em;
 }
 
 .convo-list {
@@ -260,33 +395,23 @@ body {
 .convo-item {
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 9px 10px;
-  border-radius: var(--radius-sm);
+  /* 10px：头像从 24 长到 38 之后，9px 会让文字贴在圆边上（设计稿 .ritem 也是 10） */
+  gap: 10px;
+  padding: 8px 9px;
+  border-radius: 12px;
   cursor: pointer;
   color: var(--text-dim);
   font-size: 13px;
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
+  /* 只过渡底色和阴影：原来还带 translateX(2px) 的位移，
+     一排条目跟着鼠标左右晃，看着不安静 */
+  transition: background 0.15s, box-shadow 0.15s;
 }
 
-.convo-item::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 2px;
-  height: 0;
-  background: var(--accent);
-  border-radius: 0 2px 2px 0;
-  transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.convo-item:hover { 
-  background: var(--bg-elev); 
+/* 当前会话不再靠左侧那条竖线标识 —— 白底卡片 + 阴影本身就够了，
+   而且竖线跟圆头像挤在一起显得脏（设计稿的 .ritem.on 也只有底色和阴影）。 */
+.convo-item:hover {
+  background: var(--bg-card);
   color: var(--text);
-  transform: translateX(2px);
 }
 
 .convo-item.active {
@@ -295,12 +420,50 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
-.convo-item.active::before {
-  height: 60%;
+/* 会话条目左边的圆头像：和消息区、状态卡、在场角色栏同一套长相
+   （38px 渐变圆 + 白字，设计稿的 .ava.sm）。
+   原来是 24px 的浅色底 + 主色字 —— 小且淡，一排看下来分不出谁是谁。 */
+.convo-avatar {
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+}
+.convo-avatar img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* 没绑角色的（世界书会话之类）：中性点，别抢「有主」那几条 */
+.convo-avatar.plain { background: var(--border-soft); color: var(--text-faint); font-weight: 400; }
+/* 世界书会话的头像是**方的**（设计稿 .ava.book）—— 形状本身就是分类 */
+.convo-avatar.book { border-radius: 11px; }
+
+/* 会话条目里的两行：主行是标题，副行是「谁 · 什么时候」。
+   副行让条目有了信息层次，也不再需要靠左侧那条竖线标「当前」了。 */
+.convo-info {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .convo-title {
-  flex: 1 1 auto;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.convo-sub {
+  font-size: 11px;
+  color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -322,13 +485,26 @@ body {
 .convo-item:hover .convo-del { opacity: 1; }
 .convo-del:hover { color: var(--danger); background: var(--danger-bg); }
 
+/* 侧栏底部这四颗（角色库 / 世界书 / 设置 / 数据文件夹）：
+   设计稿 .rail-foot 是「一行两颗平铺」，我们有四颗 → 排成 2×2。
+   靠图标 + 文字居中，和设计稿的 .ghost-btn 一致（原来居左，四颗竖着排占掉大半屏）。 */
 .sidebar-foot {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  /* 不再画那条分隔线：这几颗已经靠「白底 + 阴影」浮起来了（设计稿 .rail-foot） */
   padding-top: 10px;
 }
+
+.sidebar-foot .btn {
+  height: 36px;
+  /* 字号 12 而不是 12.5：「数据文件夹」五个字 + 图标刚好卡进 95px 的格子，
+     给 12.5 会顶出省略号 */
+  padding: 0 6px;
+  gap: 6px;
+  font-size: 12px;
+}
+.sidebar-foot .btn svg { flex: 0 0 14px; width: 14px; height: 14px; opacity: 0.75; }
 
 /* ------------------------------ 按钮 ------------------------------ */
 
@@ -337,8 +513,10 @@ body {
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 9px 16px;
+  /* 12px（设计稿的 --r-btn）。原来是 999px 胶囊 —— 满屏圆滚滚的胶囊、再加上到处
+     1px 边框，就是「不够扁平」的来源。只有发送键保留胶囊（设计稿里 .send 也是 pill）。 */
+  border-radius: 12px;
+  padding: 10px 16px;
   font-size: 13px;
   line-height: 1.2;
   font-family: inherit;
@@ -352,41 +530,39 @@ body {
 .btn-block { width: 100%; }
 .btn-sm { padding: 6px 11px; font-size: 12px; }
 
+/* 侧栏最上面那颗「＋ 新建对话」：设计稿的 .new-btn —— 满宽、40 高、字重 600。
+   .btn-block 已经给了满宽，这里只补高度和字重（原来是 400 的常规字重，
+   压在绿底上显得松松垮垮）。 */
+.btn-new { height: 40px; padding: 0 16px; font-size: 13.5px; font-weight: 600; }
+
+/* 主按钮：一层主色底 + 淡阴影，不描边（描边正是「鼓」的来源之一） */
 .btn-primary {
   background: var(--accent);
-  border-color: var(--accent);
   color: #fff;
   box-shadow: var(--shadow-sm);
 }
-.btn-primary:hover {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-.btn-primary:active {
-  background: var(--accent-pressed);
-  border-color: var(--accent-pressed);
-}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:active { background: var(--accent-pressed); }
 
+/* 次级按钮：白底 + 一层淡阴影，同样不描边（设计稿里的 .ghost-btn）。
+   顶栏那几颗是例外，在那里被单独压回透明 —— 它们要轻。 */
 .btn-ghost {
-  background: transparent;
+  background: var(--bg-card);
   color: var(--text-dim);
-  border-color: var(--border);
+  box-shadow: var(--shadow-sm);
 }
-.btn-ghost:hover { 
-  background: var(--bg-side); 
-  color: var(--text);
-  border-color: var(--border-hover);
+.btn-ghost:hover {
+  color: var(--accent);
+  box-shadow: var(--shadow-lg);
 }
 
 .btn-danger { 
   background: var(--danger-bg); 
   color: var(--danger); 
-  border-color: var(--danger-border); 
 }
 .btn-danger:hover { 
   background: var(--danger-bg-hover);
   color: var(--danger-hover);
-  border-color: var(--danger-border-hover);
 }
 
 .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -414,18 +590,106 @@ body {
   min-height: 0;
 }
 
+/* 聊天这一屏是**两列**（对话列 + 右栏在场角色），另外两屏还是单列。
+   右栏放在 #view-chat 里面，是为了切到角色库 / 世界书时整块跟着消失 ——
+   放到 .main 外面就得再写一遍「现在在哪一屏」的判断，那种重复迟早对不上。 */
+#view-chat { flex-direction: row; }
+
+.chat-col {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /* 提示条 / 建议条以对话列为参照居中（原来参照 .main，
+     加了右栏之后 .main 的中心已经不是对话区的中心了）。 */
+  position: relative;
+}
+
+/* 提示条是 .main 的直接子元素（故意放在视图外面，切页时不被藏起来）。
+   2026-09-30 右栏去掉之后主区就是整块居中了，不用再减半个栏宽 ——
+   原来那两行 `--rail-w` / `:has(#panel-rail…)` 一起删了。 */
+.main .toast { left: 50%; }
+
 .topbar {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 13px 22px;
+  /* 68 高 + 左右 22（设计稿的 .top）：整条靠 align-items 垂直居中，
+     头像抬到 44 之后不用再给上下 padding 撑 */
+  min-height: 68px;
+  padding: 0 22px;
+  /* 抬高两层：① 不这样「⋯」/「切换模型」弹层展开时会被下面的消息区盖住；
+     ② 还要高过浮动的状态卡 —— .state-cards 是**整列大小**（inset:0）且 z-index 40，
+        它虽然在 DOM 里排在顶栏后面，只要层级比顶栏高，就能把整个顶栏连同弹层
+        一起压住（2026-09-30 换回浮动卡之后才有的毛病，模型弹层比较宽，一眼就看出来了）。
+     值取 45：高于状态卡 40，低于弹窗遮罩 .modal 的 50 —— 弹窗该压着顶栏。 */
+  position: relative;
+  z-index: 45;
   border-bottom: 1px solid var(--border);
-  background: var(--bg-side);
+  /* 不填底色：设计稿的顶栏是浮在背景上的，填了 --bg-side 就多出一条色带 */
+  background: transparent;
 }
 
-.topbar-title { min-width: 0; }
+/* 顶栏左边那颗头像（设计稿 .top 里的 .ava lg）：
+   44px 渐变圆 + 白字，和侧栏 / 消息区 / 右栏共用同一套色板（js/ui/avatarTone.js）。
+   ⚠️ 别在这里写 background —— `.g1`~`.g6` 是同优先级 (0,1,0)，写了会盖掉渐变。 */
+.topbar-avatar {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.topbar-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 世界书会话的头像是**方的** —— 和侧栏条目一样，形状本身就是分类 */
+.topbar-avatar.book { border-radius: 14px; }
+/* 什么都没绑：中性底，别假装是某个角色 */
+.topbar-avatar.plain { background: var(--border-soft); color: var(--text-faint); font-weight: 400; }
+
+/* 顶栏标题这一块要能「被压下去然后省略」，不能「被压下去然后逐字换行」——
+   加了右栏之后这一行更挤，标题区只剩几十像素，之前副标题会被挤成一列竖排的字。
+   两道都要：min-width 保底不至于完全消失，overflow+ellipsis 负责剩下的一律截断。 */
+.topbar-title {
+  flex: 1 1 auto;
+  min-width: 110px;
+  overflow: hidden;
+}
+
+/* 标题那一行 = 会话名 + 胶囊。h1 要能缩（min-width:0），否则长标题会把胶囊顶出去 */
+.topbar-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.topbar-name h1 { min-width: 0; }
+
+/* 标题旁边那颗小胶囊（设计稿的 .pill-tag）：视角偏离 / 关键数值。
+   主色浅底 + 主色字，和「正在生效的特别设置」这层语义对上。 */
+.pill-tag {
+  flex: 0 0 auto;
+  padding: 1px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: 1.6;
+  white-space: nowrap;
+}
 
 .topbar h1 {
   margin: 0;
@@ -440,47 +704,200 @@ body {
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar-actions { display: flex; gap: 6px; flex: 0 0 auto; align-items: center; }
 
-/* 右上角的模型 / 角色切换下拉框 */
-.model-switch {
-  max-width: 220px;
-  height: 32px;
-  /* 右边留出箭头的位置，文字不会顶到箭头下面 */
-  padding: 0 32px 0 12px;
-  background: var(--bg-card);
-  background-image: var(--select-arrow);
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 14px 14px;
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 400;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
-  box-shadow: var(--shadow-sm);
+/* 顶栏这几颗是「轻」的：透明底、hover 才浮出主色浅底（设计稿的 .ic-btn）。
+   别跟着 .btn-ghost 一起变白卡 —— 一行三个白块会把标题压下去。 */
+.topbar-actions .btn-ghost { background: transparent; box-shadow: none; }
+.topbar-actions .btn-ghost:hover { background: var(--accent-soft); color: var(--accent); }
+
+/* 顶栏按钮里的图标（外观的调色盘 / 视角的眼睛）：跟着文字走，
+   和字之间留 5px（.btn 是 inline-flex，不给 margin 图标会贴着第一个字）。 */
+.topbar-actions .btn > svg {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  margin-right: 5px;
+  opacity: 0.85;
 }
 
-.model-switch:hover { 
-  border-color: var(--border-hover);
-  background-color: var(--bg-side);
+/* ------------------------------ 顶栏「⋯」菜单 ------------------------------ */
+
+/* 记忆 / 复制全文 / 导出 / 清空对话 收在「⋯」下面 —— 一排七八个按钮太挤了 */
+.menu-wrap { position: relative; }
+.menu-toggle { position: relative; }
+
+/* 「⋯」上的小圆点：菜单里藏着东西（比如压了几段记忆）时提醒一下，收起来就看不见了 */
+.more-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-side);
 }
-.model-switch:focus-visible { 
-  border-color: var(--accent); 
-  box-shadow: var(--focus-ring);
+
+.menu-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  min-width: 156px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
 }
-.model-switch:disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(0.4); }
-.model-switch option, .model-switch optgroup { 
-  background: var(--bg-card); 
+
+/* 菜单项目身是 <button>，但要长得像菜单行，不是按钮。
+   选择器写成 .menu-pop .menu-item（比通用按钮规则更具体），免得按按钮的样子被压回去。 */
+.menu-pop .menu-item {
+  display: flex;
+  align-items: center;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
   color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menu-pop .menu-item:hover { background: var(--accent-soft); color: var(--accent); }
+.menu-pop .menu-item-danger { color: var(--danger-text); }
+.menu-pop .menu-item-danger:hover { background: var(--danger-bg-hover); color: var(--danger-hover); }
+/* 菜单项里的段数角标：它本来是按幽灵按钮上的位置调的，这里跟着文字走就行 */
+.menu-pop .memory-badge { margin-left: 6px; }
+
+/* --------------------------- 顶栏：切换模型 --------------------------- */
+
+/* 刻意不做成原生 <select>：它的下拉列表由系统画（直角、系统蓝高亮、系统字体），
+   这套「大圆角 + 柔和阴影」根本管不着它。改成和「⋯」共用的 .menu-pop 弹层。
+   列表内容由 views/chatList.js 的 renderModelSwitch 铺，开合在 ui/modelMenu.js。 */
+.model-pick { position: relative; }
+
+.model-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  background: var(--bg-card);
+  /* 扁平化第 1 条：靠阴影浮起来，不描边 */
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  /* 顶栏那一行里只有它是「实心的白块」，稍微加粗一点才压得住 */
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  box-shadow: var(--shadow-sm);
+  transition: color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+
+.model-switch:hover { color: var(--accent); box-shadow: var(--shadow-lg); }
+.model-switch:focus-visible { box-shadow: var(--focus-ring); }
+.model-switch[aria-expanded='true'] { color: var(--accent); box-shadow: var(--shadow-lg); }
+.model-switch:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  /* 没配模型时它就不是个按钮了，收成一块「提示」而不是浮起的卡片 */
+  background: transparent;
+  box-shadow: none;
+}
+
+/* 模型名可能很长（gpt-4o-mini-2024-07-18 那种），截断而不是把顶栏撑开 */
+.model-switch-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 箭头沿用 select 那支（--select-arrow 跟着配色走），展开时翻过来 */
+.model-switch-caret {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px 14px;
+  transition: transform 0.18s;
+}
+.model-switch[aria-expanded='true'] .model-switch-caret { transform: rotate(180deg); }
+
+/* 弹层外壳复用 .menu-pop（跟「⋯」长得一模一样），这里只管列表自己的宽高和滚动 */
+.model-menu {
+  min-width: 240px;
+  max-width: 340px;
+  /* 服务商多的时候能排到屏幕外去，给个上限自己滚 */
+  max-height: 340px;
+  overflow-y: auto;
   padding: 6px;
 }
+
+/* 服务商分组小标题：不画分隔线（扁平化第 2 条），
+   靠「小一号 + 拉开字距 + 淡色」分层，和状态卡的分组标题是同一招 */
+.model-menu-group {
+  padding: 10px 10px 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.model-menu-group:first-child { padding-top: 4px; }
+
+/* 「（还没有模型）」这种占位：是提示不是选项，别让它看起来能点 */
+.model-menu-empty { padding: 7px 10px; font-size: 13px; color: var(--text-faint); }
+
+/* 选择器写成 .model-menu .model-menu-item —— 比通用按钮规则更具体，
+   免得按按钮的样子被压回去（.menu-item 那边同理）。 */
+.model-menu .model-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.model-menu .model-menu-item:hover { background: var(--accent-soft); color: var(--accent); }
+
+/* 当前用的那个。列表里十几行，光靠颜色不够「一眼看出是哪个」，所以再压个勾 */
+.model-menu .model-menu-item.is-active { color: var(--accent); font-weight: 600; }
+
+.model-menu-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+
+/* 勾那块位置**每行都占着**（没选中的只是透明），
+   否则选中的那行文字会被顶得比别的行短一截，看着像对不齐 */
+.model-menu-check { flex: 0 0 14px; width: 14px; height: 14px; opacity: 0; }
+.model-menu-item.is-active .model-menu-check { opacity: 1; }
 
 .messages {
   flex: 1 1 auto;
@@ -524,8 +941,12 @@ body {
   user-select: none;
 }
 
-.msg.user .msg-avatar { background: var(--border-soft); color: var(--text-dim); }
-.msg.assistant .msg-avatar { background: var(--accent-soft); color: var(--accent); }
+/* 消息区头像：白字 + JS 挂的渐变底（.g1~.g6 / 我 = .gme）。
+   ⚠️ 这几条**不能**再写 background —— `.msg.user .msg-avatar` 是 (0,2,0)，
+   比 `.g1`.g6` 这些单类 (0,1,0) 高一级，写了底色就会把渐变整个盖掉。 */
+.msg.user .msg-avatar,
+.msg.assistant .msg-avatar { color: #fff; }
+/* 出错的这条保持警示色（也是 (0,2,0)，能盖过渐变，是故意的） */
 .msg.error .msg-avatar { background: var(--danger-bg); color: var(--danger); }
 
 /* 点「我」的头像能开状态卡：给个可点的信号（别让用户猜这里能点） */
@@ -583,6 +1004,8 @@ body {
 .msg.user .bubble {
   width: fit-content;
   max-width: 100%;
+  /* 同 .msg.assistant .bubble：说话人那一侧的上角收小 */
+  border-top-right-radius: 6px;
 }
 
 /* AI 的回答：不要投影、不要重边框，但内边距要跟用户气泡一致，
@@ -590,7 +1013,12 @@ body {
 .msg.assistant .bubble { 
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
-  box-shadow: none;
+  /* 气泡底（白）和页底（暖粉白）只差一点，光靠 1px 淡描线看不出「这是个气泡」——
+     加一层很淡的主色阴影，它才像一个浮在页面上的物件。这也是设计稿里
+     「可爱感」的一半来源：影子是彩色的、而且很轻。 */
+  box-shadow: var(--shadow-sm);
+  /* 说话人那一侧的上角收小，气泡才有「从这个人嘴里出来」的方向感 */
+  border-top-left-radius: 6px;
 }
 .msg.error .bubble {
   background: var(--danger-bg);
@@ -1028,9 +1456,9 @@ body {
 
 .composer {
   flex: 0 0 auto;
-  padding: 10px 20px 14px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-side);
+  padding: 12px 20px 16px;
+  /* 不描边、不填底色：输入这一条自己靠白底 + 阴影浮在页底上（设计稿 .field 就是这逻辑），
+     少了上面那条分隔线，消息区和输入区反而分得更干净 */
 }
 
 .composer-box {
@@ -1039,19 +1467,22 @@ body {
   align-items: flex-end;
   max-width: 860px;
   margin: 0 auto;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* 白底 + 一层淡阴影，不描边（设计稿的 .field）——
+     原来是浅色底 + 1px 边框，压在本身就很浅的页底上等于半透明，显脏 */
+  background: var(--bg-card);
+  box-shadow: var(--shadow-sm);
+  /* 24px：单行时看着接近胶囊，长到三四行也不会变成怪形状 */
+  border-radius: 24px;
   /* 左边只留一点：加图按钮自己占位置，文字不会贴边 */
   padding: 8px;
-  transition: border-color 0.15s;
+  transition: box-shadow 0.15s;
 }
 
-.composer-box:focus-within { border-color: var(--accent); }
+/* 聚焦不换边框色，把阴影压深一层（没有边框可换了） */
+.composer-box:focus-within { box-shadow: var(--shadow-lg); }
 
 /* 拖图片进来时整条输入框高亮，告诉用户「往这儿放」 */
 .composer.drop-target .composer-box {
-  border-color: var(--accent);
   box-shadow: var(--focus-ring);
 }
 
@@ -1215,7 +1646,15 @@ body {
 
 #input::placeholder { color: var(--text-faint); }
 
-.btn-send { flex: 0 0 auto; padding: 8px 20px; height: stretch; border-radius: var(--radius); }
+/* 发送键：独立一颗胶囊，贴输入框底对齐（输入框长到三四行时不会浮到中间）。
+   留着「发送」两个字没换成箭头 —— 中文环境里这两个字比一个图标好认。 */
+.btn-send {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  height: 40px;
+  padding: 0 22px;
+  border-radius: 999px;
+}
 
 .composer-hint {
   max-width: 860px;
@@ -1631,13 +2070,15 @@ body {
   align-items: center;
   gap: 8px;
   padding: 16px 14px 14px;
-  border: 1px solid var(--border);
+  /* 不描边 + 一层淡阴影（设计稿的 .kcard）：和右栏的状态卡同一套分层方式 */
+  border: 0;
   border-radius: var(--radius);
   background: var(--bg-card);
-  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.15s, transform 0.12s;
 }
 
-.char-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-sm); }
+.char-card:hover { box-shadow: var(--shadow-lg); }
 
 /* 卡片右上角的删除：跟左侧会话列表的 × 一样，平时透明、鼠标移上来才浮出。
    用 :focus-visible 让键盘 Tab 到它时也能看见。 */
@@ -1661,6 +2102,8 @@ body {
 .char-card-del:focus-visible { opacity: 1; }
 .char-card-del:hover { color: var(--danger); background: var(--danger-bg); }
 
+/* ⚠️ 这里**不能**写 background —— 它比 `.g1`~`.g6` 这些单类 (0,1,0) 同优先级
+   但位置更靠后，写了浅底就会把 JS 挂的渐变整个盖掉（表现为"浅色圆 + 主色字"）。 */
 .char-card-avatar {
   width: 76px;
   height: 76px;
@@ -1669,8 +2112,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent-soft);
-  color: var(--accent);
+  color: #fff;
   font-size: 30px;
   font-weight: 600;
   user-select: none;
@@ -1699,6 +2141,10 @@ body {
 }
 .char-card-actions { display: flex; gap: 8px; width: 100%; margin-top: 2px; }
 .char-card-actions .btn { flex: 1 1 0; }
+/* 卡片本身就是白的，次级按钮再来一层「白底 + 阴影」会糊成一块 ——
+   这里压回透明，和顶栏那几颗同一个道理（设计稿的 .kfoot button 也是纯文字）。 */
+.char-card-actions .btn-ghost { background: transparent; box-shadow: none; }
+.char-card-actions .btn-ghost:hover { background: var(--accent-soft); color: var(--accent); }
 
 /* 世界书卡片的头像位：不用首字母，固定一个「世」字，和角色卡区分开 */
 .worldbook-avatar {
@@ -3101,59 +3547,88 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   .wb-entry { flex: 0 0 auto; max-width: 200px; }
 }
 
+/* ==========================================================================
+   在场角色：入口条（一行） + 浮动的状态卡
+   入口条排在消息区上面；卡片是**悬浮**在正文上的绝对定位浮层，可拖。
+   2026-09-30 定稿（星宝）：中间短暂地做过「固定 300px 右栏」，又被换回悬浮 ——
+   固定确实不挡正文，但永久吃掉 300px 对话宽度，而状态是「边聊边瞄一眼」的东西。
+   被否掉的两个毛病这次各自解决：开新卡**自动并排铺开**（stateCard.js 的
+   layoutSideBySide），不再叠着；卡片能拖走、拖过之后位置记住。
+   ========================================================================== */
+
 /* --------------------------- 状态卡入口条 --------------------------- */
 
-/* 本局有状态的每个人（我 / 各角色）一个头像，点开看那张状态卡。
-   以前这里是一整块「当前状态」折叠面板 —— 一个面板只能显示一个角色的状态，
-   是旧版单角色的遗留；字段现在按 owner 分给了各人的状态卡，这里只留入口。
-   左边那四个字「当前状态」是留下的路标（见下面 .panel-title），不是折叠按钮。 */
+/* 一行装完：在场角色 N + 那排头像 + 全部展开。跟着对话列左右留 22px（和顶栏对齐）。
+   ⚠️ 不描边、不加阴影 —— 扁平化规则第 1 条：靠底色分层就够了。 */
 .panel-box {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 10px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
+  margin: 0 22px 10px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 12px;
   background: var(--bg-side);
 }
 
-/* 「当前状态」这个标签是**故意留的**：这块区域永远叫这个名字，
-   方便用户指着界面描述问题（「当前状态那里不对」）。
-   它不是按钮、不可折叠 —— 只是一个路标，别把它接上开关。 */
+/* 「在场角色 N」这一行是**标签**，不是按钮、不可折叠 —— 别接开关。
+   字号 / 字距 / 颜色跟设计稿的 .cast-cap 一致，数字用主色挑出来。 */
 .panel-title {
   flex: 0 0 auto;
-  font-size: 12px;
-  color: var(--text-dim);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  color: var(--text-faint);
   white-space: nowrap;
   user-select: none;
 }
 
-/* --------------------------- 入口条：头像行 --------------------------- */
+.panel-title b {
+  font-weight: 600;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+/* 「全部展开 / 全部收起」。批量开关**不是**另一种模式 ——
+   它只是把每张卡一次拨到同一个开合状态，拨完每张卡照样能各开各的。 */
+.panel-all {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font-family: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.panel-all:hover { color: var(--accent); }
+.panel-all:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* 「本局有谁」：我 + 出现过的角色卡。点头像开那张状态卡。
-   （AI 现编的 NPC 没卡，不进这里。） */
+   （AI 现编的 NPC 没卡，不进这里。）flex:1 把「全部展开」顶到最右。 */
 .panel-cast {
   flex: 1 1 auto;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .panel-cast:empty { display: none; }
 
+/* 34px 渐变圆 + 白字（设计稿的 .cav）。
+   原来是「1px 描边 + 主色浅底 + 主色字」，跟底色一个调子，一排看下来糊在一起。 */
 .panel-avatar {
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 12px;
+  color: #fff;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1;
   display: inline-flex;
@@ -3161,16 +3636,18 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   justify-content: center;
   overflow: hidden;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.12s;
+  transition: box-shadow 0.15s, transform 0.12s;
 }
 
-.panel-avatar:hover { border-color: var(--accent-border); transform: translateY(-1px); }
+.panel-avatar:hover { transform: translateY(-1px); }
 .panel-avatar:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .panel-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ------------------------------ 状态卡（浮动） ------------------------------ */
 
-/* 浮层铺满主区，但本身不挡鼠标 —— 只有卡片实体可交互。 */
+/* 浮层铺满整个对话列，但**本身不挡鼠标** —— 只有卡片实体可交互。
+   这样卡片可以盖在正文上，正文该滚动照滚。
+   （`.chat-col` 已经是 position:relative，所以这里绝对定位就是贴着它。） */
 .state-cards {
   position: absolute;
   inset: 0;
@@ -3178,42 +3655,51 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   z-index: 40;
 }
 
+/* 白底 + 一层**厚一点的**阴影，**不描边**。
+   浮在正文上，阴影是它唯一的分层手段 —— 这里不能省成 --shadow-sm，
+   不然白色卡片压在白色气泡上会糊在一起。 */
 .state-card {
   position: absolute;
+  /* 宽度定死：定位和「并排铺开」都按这个数算（stateCard.js 的 CARD_W） */
   width: 250px;
   max-height: 62vh;
   display: flex;
   flex-direction: column;
   pointer-events: auto;
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 14px;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
 }
 
+/* 收起的卡只有一行标题，阴影浅一点，让展开的那张更"浮" */
+.state-card:not(.open) { box-shadow: var(--shadow-sm); }
+
+/* 标题行是**拖动把手**（stateCard.js 的 wireDrag）——
+   光标给 grab，别让用户猜这里能拖。 */
 .sc-head {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 8px 8px 10px;
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--bg-side);
+  gap: 9px;
+  padding: 9px 11px;
   cursor: grab;
   user-select: none;
 }
 
 .sc-head:active { cursor: grabbing; }
 
+/* 30px 而不是设计稿 .ava.sm 的 38：这张卡的头里要塞下「名字 + 编辑 + 收起 + ✕」
+   四样（设计稿只放了名字 + 收起），38 会把名字挤成省略号。
+   30 和上面那排 34 的头像同族，一眼看得出是一个人。 */
 .sc-avatar {
   flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-size: 11px;
+  color: #fff;
+  font-size: 13px;
   font-weight: 600;
   display: inline-flex;
   align-items: center;
@@ -3234,7 +3720,11 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   white-space: nowrap;
 }
 
+/* ⚠️ .sc-toggle 必须在这组里 —— 原来只写了 .sc-edit / .sc-close，
+   「收起」这颗就带着浏览器默认的按钮边框（2px outset 深灰），
+   在一排干净的文字按钮里格外扎眼。它就是「不够扁平」最明显的那一处。 */
 .sc-edit,
+.sc-toggle,
 .sc-close {
   flex: 0 0 auto;
   border: none;
@@ -3248,50 +3738,65 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 .sc-edit { font-size: 11px; padding: 3px 7px; }
 .sc-edit:hover { background: var(--accent-soft); color: var(--accent); }
 
+/* 展开 / 收起：和「编辑」一样是**纯文字**（设计稿的 .cc-tog 没有底色）。
+   原来给了一层主色浅底，是为了在收起的卡上一眼看出能点 —— 但一排卡片头上
+   挂三块浅色小方块，正是「不够扁平」的来源；改成 hover 变主色，够用了。 */
+.sc-toggle { font-size: 11px; padding: 3px 4px; }
+.sc-toggle:hover { color: var(--accent); }
+
 .sc-close { width: 20px; height: 20px; font-size: 12px; line-height: 1; }
 .sc-close:hover { background: var(--danger-bg); color: var(--danger); }
 
 .sc-body {
+  /* ⚠️ 卡片是浮动的，靠 max-height:62vh 封顶 —— 字段多了**必须在这一层滚**，
+     否则内容会把卡片撑出屏幕。min-height:0 是 flex 子项能滚的前提。 */
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 10px 10px;
+  padding: 2px 12px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 .sc-empty { font-size: 11.5px; color: var(--text-faint); padding: 2px 0 4px; }
 
-/* 卡片里的分组小标题（和面板的 .panel-group-title 同一套语气，小一号） */
+/* 卡片里的分组小标题（设计稿的 .s-cap）：**没有底色、没有下划线**，
+   只靠"小一号 + 拉开字距 + 淡色"把自己和字段行分开。
+   原来是主色字 + 一条下划线，一条卡片里几个分组就几条线，最显脏的就是它。 */
 .sc-group-title {
   font-size: 10.5px;
-  font-weight: 600;
-  color: var(--accent);
-  letter-spacing: 0.02em;
-  border-bottom: 1px solid var(--border-soft);
-  padding-bottom: 3px;
-  margin: 6px 0 1px;
+  font-weight: 400;
+  color: var(--text-faint);
+  letter-spacing: 0.12em;
+  padding-bottom: 0;
+  margin: 11px 0 9px;
 }
 
-.sc-body > .sc-group-title:first-child { margin-top: 0; }
+.sc-body > .sc-group-title:first-child { margin-top: 2px; }
 
+/* 字段行：也**不画行分隔线**。
+   一屏里十几行，每行一条线就是一张表格 —— 那正是「不够扁平」的观感来源。 */
 .sc-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 3px 8px;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--border-soft);
+  padding: 0;
+  margin-bottom: 6px;
 }
 
-.sc-name { flex: 0 0 auto; font-size: 11px; color: var(--text-faint); }
+.sc-name { flex: 0 0 auto; font-size: 12.5px; color: var(--text-dim); }
 
+/* 值用 600 + 等宽数字（设计稿的 .s-row b）：一列数字上下能对齐，
+   而且和左边的字段名拉开层次，不用靠颜色硬撑。 */
 .sc-value {
   flex: 1 1 auto;
   min-width: 0;
   font-size: 12.5px;
+  font-weight: 600;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
   text-align: right;
 }
@@ -3299,18 +3804,20 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 .sc-row.has-bar .sc-name { flex: 1 1 auto; }
 .sc-row.has-bar .sc-value { flex: 0 0 auto; }
 
+/* 进度条：一条实色细线（设计稿的 .bar）。底色用 --border-soft ——
+   设计稿那边是铺在栏底色上的，这里在**白卡里**，用原来的 --border 会太抢。 */
 .sc-bar {
   flex: 1 0 100%;
-  height: 5px;
-  border-radius: 999px;
-  background: var(--border);
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border-soft);
   overflow: hidden;
-  margin-top: 4px;
+  margin: 4px 0 6px;
 }
 
 .sc-bar-fill {
   height: 100%;
-  border-radius: 999px;
+  border-radius: 3px;
   background: var(--accent);
   transition: width 0.18s ease-out;
 }
@@ -3359,16 +3866,17 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 
 .sc-add-btn {
   flex: 0 0 auto;
-  padding: 4px 10px;
+  padding: 5px 11px;
   font-size: 11.5px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--bg-input);
-  color: var(--text-dim);
+  /* 不描边：主色浅底已经够说明「这颗能点」（卡片里其它按钮全是纯文字） */
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
   cursor: pointer;
 }
 
-.sc-add-btn:hover { border-color: var(--accent-border); color: var(--accent); }
+.sc-add-btn:hover { background: var(--accent-soft-strong); }
 
 .panel-del {
   flex: 0 0 auto;

@@ -10,8 +10,13 @@ export const $ = (id) => document.getElementById(id);
 
 export const el = {
   convoList: $('convo-list'),
+  // 会话列表头上的分组标签（「最近 · 5」，条数由 renderConvoList 填）
+  convoCap: $('convo-cap'),
   convoTitle: $('convo-title'),
   convoMeta: $('convo-meta'),
+  // 顶栏左边那颗头像 + 标题旁边的小胶囊（都是 renderHeader 填的）
+  topbarAvatar: $('topbar-avatar'),
+  convoPill: $('convo-pill'),
   messages: $('messages'),
   input: $('input'),
   hintText: $('hint-text'),
@@ -38,11 +43,18 @@ export const el = {
   btnDelProvider: $('btn-del-provider'),
   providerTabs: $('provider-tabs'),
   providerPresets: $('provider-presets'),
+  // 顶栏切换模型：按钮 + 它下面的弹层（自绘的，不是原生 select —— 见 ui/modelMenu.js）
   modelSwitch: $('model-switch'),
-  // 状态卡入口条（点头像开各人的状态卡）
+  modelSwitchLabel: $('model-switch-label'),
+  modelMenu: $('model-menu'),
+  // 状态卡入口条（点头像开各人的状态卡）—— 一行，排在消息区上面
   panelBox: $('panel-box'),
   panelCast: $('panel-cast'),
-  // 状态卡（点「我」/角色的头像打开的浮动卡片）
+  // 「在场角色 N」里的那个数字，条数由 panelUi 的 renderPanelCast 填
+  panelCastCount: $('panel-cast-count'),
+  // 「全部展开 / 全部收起」批量开关（在入口条那一行的右端）
+  btnCardsAll: $('btn-cards-all'),
+  // 浮动状态卡的容器（铺满对话列、本身不挡鼠标，只有卡片实体可交互）
   stateCards: $('state-cards'),
   // 对话窗口外观
   btnAppearance: $('btn-appearance'),
@@ -59,6 +71,11 @@ export const el = {
   btnCloseAppearance2: $('btn-close-appearance-2'),
   // 视角设置
   btnPerspective: $('btn-perspective'),
+  // 顶栏「⋯」菜单：记忆 / 复制全文 / 导出 / 清空对话 都收在里面（见 ui/menu.js）
+  btnMore: $('btn-more'),
+  moreMenu: $('topbar-more'),
+  // 「⋯」上的小圆点：菜单里藏着东西（比如有记忆摘要）时提示一下，不然收起来就看不见了
+  moreDot: $('more-dot'),
   // 「帮我想想」的建议条
   suggestStrip: $('suggest-strip'),
   suggestList: $('suggest-list'),

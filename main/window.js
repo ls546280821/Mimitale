@@ -14,12 +14,31 @@ const { BrowserWindow, shell } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const { DEFAULT_SETTINGS, loadSettings } = require('./providers.js');
+const { DEFAULT_SETTINGS, loadSettings, ACCENTS } = require('./providers.js');
 
 let mainWindow = null;
 
-// 窗口底色跟着主题走，深色模式下启动时就不会先闪一下白
-const WINDOW_BG = { light: '#f7f9fc', dark: '#1a1d23' };
+// 窗口底色跟着主题 + 配色方案走，启动时就不会先闪一下别的颜色。
+// 这两个值必须和 style.css 里 --bg 保持一致（改配色时两边一起改）——
+// 之前是 #1a1d23，但 style.css 的夜间 --bg 是 #17161b，启动会闪一下，这里对齐掉。
+const WINDOW_BG = {
+  pink: { light: '#fff5f8', dark: '#17161b' },
+  blue: { light: '#f4f9ff', dark: '#17161b' },
+  matcha: { light: '#f3faf5', dark: '#17161b' }
+};
+
+// 窗口尺寸 —— **只有这一处定义**。
+//
+// 用 useContentSize，所以这几个数就是「画布」的尺寸，和设计稿的 frame 一一对应。
+// 冒烟测试的截图窗口也从这里读（tools/smoke-test.js）——
+// 那边原来自己写死 1180×800，改完窗口之后就一直照着旧尺寸出图，
+// 结果「设计稿 1440、真机截图 1164」两张图对不上，白白照着挤压的顶栏调了半天。
+const WINDOW_SIZE = {
+  width: 1440,
+  height: 900,
+  minWidth: 1040,
+  minHeight: 680
+};
 
 const DEV_MODE =
   process.argv.includes('--dev') || process.env.MIMITALE_OPEN_DEVTOOLS === '1';
@@ -61,17 +80,18 @@ function createWindow() {
   try {
     const saved = loadSettings();
     theme = saved.theme === 'dark' ? 'dark' : 'light';
-    accent = saved.accent === 'blue' ? 'blue' : 'pink';
+    accent = ACCENTS.includes(saved.accent) ? saved.accent : 'pink';
   } catch (err) {
     // 读不到设置就用默认主题，不影响启动
   }
 
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 800,
-    minWidth: 900,
-    minHeight: 620,
-    backgroundColor: WINDOW_BG[theme],
+    // 1440×900 的内容区：三栏（224 对话列表 / 对话 / 300 在场角色）在 1180 宽下太挤，
+    // 对话区只剩六百多像素，中文字一行放不下十来个字。
+    // 本机屏幕 1920×1080、工作区 1920×1040，边框再吃掉一点也放得下。
+    ...WINDOW_SIZE,
+    useContentSize: true,
+    backgroundColor: (WINDOW_BG[accent] || WINDOW_BG.pink)[theme],
     title: '如我所书',
     autoHideMenuBar: true,
     webPreferences: {
@@ -128,5 +148,7 @@ function sendToRenderer(channel, payload) {
 module.exports = {
   createWindow,
   getMainWindow,
-  sendToRenderer
+  sendToRenderer,
+  // 冒烟测试的截图窗口读它，保证「设计稿 / 真机 / 出图」三边尺寸一致
+  WINDOW_SIZE
 };

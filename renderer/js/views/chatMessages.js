@@ -21,6 +21,7 @@ import { api } from '../core/api.js';
 import { showToast } from '../ui/toast.js';
 import { esc, renderMarkdown } from '../ui/markdown.js';
 import { h, button } from '../ui/build.js';
+import { entityTone } from '../ui/avatarTone.js';
 import { characterForConvo, convoWorldbookIds, worldbookById } from '../data/library.js';
 import { convoPlayer, convoUserName, userName, speakerName } from '../data/cast.js';
 import { cleanAssistantText, convoFieldDisplayNames, panelGroupNames } from '../data/panel.js';
@@ -149,6 +150,9 @@ function messageNode(message, index, character, labels, ctx) {
 
   const avatar = document.createElement('div');
   avatar.className = 'msg-avatar';
+  // 底色跟「会话条目 / 状态卡 / 在场角色栏」共用同一套渐变（设计稿 .g1~.g6），
+  // 同一个人在哪都是同一个颜色；「我」固定那支蓝（.gme）。
+  avatar.classList.add(isUser ? 'gme' : entityTone(character && character.id, assistantLabel));
 
   if (speaker && speaker.avatar) {
     const img = document.createElement('img');

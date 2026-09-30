@@ -15,8 +15,17 @@
 import { state } from '../core/state.js';
 import { el } from '../core/dom.js';
 import { activeConvo } from '../core/util.js';
+import { h } from '../ui/build.js';
+import { entityTone } from '../ui/avatarTone.js';
 import { currentEndpoint } from '../data/providers.js';
 import { characterForConvo, convoWorldbookIds, worldbookById } from '../data/library.js';
+import {
+  convoPanel,
+  convoPanelDef,
+  convoPanelFields,
+  panelFieldName,
+  panelFieldOwner
+} from '../data/panel.js';
 import {
   DEFAULT_NARRATION_MODE,
   DEFAULT_PACE_MODE,
@@ -29,6 +38,66 @@ import {
 import { convoSummaries } from '../data/memory.js';
 import { onRefresh } from './refresh.js';
 
+// ---------------------------------------------------------------------------
+//  顶栏头像 + 胶囊
+// ---------------------------------------------------------------------------
+
+/**
+ * 顶栏左边那颗头像：这一屏是在跟谁聊。
+ *
+ * 三种情形和侧栏条目、在场角色栏保持同一套判断：
+ *   绑了角色 → 角色头像 / 名字首字（圆）
+ *   世界书会话 → 书名首字（**方角**，形状本身就是分类）
+ *   都没有 → 中性点
+ *
+ * 底色统一从 `entityTone` 取（名字哈希）—— 同一个角色在侧栏、消息区、
+ * 右栏、顶栏四处都是同一个颜色，这是「同一个人」最便宜的视觉线索。
+ */
+function renderTopbarAvatar(convo, character) {
+  const host = el.topbarAvatar;
+  if (!host) return;
+
+  host.className = 'topbar-avatar';
+  host.textContent = '';
+
+  if (character) {
+    host.classList.add(entityTone(character.id, character.name));
+    if (character.avatar) host.appendChild(h('img', { src: character.avatar, alt: '' }));
+    else host.textContent = character.name.slice(0, 1);
+    return;
+  }
+
+  const wbId = convoWorldbookIds(convo)[0] || '';
+  const wb = wbId ? worldbookById(wbId) : null;
+  if (wb) {
+    host.classList.add('book', entityTone(wb.id, wb.name));
+    host.textContent = wb.name.slice(0, 1);
+    return;
+  }
+
+  host.classList.add('plain');
+  host.textContent = convo ? '书' : '·';
+}
+
+/**
+ * 找绑定角色身上第一个**有范围的数值字段**，做成「好感 41」这种一行字。
+ * 只服务顶栏那颗胶囊 —— 不开状态卡也能看见最要紧的那个数。
+ * 找不到（没绑角色 / 没有数值字段 / 值为空）就返回空串，胶囊整个不显示。
+ */
+function charMeterLabel(convo, character) {
+  if (!convo || !character || !character.id) return '';
+  const panel = convoPanel(convo);
+  const keys = convoPanelFields(convo).filter((key) => panelFieldOwner(convo, key) === character.id);
+  for (const key of keys) {
+    const def = convoPanelDef(convo, key);
+    if (!def || def.type !== 'meter') continue;
+    const value = panel[key];
+    if (value == null || String(value).trim() === '') continue;
+    return `${panelFieldName(key)} ${String(value).trim()}`;
+  }
+  return '';
+}
+
 export function renderHeader() {
   const convo = activeConvo();
   const settings = state.settings || {};
@@ -36,6 +105,7 @@ export function renderHeader() {
 
   const endpoint = currentEndpoint();
   const character = characterForConvo(convo);
+  renderTopbarAvatar(convo, character);
   const prefix = character ? `${character.name} · ` : '';
 
   if (!endpoint) {
@@ -70,14 +140,24 @@ export function renderHeader() {
         : ` · 世界：${charBooks.map((b) => b.name).join('、')}（角色自带）`;
   }
 
-  // 视角：只在偏离默认（标准 + 一步一步 + 非 GM）时提示，平时不占位置
+  // 视角：只在偏离默认（标准 + 一步一步 + 非 GM）时提示。
+  // 2026-09-30 从 meta 那行文字里搬到了标题旁边的**小胶囊**（设计稿的 .pill-tag）——
+  // 「这一局怎么跑的」和标题同级，混在服务商/模型那串信息里根本挑不出来。
   const viewTags = [];
   if (isGmMode(convo)) viewTags.push('GM 模式');
   const narrationMode = convoNarrationMode(convo);
   if (narrationMode !== DEFAULT_NARRATION_MODE) viewTags.push(NARRATION_MODES[narrationMode].label);
   const paceMode = convoPaceMode(convo);
   if (paceMode !== DEFAULT_PACE_MODE) viewTags.push(PACE_MODES[paceMode].label);
-  if (viewTags.length) el.convoMeta.textContent += ` · ${viewTags.join(' + ')}`;
+
+  // 胶囊的优先级：视角偏离 > 绑定角色身上第一个数值字段 > 不显示。
+  // 视角排前面，因为它决定 AI 怎么说话（比某个数值更该被一眼看见）；
+  // 都没有就整个收起来，不留一颗空胶囊占位置。
+  const pillText = viewTags.join(' + ') || charMeterLabel(convo, character);
+  if (el.convoPill) {
+    el.convoPill.textContent = pillText;
+    el.convoPill.classList.toggle('hidden', !pillText);
+  }
 
   // 记忆：正在压缩时给个提示，压缩完显示覆盖了多少条
   const segCount = convoSummaries(convo).length;

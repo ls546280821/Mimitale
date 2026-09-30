@@ -13,7 +13,7 @@
       <div class="brand">
         <span class="brand-dot"></span>
         <span class="brand-name">♪ 如我所书</span>
-        <button id="btn-accent" class="icon-btn brand-theme" type="button" title="切换为蓝色（商务）" aria-label="切换为蓝色（商务）" aria-pressed="false">
+        <button id="btn-accent" class="icon-btn brand-theme" type="button" title="切换为苏打气泡" aria-label="切换为苏打气泡" aria-pressed="false">
           <svg class="icon-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="13.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
             <circle cx="17.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" />
@@ -33,16 +33,16 @@
         </button>
       </div>
 
-      <button id="btn-new" class="btn btn-primary btn-block" aria-label="创建新对话">＋ 新对话</button>
+      <button id="btn-new" class="btn btn-primary btn-block btn-new" aria-label="创建新对话">＋ 新对话</button>
 
-      <div class="sidebar-label">历史会话</div>
+      <div id="convo-cap" class="sidebar-label">最近</div>
       <div id="convo-list" class="convo-list" role="list"></div>
 
       <div class="sidebar-foot">
-        <button id="btn-chars" class="btn btn-ghost btn-block" aria-label="打开角色库">角色库</button>
-        <button id="btn-worldbooks" class="btn btn-ghost btn-block" aria-label="打开世界书">世界书</button>
-        <button id="btn-settings" class="btn btn-ghost btn-block" aria-label="打开设置">设置</button>
-        <button id="btn-folder" class="btn btn-ghost btn-block" aria-label="打开数据文件夹">打开数据文件夹</button>
+        <button id="btn-chars" class="btn btn-ghost btn-block" data-icon="users" aria-label="打开角色库">角色库</button>
+        <button id="btn-worldbooks" class="btn btn-ghost btn-block" data-icon="book" aria-label="打开世界书">世界书</button>
+        <button id="btn-settings" class="btn btn-ghost btn-block" data-icon="settings" aria-label="打开设置">设置</button>
+        <button id="btn-folder" class="btn btn-ghost btn-block" data-icon="folder" aria-label="打开数据文件夹">数据文件夹</button>
       </div>
     </aside>
 
@@ -50,32 +50,80 @@
     <main class="main">
       <!-- 视图一：聊天 -->
       <section id="view-chat" class="view">
+      <!-- 对话列。右栏（在场角色面板）是它的兄弟 —— 两个都在 #view-chat 里，
+           这样切到角色库 / 世界书时整块一起消失，不用另写判断。 -->
+      <div class="chat-col">
       <header class="topbar">
+        <!-- 顶栏头像（设计稿 .top 里那个 .ava）—— 一眼看出「这一屏是在跟谁聊」：
+             绑了角色 → 角色头像 / 名字首字；世界书会话 → 方角的「书」；
+             都没有 → 中性点。底色和侧栏 / 消息区 / 在场角色栏共用同一套
+             （js/ui/avatarTone.js），同一个角色在哪一屏都是同一个颜色。
+             它是**不可点的**（aria-hidden）—— 要开状态卡走右栏那排头像，
+             顶栏这颗只负责「我在哪儿」。 -->
+        <div id="topbar-avatar" class="topbar-avatar" aria-hidden="true">·</div>
         <div class="topbar-title">
-          <h1 id="convo-title">新对话</h1>
+          <!-- 标题那一行 = 会话名 + 一颗小胶囊。胶囊装「这一局有什么特别的」：
+               视角偏离默认（GM 模式 / 叙述模式 / 节奏）优先，否则给绑定角色身上
+               第一个数值字段（「好感 41」这种）—— 不用开状态卡就能看见最要紧的数。
+               ⚠️ 胶囊是 #convo-title 的**兄弟**不是子节点：标题由 renderHeader 直接
+               写 textContent，塞进去会被一起冲掉。 -->
+          <div class="topbar-name">
+            <h1 id="convo-title">新对话</h1>
+            <span id="convo-pill" class="pill-tag hidden"></span>
+          </div>
           <p id="convo-meta" class="meta">未配置</p>
         </div>
         <div class="topbar-actions">
-          <select id="model-switch" class="model-switch" title="切换当前会话使用的模型" aria-label="切换模型"></select>
-          <button id="btn-appearance" class="btn btn-ghost btn-sm" aria-label="打开对话窗口外观设置">外观</button>
-          <button id="btn-perspective" class="btn btn-ghost btn-sm" aria-label="打开视角设置">视角</button>
-          <button id="btn-memory" class="btn btn-ghost btn-sm" aria-label="打开记忆管理">记忆<span id="memory-count" class="memory-badge hidden"></span></button>
-          <button id="btn-copy-all" class="btn btn-ghost btn-sm" aria-label="复制整段对话">复制全文</button>
-          <button id="btn-export-convo" class="btn btn-ghost btn-sm" aria-label="把当前对话导出成 Markdown">导出</button>
-          <button id="btn-clear" class="btn btn-ghost btn-sm" aria-label="清空当前对话">清空对话</button>
+          <!-- 切换模型。刻意不用原生 <select>：它的下拉列表由系统画（直角、系统蓝
+               高亮、系统字体），跟这套「大圆角 + 柔和阴影」根本不是一路，样式管不着。
+               改成和「⋯」共用一套弹层（.menu-pop），列表才能跟着配色走。
+               列表由 views/chatList.js 的 renderModelSwitch 铺，开合在 ui/modelMenu.js。 -->
+          <div class="model-pick">
+            <button id="model-switch" class="model-switch" type="button"
+                    title="切换当前会话使用的模型" aria-label="切换模型"
+                    aria-haspopup="menu" aria-expanded="false">
+              <span id="model-switch-label" class="model-switch-label">未配置模型</span>
+              <span class="model-switch-caret" aria-hidden="true"></span>
+            </button>
+            <div id="model-menu" class="menu-pop model-menu hidden" role="menu" aria-label="选择模型"></div>
+          </div>
+          <button id="btn-appearance" class="btn btn-ghost btn-sm" data-icon="palette" aria-label="打开对话窗口外观设置">外观</button>
+          <button id="btn-perspective" class="btn btn-ghost btn-sm" data-icon="eye" aria-label="打开视角设置">视角</button>
+          <!-- 其余几项收进「⋯」：一排七八个按钮把标题挤成竖排了。
+               常用的（切换模型 / 外观 / 视角）留在外面，偶尔用的收进菜单。
+               菜单的开关逻辑在 js/ui/menu.js，菜单项自己的事件还在原来各处绑。 -->
+          <div class="menu-wrap">
+            <button id="btn-more" class="btn btn-ghost btn-sm menu-toggle" type="button"
+                    aria-label="更多操作" aria-haspopup="menu" aria-expanded="false">
+              <span id="more-dot" class="more-dot hidden" aria-hidden="true"></span>⋯
+            </button>
+            <div id="topbar-more" class="menu-pop hidden" role="menu" aria-label="更多操作">
+              <button id="btn-memory" class="menu-item" type="button" role="menuitem">记忆<span id="memory-count" class="memory-badge hidden"></span></button>
+              <button id="btn-copy-all" class="menu-item" type="button" role="menuitem">复制全文</button>
+              <button id="btn-export-convo" class="menu-item" type="button" role="menuitem">导出</button>
+              <button id="btn-clear" class="menu-item menu-item-danger" type="button" role="menuitem">清空对话</button>
+            </div>
+          </div>
           <button id="btn-stop" class="btn btn-danger btn-sm hidden" aria-label="停止生成回复">停止生成</button>
         </div>
       </header>
 
-      <!-- 状态卡入口条：本局有状态的每一个人（我 / 各角色）一个头像。
-           点头像打开那张状态卡 —— 字段的看和改都在卡里。
-           以前这里是一块「当前状态」折叠面板，一个面板只能显示一个角色的状态，
-           是旧版单角色的遗留，已经去掉。
-           左边那四个字「当前状态」是**留下的路标**：整块区域还是叫这个名字，
-           方便对着界面说「当前状态那里不对」，别删。 -->
-      <section id="panel-box" class="panel-box hidden" aria-label="当前状态（状态卡入口）">
-        <span class="panel-title">当前状态</span>
+      <!-- ============ 在场角色：入口条（一行） + 浮动的状态卡 ============
+           入口条跟着对话列**从上往下**排在消息区上面；卡片是**悬浮**在正文上的，
+           点入口条上的头像打开，可拖动，位置按 owner 各记各的。
+
+           2026-09-30 定稿（星宝）：曾经改成「固定 300px 右栏」——
+           固定确实不挡正文，但代价是对话区永久少 300px，而且状态是「边聊边
+           瞄一眼」的东西，钉在栏里不如浮在眼前。所以回到悬浮。
+           当初被否掉的两个毛病这次各自解决：
+             · 「开两张互相压」→ 开新卡时**自动并排铺开**（stateCard.js 的
+               layoutSideBySide），不再只错开 26px 叠着；
+             · 「盖住正文」→ 卡片能拖走（拖过之后位置记住），而且收起态只有一行。
+           「同时看多张」照样成立：铺开之后每张都完整可见。 -->
+      <section id="panel-box" class="panel-box hidden" aria-label="在场角色（状态卡入口）">
+        <span class="panel-title">在场角色 <b id="panel-cast-count">0</b></span>
         <div id="panel-cast" class="panel-cast" aria-label="本局角色状态卡入口"></div>
+        <button id="btn-cards-all" class="panel-all" type="button">全部展开</button>
       </section>
 
       <section id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions"></section>
@@ -109,9 +157,11 @@
         </div>
       </footer>
 
-      <!-- 状态卡：可拖动的浮动卡片，点入口条上的头像打开。
-           默认只读（文本展示），点卡片上的「编辑」才变成可改。 -->
+      <!-- 浮动的状态卡容器：铺满整个对话列但本身不挡鼠标（pointer-events:none），
+           只有卡片实体可交互。卡片是绝对定位的，位置由 stateCard.js 算。 -->
       <div id="state-cards" class="state-cards"></div>
+
+      </div><!-- /.chat-col -->
 
       </section>
 
@@ -708,10 +758,10 @@
               <div id="c-show-in-panel-box" class="char-options-box">
                 <label class="check">
                   <input id="c-show-in-panel" type="checkbox" />
-                  <span>在状态栏显示（「当前状态」那排头像里加上 TA）</span>
+                  <span>在状态栏显示（「在场角色」那排头像里加上 TA）</span>
                 </label>
                 <span class="field-help" id="c-show-in-panel-help">
-                  勾上之后，这张卡的状态会出现在「当前状态」入口条上。<br />
+                  勾上之后，这张卡的状态会出现在右栏「在场角色」入口条上。<br />
                   <b>不勾不影响人设</b> —— 描述和性格照样进提示词，只是不占头像位。<br />
                   一本书里 NPC 多的时候，只勾你真正想盯的那几个。
                 </span>

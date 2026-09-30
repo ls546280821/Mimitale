@@ -63,6 +63,10 @@ export function renderMemoryIndicator() {
   el.btnMemory.title = count
     ? `已压缩 ${count} 段早期剧情`
     : '较早的对话会自动压成摘要';
+
+  // 记忆收进「⋯」菜单之后，不点开就看不见有没有内容 ——
+  // 有摘要时在「⋯」上点一个小圆点提示一下。
+  if (el.moreDot) el.moreDot.classList.toggle('hidden', count === 0);
 }
 
 // ---------------------------------------------------------------------------

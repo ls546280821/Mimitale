@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Mimitale · 稿纸方案静态稿</title>
+<style>
+/* ==========================================================================
+   稿纸方案 —— 静态设计稿
+   这里只服务「出图给人看」，不参与实际构建。真实施工时把这套 token 与规则
+   搬进 renderer/style.css，标记结构对应 renderer/index.html。
+   ========================================================================== */
+
+:root{
+  --bg:#efeee9;          /* 纸台：背景 / 侧栏 */
+  --sheet:#fbfaf7;       /* 稿纸：正文承载面 */
+  --sheet-2:#f4f3ed;     /* 稿纸的暗一档：输入区、表头 */
+  --line:#dcdad2;        /* 描线（0.5~1px 发丝线） */
+  --line-strong:#c9c7bd;
+  --ink:#1b1a18;         /* 墨 */
+  --ink-dim:#6d6a63;     /* 淡墨 */
+  --ink-faint:#a19c92;   /* 更淡：标注、次要信息 */
+  --accent:#cf3a2b;      /* 朱砂 */
+  --accent-soft:rgba(207,58,43,.09);
+  --accent-line:rgba(207,58,43,.32);
+  --font-ui:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;
+  --font-read:"LXGW WenKai",KaiTi,"楷体","STKaiti","Kaiti SC",serif;
+  --r:10px; --r-sm:7px;
+}
+
+[data-theme="dark"]{
+  --bg:#17181b;
+  --sheet:#1e1f23;
+  --sheet-2:#232428;
+  --line:#2e2f34;
+  --line-strong:#3c3d43;
+  --ink:#e8e6e0;
+  --ink-dim:#9b978e;
+  --ink-faint:#6f6b64;
+  --accent:#e8614a;
+  --accent-soft:rgba(232,97,74,.16);
+  --accent-line:rgba(232,97,74,.38);
+}
+
+[data-accent="indigo"]{
+  --accent:#2f5d8c;
+  --accent-soft:rgba(47,93,140,.10);
+  --accent-line:rgba(47,93,140,.32);
+}
+[data-accent="indigo"][data-theme="dark"]{
+  --accent:#6f9fcd;
+  --accent-soft:rgba(111,159,205,.18);
+  --accent-line:rgba(111,159,205,.40);
+}
+
+*{box-sizing:border-box}
+/* 不留边距：出图脚本截的就是整个视口，每个 .frame 必须正好铺满。
+   滚动条必须藏掉 —— 它占掉的 15px 会把 frame 底部裁掉，图就对不上了。 */
+html{scrollbar-width:none}
+::-webkit-scrollbar{width:0;height:0}
+body{margin:0;padding:0;background:#9a9a95;font-family:var(--font-ui);display:block}
+button{font-family:inherit}
+
+/* ---------- 页面外框 ---------- */
+.frame{
+  width:1180px;height:800px;display:flex;overflow:hidden;
+  background:var(--bg);color:var(--ink);font-family:var(--font-ui);
+  font-size:14px;line-height:1.6;position:relative;
+}
+.frame *{min-width:0}
+
+/* ---------- 侧栏 ---------- */
+.side{width:238px;flex:0 0 238px;background:var(--bg);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 12px 12px}
+.brand{display:flex;align-items:center;gap:9px;padding:2px 8px 18px}
+.seal{width:24px;height:24px;flex:0 0 24px;border-radius:6px;background:var(--accent);color:#fff;font-family:var(--font-read);font-size:15px;display:grid;place-items:center;line-height:1}
+[data-theme="dark"] .seal{color:#17181b}
+.brand-name{font-size:15px;font-weight:500;letter-spacing:.06em}
+
+.new-chat{width:100%;height:36px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-size:13.5px;cursor:pointer;font-weight:400}
+[data-theme="dark"] .new-chat{color:#17181b}
+.new-chat:hover{filter:brightness(1.06)}
+
+.side-cap{font-size:11.5px;color:var(--ink-faint);padding:18px 10px 6px;letter-spacing:.04em}
+.side-list{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:1px}
+.side-item{padding:8px 10px;border-radius:6px;font-size:13px;color:var(--ink-dim);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side-item:hover{background:var(--accent-soft);color:var(--ink)}
+.side-item.on{background:var(--accent-soft);color:var(--accent)}
+
+.side-foot{display:flex;flex-direction:column;gap:1px;padding-top:10px;border-top:1px solid var(--line)}
+.side-link{padding:8px 10px;border-radius:6px;font-size:13px;color:var(--ink-dim);cursor:pointer}
+.side-link:hover{background:var(--accent-soft);color:var(--ink)}
+
+/* ---------- 主区 ---------- */
+.main{flex:1;display:flex;flex-direction:column;background:var(--sheet)}
+
+.top{height:58px;flex:0 0 58px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--line)}
+.top-title{font-size:14.5px;font-weight:500}
+.top-sub{font-size:11.5px;color:var(--ink-faint);margin-top:2px;display:flex;gap:7px}
+.spacer{flex:1}
+
+.ctl{height:30px;border:1px solid var(--line);border-radius:var(--r-sm);background:transparent;padding:0 10px;font-size:12.5px;color:var(--ink-dim);display:flex;align-items:center;gap:6px;cursor:pointer}
+.ctl:hover{border-color:var(--line-strong);color:var(--ink)}
+.ctl.wide{min-width:150px;justify-content:space-between}
+.caret{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid var(--ink-faint)}
+
+/* 当前状态条：安静的一行，不用描边 */
+.strip{height:42px;flex:0 0 42px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--sheet-2)}
+.strip-cap{font-size:11.5px;color:var(--ink-faint);letter-spacing:.04em}
+.chip{display:flex;align-items:center;gap:6px;padding:3px 9px 3px 3px;border-radius:20px;background:var(--sheet);border:1px solid var(--line);font-size:12px;color:var(--ink-dim);cursor:pointer}
+.chip:hover{border-color:var(--accent-line);color:var(--ink)}
+.chip-face{width:20px;height:20px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-size:11px;display:grid;place-items:center;font-family:var(--font-read)}
+.text-btn{background:none;border:0;padding:0;font-size:12px;color:var(--ink-faint);cursor:pointer}
+.text-btn:hover{color:var(--accent)}
+
+/* ---------- 阅读面 ---------- */
+.scroll{flex:1;overflow:hidden;padding:26px 0 10px}
+.read{max-width:664px;margin:0 auto;padding:0 26px}
+
+.msg{display:grid;grid-template-columns:30px 1fr;column-gap:16px;margin-bottom:30px}
+.face{width:30px;height:30px;border-radius:7px;background:var(--sheet-2);border:1px solid var(--line);display:grid;place-items:center;font-family:var(--font-read);font-size:14px;color:var(--ink-dim)}
+.face.clickable{cursor:pointer}
+.who{font-size:12px;color:var(--ink-faint);display:flex;align-items:center;gap:8px;margin-bottom:10px;letter-spacing:.03em}
+.model-tag{font-size:11px;color:var(--ink-faint);border:1px solid var(--line);border-radius:4px;padding:0 5px;line-height:16px}
+
+.prose{font-family:var(--font-read);font-size:18px;line-height:1.95;color:var(--ink);letter-spacing:.01em}
+.prose p{margin:0 0 .58em}
+.prose p:last-child{margin-bottom:0}
+
+.msg.user .body{border-left:2px solid var(--accent);padding-left:16px}
+.say{font-family:var(--font-ui);font-size:15.5px;line-height:1.85;color:var(--ink)}
+
+.acts{display:flex;gap:15px;margin-top:15px;opacity:0;transition:opacity .14s ease}
+.acts.on{opacity:1}
+.acts button{background:none;border:0;padding:0;font-size:12px;color:var(--ink-faint);cursor:pointer}
+.acts button:hover{color:var(--accent)}
+
+.opts{margin-top:20px;border-top:1px solid var(--line);padding-top:8px}
+.opt{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 0 8px 22px;font-size:14px;color:var(--ink-dim);cursor:pointer;position:relative;font-family:var(--font-ui)}
+.opt:before{content:"›";position:absolute;left:6px;color:var(--accent);font-size:15px}
+.opt:hover{color:var(--accent)}
+.opts-foot{display:flex;gap:16px;padding:6px 0 0 22px}
+
+/* ---------- 输入区 ---------- */
+.compose{flex:0 0 auto;border-top:1px solid var(--line);background:var(--sheet-2);padding:13px 26px 14px}
+.compose-in{max-width:664px;margin:0 auto;display:flex;gap:12px;align-items:flex-end}
+.field{flex:1;background:var(--sheet);border:1px solid var(--line);border-radius:var(--r);padding:10px 13px;display:flex;gap:10px;align-items:center}
+.field:focus-within{border-color:var(--accent-line)}
+.ph{font-size:13.5px;color:var(--ink-faint)}
+.compose-hint{max-width:664px;margin:8px auto 0;font-size:11.5px;color:var(--ink-faint)}
+.btn-primary{height:34px;padding:0 18px;border:0;border-radius:8px;background:var(--accent);color:#fff;font-size:13.5px;cursor:pointer}
+[data-theme="dark"] .btn-primary{color:#17181b}
+.btn-ghost{height:34px;padding:0 15px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--ink-dim);font-size:13.5px;cursor:pointer}
+.btn-ghost:hover{border-color:var(--line-strong);color:var(--ink)}
+.icon-btn{width:30px;height:30px;border:0;border-radius:var(--r-sm);background:transparent;color:var(--ink-faint);cursor:pointer;font-size:15px;display:grid;place-items:center}
+.icon-btn:hover{background:var(--accent-soft);color:var(--accent)}
+
+/* ---------- 通用 ---------- */
+.page-head{display:flex;align-items:flex-end;gap:14px;padding:22px 26px 16px;border-bottom:1px solid var(--line)}
+.page-title{font-size:19px;font-weight:500;letter-spacing:.02em}
+.page-sub{font-size:12.5px;color:var(--ink-faint);padding-bottom:2px}
+.page-body{flex:1;overflow:hidden;padding:22px 26px}
+
+.card{background:var(--sheet-2);border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.card-title{font-size:14px;font-weight:500;margin-bottom:11px}
+label.fl{display:block;font-size:12.5px;color:var(--ink-dim);margin-bottom:6px}
+.inp{width:100%;height:38px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--sheet);color:var(--ink);font-family:var(--font-ui);font-size:13.5px;padding:0 12px;display:flex;align-items:center}
+.inp.filled{color:var(--ink)}
+.inp.ph{color:var(--ink-faint)}
+textarea.inp{height:auto;padding:10px 12px;line-height:1.75;resize:none;font-size:13.5px}
+
+/* 角色库 */
+.lib-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.lib-card{background:var(--sheet-2);border:1px solid var(--line);border-radius:var(--r);padding:13px;display:flex;gap:12px;cursor:pointer}
+.lib-card:hover{border-color:var(--accent-line)}
+.lib-face{width:56px;height:56px;flex:0 0 56px;border-radius:8px;background:var(--bg);border:1px solid var(--line);display:grid;place-items:center;font-family:var(--font-read);font-size:24px;color:var(--ink-dim)}
+.lib-name{font-size:14.5px;font-weight:500}
+.lib-tags{font-size:11.5px;color:var(--ink-faint);margin-top:3px}
+.lib-desc{font-size:12.5px;color:var(--ink-dim);margin-top:8px;line-height:1.7;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.lib-foot{display:flex;gap:12px;margin-top:10px}
+
+/* 弹窗 */
+.veil{position:absolute;inset:0;background:rgba(30,27,24,.30)}
+.modal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:820px;height:672px;background:var(--sheet);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line)}
+[data-theme="dark"] .veil{background:rgba(0,0,0,.55)}
+.modal-head{padding:18px 22px 15px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:12px}
+.modal-title{font-size:16px;font-weight:500}
+.modal-note{font-size:11.5px;color:var(--ink-faint);margin-top:4px}
+.modal-body{flex:1;overflow:hidden;padding:20px 22px}
+.modal-foot{flex:0 0 60px;border-top:1px solid var(--line);background:var(--sheet-2);display:flex;align-items:center;gap:10px;padding:0 22px}
+.row{display:flex;gap:14px}
+.kg{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+
+/* 属性分组标签栏 */
+.tabs{display:flex;gap:2px;align-items:center;border-bottom:1px solid var(--line);margin:18px 0 12px}
+.tab{padding:7px 13px;font-size:13px;color:var(--ink-dim);border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;background:none;border-top:0;border-left:0;border-right:0}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-add{color:var(--ink-faint);font-size:12.5px}
+
+/* 字段行 */
+.attr-row{display:grid;grid-template-columns:150px 88px 1fr 120px 30px;gap:10px;align-items:center;margin-bottom:9px}
+.attr-row .inp{height:36px}
+
+/* 状态卡 */
+.float-card{position:absolute;right:26px;top:150px;width:290px;background:var(--sheet);border:1px solid var(--line-strong);border-radius:12px;overflow:hidden}
+.float-head{display:flex;align-items:center;gap:8px;padding:11px 13px;border-bottom:1px solid var(--line);background:var(--sheet-2)}
+.float-title{font-size:13px;font-weight:500}
+.float-body{padding:12px 13px;display:flex;flex-direction:column;gap:13px}
+.group-cap{font-size:11.5px;color:var(--ink-faint);letter-spacing:.06em}
+.stat{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-dim);margin-bottom:5px}
+.stat b{font-weight:400;color:var(--ink);font-variant-numeric:tabular-nums}
+.track{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.track i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.list-item{font-size:12.5px;color:var(--ink-dim);padding-left:12px;position:relative}
+.list-item:before{content:"·";position:absolute;left:2px;color:var(--ink-faint)}
+
+/* 设置 */
+.set-block{margin-bottom:22px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg span{padding:6px 15px;font-size:12.5px;color:var(--ink-dim);cursor:pointer}
+.seg span.on{background:var(--accent);color:#fff}
+[data-theme="dark"] .seg span.on{color:#17181b}
+.swatch{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);cursor:pointer;display:inline-block}
+.swatch.on{outline:2px solid var(--accent);outline-offset:2px}
+
+.badge{font-size:11px;padding:1px 7px;border-radius:20px;border:1px solid var(--line);color:var(--ink-faint)}
+.badge.ok{color:var(--accent);border-color:var(--accent-line);background:var(--accent-soft)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// ============================================================================
+//  静态稿渲染：每个页面一个 frame，出图脚本按 [data-shot] 逐个截。
+//  这里的标记结构是「目标结构」，实际施工时对应 renderer/index.html。
+// ============================================================================
+
+const FACE = { xl:'昔', me:'我', ay:'艾', li:'林' };
+function face(ch, cls){
+  return `<div class="face ${cls||''}">${FACE[ch]||ch}</div>`;
+}
+
+function sidebar(active){
+  const items = ['雨夜，旧书店','选项测试：随便说点什么','顶栏生效测试','冒烟测试世界（分支）','斐法罗斯到底是个什么样'];
+  return `
+  <aside class="side">
+    <div class="brand">
+      <span class="seal">书</span>
+      <span class="brand-name">如我所书</span>
+    </div>
+    <button class="new-chat">新对话</button>
+    <div class="side-cap">历史会话</div>
+    <div class="side-list">
+      ${items.map((t,i)=>`<div class="side-item ${i===0&&active==='chat'?'on':''}">${t}</div>`).join('')}
+    </div>
+    <div class="side-foot">
+      <div class="side-link" ${active==='lib'?'style="background:var(--accent-soft);color:var(--accent)"':''}>角色库</div>
+      <div class="side-link">世界书</div>
+      <div class="side-link" ${active==='set'?'style="background:var(--accent-soft);color:var(--accent)"':''}>设置</div>
+    </div>
+  </aside>`;
+}
+
+function chatFrame(theme){
+  return `
+  <div class="frame" data-theme="${theme}" data-shot="0${theme==='dark'?'2':'1'}-chat-${theme}">
+    ${sidebar('chat')}
+    <section class="main">
+      <div class="top">
+        <div>
+          <div class="top-title">雨夜，旧书店</div>
+          <div class="top-sub"><span>昔涟</span><span>·</span><span>昔涟-测试角色</span><span>·</span><span>deepseek-chat</span></div>
+        </div>
+        <span class="spacer"></span>
+        <div class="ctl wide"><span>deepseek-chat</span><span class="caret"></span></div>
+        <button class="ctl">视角</button>
+        <button class="ctl">外观</button>
+        <button class="ctl" style="width:30px;justify-content:center;padding:0">⋯</button>
+      </div>
+
+      <div class="strip">
+        <span class="strip-cap">当前状态</span>
+        <span class="chip">${face('xl')}昔涟</span>
+        <span class="chip">${face('me')}我</span>
+        <span class="strip-cap">1/1 项已填</span>
+        <span class="spacer"></span>
+        <button class="text-btn">重置</button>
+      </div>
+
+      <div class="scroll">
+        <div class="read">
+          <div class="msg assistant">
+            ${face('xl')}
+            <div class="body">
+              <div class="who">昔涟<span class="model-tag">deepseek-chat</span></div>
+              <div class="prose">
+                <p>雨下到第三天，檐水连成一条不断的线。她把最后一摞旧书上架，回头看你一眼。</p>
+                <p>“伞就放在门口。”她说，“你这身衣服，走到街口就湿透了。”</p>
+              </div>
+              <div class="acts on"><button>复制</button><button>编辑</button><button>重新生成</button><button>配图</button><button>分支</button><button>删除</button></div>
+            </div>
+          </div>
+
+          <div class="msg user">
+            ${face('me','clickable')}
+            <div class="body">
+              <div class="who">我</div>
+              <div class="say">我在门口站了一会儿，才把伞收起来。</div>
+            </div>
+          </div>
+
+          <div class="msg assistant">
+            ${face('xl')}
+            <div class="body">
+              <div class="who">昔涟<span class="model-tag">deepseek-chat</span></div>
+              <div class="prose">
+                <p>她从梯子上下来，把那本没上架的书抱在怀里，露出半截褪色的书脊。</p>
+              </div>
+              <div class="opts">
+                <button class="opt">我假装没听见，先去擦干头发</button>
+                <button class="opt">我问她这本书为什么不上架</button>
+                <button class="opt">我说：那你呢，你怎么回去</button>
+                <div class="opts-foot"><button class="text-btn">⟳ 换一批</button><button class="text-btn">✕ 收起</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="compose">
+        <div class="compose-in">
+          <div class="field">
+            <span class="icon-btn" style="width:22px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></span>
+            <span class="ph">说点什么……</span>
+          </div>
+          <button class="btn-primary">发送</button>
+        </div>
+        <div class="compose-hint">Enter 发送 · Shift + Enter 换行</div>
+      </div>
+    </section>
+  </div>`;
+}
+
+const libFrame = `
+<div class="frame" data-shot="03-char-library">
+  ${sidebar('lib')}
+  <section class="main">
+    <div class="page-head">
+      <span class="page-title">角色库</span>
+      <span class="page-sub">6 张卡 · PNG / JSON 卡都能导</span>
+      <span class="spacer"></span>
+      <button class="btn-primary">导入角色卡</button>
+    </div>
+    <div class="page-body">
+      <div class="lib-grid">
+        ${[
+          ['昔','昔涟','原神 · 温婉','常来这家旧书店的姑娘，记得每一本书放在哪一格。'],
+          ['艾','艾玛','原创 · 冷淡','话很少，但会在你写字的时候把灯往你这边推一点。'],
+          ['林','林小雨','测试卡 · 校园','沉默寡言，成绩很好，书包里总有没还的图书馆书。'],
+          ['阿','阿多利','The Fantasy World of Adolion','旅行者，口袋里装着三个国家的硬币和一张旧地图。'],
+          ['裴','斐法罗斯','原创 · 世界观','不出现，只存在于别人口中的那座城。'],
+          ['测','属性测试角色','测试 · 全字段','年龄性别种族属性面板一条不落，用来压边界。']
+        ].map(([f,n,t,d])=>`
+        <div class="lib-card">
+          <div class="lib-face">${f}</div>
+          <div>
+            <div class="lib-name">${n}</div>
+            <div class="lib-tags">${t}</div>
+            <div class="lib-desc">${d}</div>
+            <div class="lib-foot"><button class="text-btn" style="color:var(--accent)">聊天</button><button class="text-btn">编辑</button><button class="text-btn">导出</button></div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+  </section>
+</div>`;
+
+const editorFrame = `
+<div class="frame" data-shot="04-char-editor">
+  ${sidebar('lib')}
+  <section class="main" style="background:var(--sheet)"></section>
+  <div class="veil"></div>
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="modal-title">编辑角色</div>
+        <div class="modal-note">改完记得点右下角「保存角色」</div>
+      </div>
+      <span class="spacer"></span>
+      <button class="icon-btn">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="row" style="align-items:flex-start">
+        <div style="width:96px;flex:0 0 96px">
+          <div class="lib-face" style="width:96px;height:96px;font-size:34px;border-radius:10px">林</div>
+          <div style="font-size:11.5px;color:var(--ink-faint);text-align:center;margin-top:7px">点击换头像</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:14px">
+          <div><label class="fl">角色名</label><div class="inp filled">林小雨</div></div>
+          <div><label class="fl">标签</label><div class="inp ph">分类用，例如：原神，治愈</div></div>
+        </div>
+      </div>
+
+      <div class="kg" style="margin-top:18px">
+        <div><label class="fl">年龄</label><div class="inp filled">17</div></div>
+        <div><label class="fl">性别</label><div class="inp filled">女</div></div>
+        <div><label class="fl">种族</label><div class="inp filled">人类</div></div>
+      </div>
+
+      <div style="margin-top:18px">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+          <label class="fl" style="margin:0">角色描述</label>
+          <span style="font-size:11.5px;color:var(--ink-faint)">128 字</span>
+          <span class="spacer"></span>
+          <button class="text-btn">↗ 放大</button>
+        </div>
+        <textarea class="inp" rows="3">安静，成绩好，书包里总有一本没还回去的图书馆的书。她不主动搭话，但你问她问题的时候会认真想很久，然后给出一个比预期更长的答案。</textarea>
+      </div>
+
+      <div class="tabs">
+        <button class="tab on">状态栏</button>
+        <button class="tab">关系</button>
+        <button class="tab">背包</button>
+        <button class="tab tab-add">＋ 新建分组</button>
+        <span class="spacer"></span>
+        <button class="text-btn">从文本粘贴</button>
+      </div>
+
+      <div class="attr-row">
+        <div class="inp filled">体力</div>
+        <div class="inp filled" style="justify-content:space-between">数值<span class="caret"></span></div>
+        <div class="inp filled">72</div>
+        <div class="inp filled" style="font-size:12.5px">0 — 100</div>
+        <button class="icon-btn">⋯</button>
+      </div>
+      <div class="attr-row">
+        <div class="inp filled">心情</div>
+        <div class="inp filled" style="justify-content:space-between">文本<span class="caret"></span></div>
+        <div class="inp filled">平静</div>
+        <div class="inp ph" style="font-size:12.5px">—</div>
+        <button class="icon-btn">⋯</button>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <span style="font-size:12px;color:var(--ink-faint)">这是你自己写的角色</span>
+      <span class="spacer"></span>
+      <button class="btn-ghost">导出</button>
+      <button class="btn-ghost" style="color:var(--accent);border-color:var(--accent-line)">删除角色</button>
+      <button class="btn-primary">保存角色</button>
+    </div>
+  </div>
+</div>`;
+
+const stateFrame = `
+<div class="frame" data-shot="05-state-card">
+  ${sidebar('chat')}
+  <section class="main">
+    <div class="top">
+      <div>
+        <div class="top-title">雨夜，旧书店</div>
+        <div class="top-sub"><span>林小雨</span><span>·</span><span>测试角色</span><span>·</span><span>deepseek-chat</span></div>
+      </div>
+      <span class="spacer"></span>
+      <div class="ctl wide"><span>deepseek-chat</span><span class="caret"></span></div>
+      <button class="ctl">视角</button>
+      <button class="ctl">外观</button>
+      <button class="ctl" style="width:30px;justify-content:center;padding:0">⋯</button>
+    </div>
+    <div class="strip">
+      <span class="strip-cap">当前状态</span>
+      <span class="chip">${face('li')}林小雨</span>
+      <span class="chip">${face('me')}我</span>
+      <span class="strip-cap">2 项待填</span>
+    </div>
+    <div class="scroll">
+      <div class="read">
+        <div class="msg assistant">
+          ${face('li')}
+          <div class="body">
+            <div class="who">林小雨<span class="model-tag">deepseek-chat</span></div>
+            <div class="prose">
+              <p>她把钢笔帽拧紧，放在摊开的本子边上。窗外的雨小了一点。</p>
+              <p>“你要现在走吗。”她问，眼睛还留在纸上。</p>
+            </div>
+          </div>
+        </div>
+        <div class="msg user">
+          ${face('me','clickable')}
+          <div class="body">
+            <div class="who">我</div>
+            <div class="say">再坐一会儿。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="compose">
+      <div class="compose-in">
+        <div class="field"><span class="icon-btn" style="width:22px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg></span><span class="ph">说点什么……</span></div>
+        <button class="btn-primary">发送</button>
+      </div>
+      <div class="compose-hint">Enter 发送 · Shift + Enter 换行</div>
+    </div>
+  </section>
+
+  <div class="float-card">
+    <div class="float-head">
+      <span class="seal" style="width:18px;height:18px;font-size:11px;border-radius:4px">林</span>
+      <span class="float-title">林小雨</span>
+      <span class="spacer"></span>
+      <button class="text-btn">完成</button>
+      <button class="text-btn">✕</button>
+    </div>
+    <div class="float-body">
+      <div>
+        <div class="group-cap">状态栏</div>
+        <div style="margin-top:9px">
+          <div class="stat"><span>体力</span><b>72 / 100</b></div>
+          <div class="track"><i style="width:72%"></i></div>
+        </div>
+        <div style="margin-top:11px">
+          <div class="stat"><span>专注</span><b>88 / 100</b></div>
+          <div class="track"><i style="width:88%"></i></div>
+        </div>
+      </div>
+      <div>
+        <div class="group-cap">关系</div>
+        <div style="margin-top:9px">
+          <div class="stat"><span>好感</span><b>41 / 100</b></div>
+          <div class="track"><i style="width:41%"></i></div>
+        </div>
+        <div style="margin-top:11px">
+          <div class="stat"><span>当前心情</span><b>平静</b></div>
+        </div>
+      </div>
+      <div>
+        <div class="group-cap">背包</div>
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:4px">
+          <span class="list-item">借书证</span>
+          <span class="list-item">钢笔墨水</span>
+          <span class="list-item">没还的那本书</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+const settingsFrame = `
+<div class="frame" data-shot="06-settings" data-accent="indigo">
+  ${sidebar('set')}
+  <section class="main">
+    <div class="page-head">
+      <span class="page-title">设置</span>
+      <span class="page-sub">全部存在本机，不上传</span>
+    </div>
+    <div class="page-body" style="overflow:hidden">
+      <div class="set-block">
+        <div class="group-cap" style="margin-bottom:11px">模型服务商</div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:9px">
+              <span style="font-size:13.5px;font-weight:500">DeepSeek</span>
+              <span class="badge ok">已连接</span>
+              <span class="spacer"></span>
+              <button class="text-btn">编辑</button>
+            </div>
+            <div style="font-size:12px;color:var(--ink-faint);margin-top:8px;line-height:1.7">api.deepseek.com · 3 个模型<br>deepseek-chat / reasoner / v4</div>
+          </div>
+          <div class="card" style="border-style:dashed;display:grid;place-items:center;color:var(--ink-faint);font-size:13px;cursor:pointer">
+            ＋ 添加服务商
+          </div>
+        </div>
+      </div>
+
+      <div class="set-block">
+        <div class="group-cap" style="margin-bottom:11px">外观</div>
+        <div class="card">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:32px">
+            <div>
+              <div style="font-size:12.5px;color:var(--ink-dim);margin-bottom:9px">明暗</div>
+              <div class="seg"><span class="on">白天</span><span>夜间</span></div>
+            </div>
+            <div>
+              <div style="font-size:12.5px;color:var(--ink-dim);margin-bottom:9px">强调色</div>
+              <div style="display:flex;gap:12px;align-items:center;height:31px">
+                <span class="swatch" style="background:#cf3a2b"></span>
+                <span class="swatch on" style="background:#2f5d8c"></span>
+                <span style="font-size:12px;color:var(--ink-faint)">朱砂 / 靛青</span>
+              </div>
+            </div>
+            <div>
+              <div style="font-size:12.5px;color:var(--ink-dim);margin-bottom:9px">正文字号</div>
+              <div class="seg"><span>16</span><span class="on">18</span><span>20</span></div>
+            </div>
+          </div>
+          <div style="font-size:12px;color:var(--ink-faint);margin-top:16px;padding-top:14px;border-top:1px solid var(--line)">正文字号只影响 AI 旁白。你觉得句子太挤就往上调，想一眼看更多就往下调。</div>
+        </div>
+      </div>
+
+      <div class="set-block">
+        <div class="group-cap" style="margin-bottom:11px">生图</div>
+        <div class="card" style="display:flex;align-items:center;gap:12px">
+          <span style="font-size:13px;color:var(--ink-dim)">还没有配生图服务商</span>
+          <span class="spacer"></span>
+          <button class="btn-ghost" style="height:30px">去配一组</button>
+        </div>
+      </div>
+
+      <div class="set-block">
+        <div class="group-cap" style="margin-bottom:11px">数据</div>
+        <div style="display:flex;gap:10px">
+          <button class="btn-ghost">打开数据文件夹</button>
+          <button class="btn-ghost">导出全部对话</button>
+          <button class="btn-ghost" style="color:var(--accent);border-color:var(--accent-line)">清空对话记录</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>`;
+
+document.getElementById('root').innerHTML =
+  chatFrame('light') + chatFrame('dark') + libFrame + editorFrame + stateFrame + settingsFrame;
+</script>
+</body>
+</html>

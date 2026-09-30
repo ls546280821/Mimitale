@@ -83,6 +83,23 @@ function click(target) {
   return node;
 }
 
+/**
+ * 点顶栏「⋯」菜单里的某一项。
+ * 菜单项收在折叠菜单里，直接对着隐藏元素 click() 其实也能触发 ——
+ * 但那样就绕开了「菜单到底打不打的开」这件事。这里老老实实先点开、再点项，
+ * 顺手验一下点完会收起。
+ */
+async function clickMoreItem(sel) {
+  const menu = byId('topbar-more');
+  if (!menu) throw new Error('顶栏没有「⋯」菜单');
+  if (menu.classList.contains('hidden')) {
+    click('#btn-more');
+    await waitFor('「⋯」菜单展开', () => !menu.classList.contains('hidden'));
+  }
+  click(sel);
+  await waitFor('「⋯」菜单点完收起', () => menu.classList.contains('hidden'));
+}
+
 function setValue(target, value) {
   const node = typeof target === 'string' ? $(target) : target;
   if (!node) throw new Error(`找不到输入框：${target}`);
@@ -194,17 +211,19 @@ await scenario('主题切换', async () => {
 });
 
 // ---------------------------------------------------------------------------
-//  场景 2b：配色方案切换（粉 ↔ 蓝，顺带验证 data-accent 与 CSS 变量 + 落盘）
+//  场景 2b：配色方案切换（草莓 → 苏打 → 抹茶 → 草莓，顺带验证 data-accent 与 CSS 变量 + 落盘）
+//  按钮是「循环」不是开关：切回原配色不是再点一下，得顺着循环转完一圈。
 // ---------------------------------------------------------------------------
 await scenario('配色方案切换', async () => {
-  const before = document.documentElement.getAttribute('data-accent');
+  const readAttr = () => document.documentElement.getAttribute('data-accent');
   const readAccent = () => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  const before = readAttr();
   const accentBefore = readAccent();
 
   click('#btn-accent');
-  await waitFor('data-accent 变化', () => document.documentElement.getAttribute('data-accent') !== before);
+  await waitFor('data-accent 变化', () => readAttr() !== before);
 
-  const after = document.documentElement.getAttribute('data-accent');
+  const after = readAttr();
   check('data-accent 变了', after !== before, `${before} → ${after}`);
 
   const accentAfter = readAccent();
@@ -214,8 +233,194 @@ await scenario('配色方案切换', async () => {
   const settings = (await window.mimitale.getSettings()).settings;
   check('配色已落盘', settings.accent === after, `落盘的是 ${settings.accent}`);
 
-  click('#btn-accent'); // 切回去，别影响后面的场景
-  await waitFor('配色切回', () => document.documentElement.getAttribute('data-accent') === before);
+  // 再点一下应该到第三套 —— 验证它真的是三态循环，而不是粉/蓝两态开关
+  click('#btn-accent');
+  await waitFor('切到第三套配色', () => readAttr() !== after);
+  const third = readAttr();
+  const accentThird = readAccent();
+  check('第三套和前两套都不同', third !== after && third !== before, `${before} → ${after} → ${third}`);
+  check('第三套的 --accent 也换了', accentThird !== accentAfter && accentThird !== accentBefore);
+
+  // 再点一下正好转完一圈回到起点，别影响后面的场景
+  click('#btn-accent');
+  await waitFor('配色转回起点', () => readAttr() === before);
+  check('转一圈回到起点', readAccent() === accentBefore);
+});
+
+// ---------------------------------------------------------------------------
+//  场景 2c：顶栏「⋯」菜单（记忆 / 复制全文 / 导出 / 清空对话 收在里面）
+//  收起来是为了给标题让地方。这里只验「能开、能关、点项会收起」——
+//  各项功能本身在别的场景里另有覆盖，不在这里重复。
+// ---------------------------------------------------------------------------
+await scenario('顶栏「⋯」菜单', async () => {
+  const menu = byId('topbar-more');
+  check('默认是收起的', menu.classList.contains('hidden'));
+
+  click('#btn-more');
+  await waitFor('菜单展开', () => !menu.classList.contains('hidden'));
+  check('点一下展开', !menu.classList.contains('hidden'));
+  check('按钮标成 aria-expanded=true', byId('btn-more').getAttribute('aria-expanded') === 'true');
+  check('菜单里装了四项', $$('#topbar-more .menu-item').length === 4, String($$('#topbar-more .menu-item').length));
+
+  // 点别处收起
+  click('#messages');
+  await waitFor('点别处收起', () => menu.classList.contains('hidden'));
+  check('点到别处会收起', menu.classList.contains('hidden'));
+
+  // Esc 收起
+  click('#btn-more');
+  await waitFor('菜单重新展开', () => !menu.classList.contains('hidden'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await waitFor('Esc 收起', () => menu.classList.contains('hidden'));
+  check('按 Esc 也会收起', menu.classList.contains('hidden'));
+
+  // 点某一项：动作照走 + 菜单收起（复制全文最轻，不会开弹窗打扰后面的场景）
+  click('#btn-more');
+  await waitFor('菜单再展开', () => !menu.classList.contains('hidden'));
+  click('#btn-copy-all');
+  await waitFor('点完收起', () => menu.classList.contains('hidden'));
+  check('点了菜单项会收起', menu.classList.contains('hidden'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 2d：顶栏「切换模型」
+//
+//  以前这里是原生 <select>。它的**下拉列表由系统画**（直角、系统蓝高亮、系统字体），
+//  CSS 完全碰不到 —— 跟这套「大圆角 + 柔和阴影」根本不搭，所以换成自绘弹层
+//  （views/chatList.js 铺内容 + ui/modelMenu.js 管开合）。
+//
+//  这里钉三件事：① 它不再是原生 select；② 分组 / 当前项标得出来；
+//  ③ 观感（不描边、大圆角、柔和阴影）—— 这几条 DOM 全对也可能错，
+//  所以必须是**计算样式断言**（同一招用在状态卡那次体检里，翻过车）。
+// ---------------------------------------------------------------------------
+await scenario('顶栏：切换模型', async () => {
+  const cs = (node, prop) => getComputedStyle(node)[prop];
+  const trigger = byId('model-switch');
+  const menu = byId('model-menu');
+
+  check('顶栏那颗是按钮，不再是原生下拉', trigger.tagName === 'BUTTON', trigger.tagName);
+  check(
+    '按钮上写着当前模型',
+    byId('model-switch-label').textContent === 'test-model',
+    byId('model-switch-label').textContent
+  );
+  check('弹层默认是收起的', menu.classList.contains('hidden'));
+
+  // --- 扁平化体检：靠阴影浮起来，不描边 ---
+  check('切换模型按钮不描边（靠阴影分层）', cs(trigger, 'borderTopWidth') === '0px', cs(trigger, 'borderTopWidth'));
+  check('按钮有柔和阴影', cs(trigger, 'boxShadow') !== 'none', cs(trigger, 'boxShadow'));
+
+  // --- 展开 ---
+  click(trigger);
+  await waitFor('模型弹层展开', () => !menu.classList.contains('hidden'));
+  check('点一下展开', !menu.classList.contains('hidden'));
+  check('按钮标成 aria-expanded=true', trigger.getAttribute('aria-expanded') === 'true');
+
+  // --- 按服务商分组 ---
+  const groups = $$('#model-menu .model-menu-group');
+  check('列表按服务商分了组', groups.length === 3, `${groups.length} 组`);
+  check(
+    '分组标题就是服务商名',
+    groups.map((g) => g.textContent).join('|') === '冒烟测试服务商|冒烟测试生图|冒烟测试向量',
+    groups.map((g) => g.textContent).join('|')
+  );
+  // 分组小标题不画分隔线（扁平化第 2 条）—— 一屏十几行会变成一张表格
+  check(
+    '分组小标题不画分隔线',
+    groups.length > 0 && cs(groups[0], 'borderBottomWidth') === '0px',
+    cs(groups[0], 'borderBottomWidth')
+  );
+
+  const items = $$('#model-menu .model-menu-item');
+  check('三家的模型都列上了', items.length === 3, `${items.length} 项`);
+  check(
+    '每一项都带完整模型名（长了也能看全）',
+    items.length > 0 && items.every((b) => !!b.title && b.textContent.includes(b.title)),
+    JSON.stringify(items.map((b) => b.title))
+  );
+
+  // --- 当前那一项 ---
+  const active = $$('#model-menu .model-menu-item.is-active');
+  check('当前用的那项标了出来，而且只有一个', active.length === 1, `${active.length} 项`);
+  check('当前项 aria-checked=true', active.length === 1 && active[0].getAttribute('aria-checked') === 'true');
+  check(
+    '当前项就是这个会话在用的模型',
+    active.length === 1 && active[0].dataset.value === 'p-test::test-model',
+    active.length ? active[0].dataset.value : ''
+  );
+
+  // 勾那块位置**每行都占着**（没选中的只是透明）—— 少了它，选中那行的文字会比别人短一截
+  const ticks = $$('#model-menu .model-menu-item .model-menu-check');
+  check(
+    '每行都留了勾的位置（选中行文字不会短一截）',
+    ticks.length === items.length && ticks.every((s) => s.getBoundingClientRect().width > 0),
+    ticks.map((s) => Math.round(s.getBoundingClientRect().width)).join(',')
+  );
+
+  // 弹层自己的观感：大圆角 + 阴影，不是系统菜单那种直角
+  check(
+    '弹层是大圆角 + 阴影（不是系统菜单的样子）',
+    parseFloat(cs(menu, 'borderTopLeftRadius')) >= 10 && cs(menu, 'boxShadow') !== 'none',
+    `${cs(menu, 'borderTopLeftRadius')} / ${cs(menu, 'boxShadow')}`
+  );
+
+  // 弹层不能被浮动的状态卡压住：
+  // .state-cards 是**整列大小**（inset:0），层级只要比顶栏高，就能把顶栏连同
+  // 上面的弹层一起盖掉 —— 模型弹层比「⋯」宽得多，一压就少半截。
+  check(
+    '顶栏层级高过浮动状态卡（弹层不会被卡盖住）',
+    Number(cs($('.topbar'), 'zIndex')) > Number(cs(byId('state-cards'), 'zIndex')),
+    `顶栏 ${cs($('.topbar'), 'zIndex')} / 浮动卡 ${cs(byId('state-cards'), 'zIndex')}`
+  );
+
+  // --- 点别处 / Esc 收起 ---
+  click('#messages');
+  await waitFor('点别处收起模型弹层', () => menu.classList.contains('hidden'));
+  check('点到别处会收起', menu.classList.contains('hidden'));
+
+  click(trigger);
+  await waitFor('模型弹层重新展开', () => !menu.classList.contains('hidden'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await waitFor('Esc 收起模型弹层', () => menu.classList.contains('hidden'));
+  check('按 Esc 也会收起', menu.classList.contains('hidden'));
+
+  // --- 在按钮上按上下键就能打开（原生 select 的肌肉记忆）---
+  trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  await waitFor('上下键也能打开', () => !menu.classList.contains('hidden'));
+  check('在按钮上按 ↓ 也能打开', !menu.classList.contains('hidden'));
+
+  // --- 挑一个别的模型：按钮上的字 + 勾都要跟着走 ---
+  click($$('#model-menu .model-menu-item').find((b) => b.dataset.value === 'p-emb::emb-model-x'));
+  await waitFor('按钮上的字换了', () => byId('model-switch-label').textContent === 'emb-model-x');
+  check('选完按钮上写的是新模型', byId('model-switch-label').textContent === 'emb-model-x');
+  check('选完弹层自己收起（不用再点一下）', byId('model-menu').classList.contains('hidden'));
+  // 弹层整块重铺过了，刚才抓的节点全部作废 —— 重新查
+  const moved = $$('#model-menu .model-menu-item.is-active');
+  check(
+    '勾跟着搬到新选的那项',
+    moved.length === 1 && moved[0].dataset.value === 'p-emb::emb-model-x',
+    moved.length ? moved[0].dataset.value : '没找到'
+  );
+
+  // 选中就落盘（异步一次 IPC，轮询到写进去为止，别用固定 sleep 赌）
+  let stored = null;
+  for (let i = 0; i < 40; i++) {
+    const cfg = await window.mimitale.getSettings();
+    if (cfg.settings.activeModel === 'emb-model-x') { stored = cfg.settings; break; }
+    await sleep(25);
+  }
+  check(
+    '选完落盘成了新会话的默认模型',
+    !!stored && stored.activeProviderId === 'p-emb' && stored.activeModel === 'emb-model-x',
+    stored ? `${stored.activeProviderId}/${stored.activeModel}` : '没落盘'
+  );
+
+  // --- 收拾现场：切回原来的服务商 / 模型，别影响后面的场景 ---
+  click(byId('model-switch'));
+  await waitFor('模型弹层再开一次', () => !byId('model-menu').classList.contains('hidden'));
+  click($$('#model-menu .model-menu-item').find((b) => b.dataset.value === 'p-test::test-model'));
+  await waitFor('切回测试服务商', () => byId('model-switch-label').textContent === 'test-model');
+  check('能切回原来那家', byId('model-switch-label').textContent === 'test-model');
 });
 
 // ---------------------------------------------------------------------------
@@ -731,7 +936,8 @@ await scenario('属性：从角色卡种到状态面板', async () => {
 
   // 「当前状态」那块折叠面板的**字段列表面板**已经去掉（一个面板只能显示一个
   // 角色的状态，是旧版单角色的遗留）—— 入口条上只留头像。
-  // 但「当前状态」这四个字**要留着**：它是这块区域的路标，用户靠它指认位置。
+  // 标题是「在场角色 N」（2026-09-30 从「当前状态」改名，对齐设计稿的 .cast-cap）：
+  // 这一块说的就是「现在场上有谁」，跟着下面那排头像读才对得上。
   check(
     '旧的状态面板字段区已经没有了',
     !byId('panel-fields') && !byId('btn-panel-collapse') && !byId('panel-hint'),
@@ -741,13 +947,19 @@ await scenario('属性：从角色卡种到状态面板', async () => {
       hint: !!byId('panel-hint')
     })
   );
-  check('入口条上保留了「当前状态」这个路标标题', /当前状态/.test(byId('panel-box').textContent || ''));
+  check('入口条上的标题是「在场角色」', /在场角色/.test(byId('panel-box').textContent || ''));
   check(
-    '「当前状态」是个纯标签，不是能折叠的按钮',
+    '「在场角色」是个纯标签，不是能折叠的按钮',
     (() => {
       const t = byId('panel-box').querySelector('.panel-title');
       return !!t && t.tagName === 'SPAN' && !byId('btn-panel-collapse');
     })()
+  );
+  // 标题上的数字必须是**数出来的**（跟下面那排头像一致），不能是写死的
+  check(
+    '标题上的「在场角色 N」和头像个数对得上',
+    Number(byId('panel-cast-count').textContent) === $$('#panel-cast .panel-avatar').length,
+    `标题=${byId('panel-cast-count').textContent} 头像=${$$('#panel-cast .panel-avatar').length}`
   );
 
   // --- 点入口条上的角色头像 → 打开角色状态卡 ---
@@ -767,6 +979,110 @@ await scenario('属性：从角色卡种到状态面板', async () => {
 
   check('状态卡里出现了角色属性', cardNames().includes('金币') && cardNames().includes('上衣'), JSON.stringify(cardNames()));
   check('带范围的数值属性也在卡里', cardNames().includes('好感度'), JSON.stringify(cardNames()));
+
+  // --- 扁平化体检（2026-09-30）---
+  // ⚠️ 这几条**必须**是计算样式断言：DOM 结构全对、类名全在，观感照样可能是错的。
+  //    「收起」那颗就翻过车 —— 它没跟 .sc-edit/.sc-close 一起写 border:0，
+  //    一直带着浏览器默认的 2px outset 边框，一排卡片头上格外扎眼。
+  //    规则是：**卡片、按钮靠阴影/底色分层，不靠 1px 描边和分隔线**。
+  {
+    const side = (node, prop) => (node ? getComputedStyle(node)[prop] : 'no-node');
+    const inCard = (sel) => charCard().querySelector(sel);
+    check('状态卡不描边（靠阴影分层）', side(charCard(), 'borderTopWidth') === '0px', side(charCard(), 'borderTopWidth'));
+    check(
+      '「收起」是纯文字按钮（没有浏览器默认边框）',
+      side(inCard('.sc-toggle'), 'borderTopWidth') === '0px',
+      side(inCard('.sc-toggle'), 'borderTopWidth')
+    );
+    check('字段行不画分隔线', side(inCard('.sc-row'), 'borderBottomWidth') === '0px', side(inCard('.sc-row'), 'borderBottomWidth'));
+    check(
+      '分组小标题不画下划线',
+      side(inCard('.sc-group-title'), 'borderBottomWidth') === '0px',
+      side(inCard('.sc-group-title'), 'borderBottomWidth')
+    );
+    check(
+      '「在场角色」入口条不是一只描边盒子（靠底色分层）',
+      // 2026-09-30 卡片换回悬浮后，入口条改成「一行深色底 + 无边框」，
+      // 不再靠一条下划线跟下面的卡片区分（下面已经没有一列卡片了）
+      side(byId('panel-box'), 'borderTopWidth') === '0px' &&
+        side(byId('panel-box'), 'borderBottomWidth') === '0px' &&
+        !side(byId('panel-box'), 'backgroundColor').includes('rgba(0, 0, 0, 0)'),
+      `${side(byId('panel-box'), 'borderTopWidth')} / ${side(byId('panel-box'), 'backgroundColor')}`
+    );
+    check(
+      '侧栏条目是渐变圆头像（不是浅色底 + 主色字）',
+      (getComputedStyle($$('.convo-avatar')[0]).backgroundImage || '').includes('linear-gradient'),
+      getComputedStyle($$('.convo-avatar')[0]).backgroundImage
+    );
+  }
+
+  // --- 浮动卡：开两张必须**自动并排**（2026-09-30 换回悬浮卡的核心诉求）---
+  // 当初「浮动卡」被换成固定右栏，就是因为两张会叠在一起。现在靠 layoutSideBySide
+  // 按整卡宽铺开 —— 这条就是那个契约的守门人，别让它退化成"错开 26px 叠着"。
+  {
+    const myAvatarBtn = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner === 'player');
+    check('入口条上有「我」的头像', !!myAvatarBtn);
+    click(myAvatarBtn);
+    await waitFor('第二张状态卡也开了', () => $$('#state-cards .state-card').length >= 2);
+
+    const host = byId('state-cards');
+    const cards = $$('#state-cards .state-card');
+    check(
+      '状态卡是浮层（卡片绝对定位 + 容器本身不挡鼠标）',
+      cards.every((c) => getComputedStyle(c).position === 'absolute') &&
+        getComputedStyle(host).position === 'absolute' &&
+        getComputedStyle(host).pointerEvents === 'none',
+      `${getComputedStyle(cards[0]).position} / ${getComputedStyle(host).pointerEvents}`
+    );
+
+    const box = (n) => n.getBoundingClientRect();
+    const [a, b] = cards.map(box);
+    const overlap = a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    check(
+      '开两张卡时自动并排，不互相压',
+      !overlap,
+      `A=${Math.round(a.left)},${Math.round(a.top)} B=${Math.round(b.left)},${Math.round(b.top)}`
+    );
+
+    // 头部是拖动把手 —— 光标得给 grab，别让用户猜这里能拖
+    check(
+      '卡片头部是拖动把手（光标 grab）',
+      getComputedStyle(cards[0].querySelector('.sc-head')).cursor === 'grab',
+      getComputedStyle(cards[0].querySelector('.sc-head')).cursor
+    );
+  }
+
+  // --- 顶栏：头像 + 标题旁的小胶囊（2026-09-30 按设计稿的 .top / .pill-tag 加的）---
+  {
+    const av = byId('topbar-avatar');
+    check('顶栏左边有头像', !!av);
+    check(
+      '顶栏头像和侧栏 / 消息区共用同一套渐变',
+      (getComputedStyle(av).backgroundImage || '').includes('linear-gradient'),
+      getComputedStyle(av).backgroundImage
+    );
+    // 头像上的字 = 说话人首字（绑了角色的会话就是角色名首字）
+    check(
+      '顶栏头像上是这个角色的首字',
+      (av.textContent || '').trim().length === 1 || !!av.querySelector('img'),
+      av.textContent
+    );
+
+    const pill = byId('convo-pill');
+    check('标题旁边有那颗小胶囊', !!pill);
+    // 视角是默认（非 GM / 标准叙述）时，胶囊退给「绑定角色身上第一个数值字段」
+    check(
+      '胶囊里是绑定角色的关键数值（「好感度 20」这种）',
+      /好感度\s*\d+/.test((pill.textContent || '').trim()),
+      pill.textContent
+    );
+    const nameRow = byId('convo-title').parentElement;
+    check(
+      '胶囊和标题是同一行的兄弟节点（不是塞在 h1 里）',
+      nameRow && nameRow.classList.contains('topbar-name') && pill.parentElement === nameRow,
+      nameRow ? nameRow.className : 'no-parent'
+    );
+  }
 
   // 分组跟着一起搬过来（顺序 = 面板里那套：身份 → 关系 → 没分组的）
   const cardSeq = Array.from(charCard().querySelectorAll('.sc-body > *')).map((n) =>
@@ -1521,7 +1837,7 @@ await scenario('导出', async () => {
   // --- 会话 ---
   click('#convo-list .convo-item');
   await waitFor('切回聊天视图', () => shown('#view-chat'));
-  click('#btn-export-convo');
+  await clickMoreItem('#btn-export-convo');
   await sleep(300);
   check('导出会话后有提示', $('#toast').textContent.includes('已导出'), $('#toast').textContent);
 
@@ -1531,7 +1847,7 @@ await scenario('导出', async () => {
   click(buttonByText($$('#char-page-grid .char-card')[0], '聊天'));
   await waitFor('切回聊天视图', () => shown('#view-chat'));
   await sleep(150);
-  click('#btn-export-convo');
+  await clickMoreItem('#btn-export-convo');
   await sleep(250);
   check('空会话不给导出', $('#toast').textContent.includes('还是空的'), $('#toast').textContent);
 });
@@ -1668,11 +1984,28 @@ await scenario('进入世界：用角色卡当自己', async () => {
   await waitFor('状态卡入口条出现', () => shown('#panel-box'));
 
   // 旧面板的**字段列表**已经不在了 —— 玩家自己的属性只在「我的状态」卡里。
-  // 「当前状态」四个字作为区域路标保留（见上面那条断言）。
+  // 标题是「在场角色 N」（见上面那条断言）。
   check(
     '旧的「当前状态」字段区已经不在了',
-    !byId('panel-fields') && !byId('btn-panel-collapse') && /当前状态/.test(byId('panel-box').textContent || '')
+    !byId('panel-fields') && !byId('btn-panel-collapse') && /在场角色/.test(byId('panel-box').textContent || '')
   );
+
+  // 顶栏头像（2026-09-30）：世界书会话**没绑角色卡**（主角在 convo.player 里），
+  // 所以走的是「方角 + 书名首字」那条分支 —— 形状本身就是分类，一眼区分
+  // 「跟角色聊」和「在书里玩」。只绑角色的圆头像在场景 15 里验过。
+  {
+    const av = byId('topbar-avatar');
+    check(
+      '世界书会话的顶栏头像是方角的「书」',
+      !!av && av.classList.contains('book'),
+      av ? av.className : 'no-node'
+    );
+    check(
+      '世界书会话的顶栏头像取书名首字',
+      !!av && (av.textContent || '').trim().length === 1,
+      av ? av.textContent : ''
+    );
+  }
 
   const myAvatar = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner === 'player');
   check('入口条上有「我」的头像', !!myAvatar);
@@ -2214,7 +2547,7 @@ await scenario('会话：分支与存档点', async () => {
   );
 
   // --- 存档点 ---
-  click('#btn-memory');
+  await clickMoreItem('#btn-memory');
   await waitFor('记忆弹窗打开', () => shown('#memory-modal'));
   await sleep(200);
 
@@ -2243,7 +2576,7 @@ await scenario('会话：分支与存档点', async () => {
   const grown = (await window.mimitale.getConversations()).conversations.find((c) => c.id === branch.id);
   check('新消息也落盘了', grown.messages.length === grownNodes, `界面 ${grownNodes} 条 / 磁盘 ${grown.messages.length} 条`);
 
-  click('#btn-memory');
+  await clickMoreItem('#btn-memory');
   await waitFor('记忆弹窗打开', () => shown('#memory-modal'));
   await sleep(200);
 

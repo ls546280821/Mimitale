@@ -17,6 +17,7 @@
 
 import { el } from '../core/dom.js';
 import { button, card, renderListPage } from '../ui/build.js';
+import { entityTone } from '../ui/avatarTone.js';
 import { characters } from '../data/library.js';
 
 let actions = { edit: () => {}, chat: () => {}, remove: () => {} };
@@ -54,6 +55,9 @@ function characterCard(c) {
     sub: subText,
     avatar: c.avatar,
     avatarText: c.name.slice(0, 1),
+    // 渐变圆 + 白字（设计稿的 .kface）：和侧栏 / 在场角色栏 / 消息区共用同一套色板，
+    // 同一个角色在哪一屏都是同一个颜色。
+    avatarClass: entityTone(c.id, c.name),
     // 删除：静止时是透明的，鼠标移上来才浮出来 —— 跟左侧会话列表的 × 同一套。
     // 这样卡片平时还是干净的「编辑 / 聊天」两个按钮，不至于误点。
     extra: button({

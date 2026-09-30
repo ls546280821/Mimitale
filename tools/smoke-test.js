@@ -1886,9 +1886,15 @@ function probeAttrModeWording(result) {
 app.whenReady().then(async () => {
   registerStubs();
 
+  // 窗口尺寸从 main/window.js 读，别在这儿写死 —— 写死过一次（1180×800），
+  // 窗口改成 1440×900 之后没人记得改这里，于是截图一直比真机窄两百多像素，
+  // 照着截图调的间距全是错的。
+  const { WINDOW_SIZE } = require('../main/window.js');
   const win = new BrowserWindow({
-    width: 1180,
-    height: 800,
+    width: WINDOW_SIZE.width,
+    height: WINDOW_SIZE.height,
+    useContentSize: true,
+    autoHideMenuBar: true, // 和真实窗口一致：菜单栏不占内容高度
     show: false, // 不弹窗，跑测试不打扰你
     webPreferences: {
       preload: path.join(APP_DIR, 'preload.js'),
@@ -1965,10 +1971,21 @@ app.whenReady().then(async () => {
         await win.webContents.executeJavaScript(`document.querySelector('#btn-theme')?.click(); true`);
         await new Promise((r) => setTimeout(r, 300));
       }
-      // --shot-accent=blue：切到商务蓝配色再截图（点真实的配色按钮）
+      // --shot-accent=<pink|blue|matcha>：切到指定配色再截图。
+      // 配置按钮是「循环」的，所以不写死点几次，一路点到 data-accent 等于目标为止
+      // （最多 4 次，认不出的值循环一圈回到原地，不会卡死）。
       const shotAccent = (process.argv.find((a) => a.startsWith('--shot-accent')) || '').split('=')[1];
-      if (shotAccent === 'blue') {
-        await win.webContents.executeJavaScript(`document.querySelector('#btn-accent')?.click(); true`);
+      if (shotAccent) {
+        await win.webContents.executeJavaScript(`
+          (async () => {
+            for (let i = 0; i < 4; i++) {
+              if (document.documentElement.getAttribute('data-accent') === ${JSON.stringify(shotAccent)}) break;
+              document.querySelector('#btn-accent')?.click();
+              await new Promise((r) => setTimeout(r, 150));
+            }
+            return document.documentElement.getAttribute('data-accent');
+          })()
+        `);
         await new Promise((r) => setTimeout(r, 300));
       }
       // 每个场景 = 打开哪个界面。只点真实按钮，不调内部函数。
@@ -1984,6 +2001,29 @@ app.whenReady().then(async () => {
             it.click();
             await new Promise(r => setTimeout(r, 500));
             if ($$('#panel-cast .panel-avatar').length > 1) break;
+          }
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 顶栏「切换模型」弹层展开的样子（自绘列表，不是系统菜单那种直角 + 系统蓝）
+        modelMenu: `
+          const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
+          document.querySelector('#model-switch')?.click();
+          await new Promise(r => setTimeout(r, 350));`,
+        // 顶栏「⋯」展开的样子（记忆 / 复制全文 / 导出 / 清空对话 收在里面）
+        moreMenu: `
+          const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
+          document.querySelector('#btn-more')?.click();
+          await new Promise(r => setTimeout(r, 350));`,
+        // 顶栏（2026-09-30）：方角「书」头像 + 视角胶囊。
+        // 找一条**没绑角色卡、绑了世界书**的会话 —— 也就是世界游玩出来的那条，
+        // 它和只绑角色的会话（圆头像 + 数值胶囊）长得不一样。
+        topbarBook: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          for (const it of $$('#convo-list .convo-item')) {
+            it.click();
+            await new Promise(r => setTimeout(r, 450));
+            const av = $('#topbar-avatar');
+            if (av && av.classList.contains('book')) break;
           }
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         chars: `
@@ -2354,6 +2394,28 @@ app.whenReady().then(async () => {
           });
           if (target) { target.click(); await nap(550); }
 
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 在场角色多开几张：把入口条上的头像**逐个点一遍**，看「同时看多张面板」
+        // 到底成不成立（右栏够不够高、展开几张之后会不会把后面的挤没）。
+        // 单张卡的形态在 stateCard 场景里已经看过了，这里看的是**多张并存**。
+        panelMulti: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+
+          // 挑一个在场人数最多的会话
+          let best = null, bestN = 0;
+          for (const it of $$('#convo-list .convo-item')) {
+            it.click();
+            await nap(420);
+            const n = $$('#panel-cast .panel-avatar').length;
+            if (n > bestN) { bestN = n; best = it; }
+          }
+          if (best) { best.click(); await nap(500); }
+
+          // 逐个点头像 = 逐个打开并展开
+          for (const b of $$('#panel-cast .panel-avatar')) { b.click(); await nap(260); }
+
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`
       };
       const driver = DRIVERS[shotArg];
@@ -2389,7 +2451,9 @@ app.whenReady().then(async () => {
         }
         const dir = path.join(__dirname, 'shots');
         fs.mkdirSync(dir, { recursive: true });
-        const shotName = `${shotArg}${shotAccent === 'blue' ? '-blue' : ''}${shotDark ? '-dark' : ''}.png`;
+        // 配色不是默认粉时把配色名缀进文件名，免得几套配色的图互相覆盖
+        const accentTag = shotAccent && shotAccent !== 'pink' ? `-${shotAccent}` : '';
+        const shotName = `${shotArg}${accentTag}${shotDark ? '-dark' : ''}.png`;
         fs.writeFileSync(path.join(dir, shotName), (await win.webContents.capturePage()).toPNG());
         console.log(`  截图: tools/shots/${shotName}`);
       }

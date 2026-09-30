@@ -18,6 +18,7 @@
 import { el } from '../core/dom.js';
 import { activeConvo } from '../core/util.js';
 import { h, clear } from '../ui/build.js';
+import { entityTone } from '../ui/avatarTone.js';
 import { panelEntities } from '../data/cast.js';
 import { onRefresh } from './refresh.js';
 import { openStateCard } from './stateCard.js';
@@ -30,12 +31,16 @@ function renderPanelCast(convo) {
   const host = el.panelCast;
   if (!host) return;
   clear(host);
-  if (!convo) return;
 
-  for (const ent of panelEntities(convo)) {
+  const entities = convo ? panelEntities(convo) : [];
+  // 标题上的「在场角色 N」跟着这一条走 —— 数出来的就是下面头像的个数，
+  // 两处各算一次迟早会不一致（比如头像被过滤掉一个）。
+  if (el.panelCastCount) el.panelCastCount.textContent = String(entities.length);
+
+  for (const ent of entities) {
     const btn = h('button', {
       type: 'button',
-      class: 'panel-avatar',
+      class: `panel-avatar ${entityTone(ent.owner, ent.name)}`,
       title: `查看「${ent.name}」的状态`,
       ariaLabel: `查看「${ent.name}」的状态`,
       onClick: () => openStateCard(ent.owner)
@@ -51,6 +56,10 @@ function renderPanelCast(convo) {
 /**
  * 入口条只在「有会话」时出现 —— 里面永远至少有「我」一个头像，
  * 随时能点开给自己加状态。
+ *
+ * 没有会话时**整条收掉**，别留一条空条占着消息区上面那行。
+ * （2026-09-30 之前还要顺手开关右栏 `#panel-rail`；右栏已去掉，
+ * 卡片改回悬浮，那一段判断跟着删了。）
  */
 export function renderPanel() {
   const convo = activeConvo();

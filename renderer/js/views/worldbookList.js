@@ -21,6 +21,7 @@
 
 import { el } from '../core/dom.js';
 import { button, card, renderListPage } from '../ui/build.js';
+import { entityTone } from '../ui/avatarTone.js';
 import { worldbooks, worldbookCharacters } from '../data/library.js';
 import { openPlayerModal } from './player.js';
 
@@ -60,7 +61,7 @@ function worldbookCard(book) {
     title: book.name,
     sub: charCount ? `${book.entries.length} 条设定 · ${charCount} 个角色` : `${book.entries.length} 条设定`,
     avatarText: '世',
-    avatarClass: 'worldbook-avatar',
+    avatarClass: `worldbook-avatar ${entityTone(book.id, book.name)}`,
     actions: [
       button({ class: 'btn btn-ghost btn-sm', text: '编辑', onClick: () => openEditor(book.id) }),
       button({ class: 'btn btn-primary btn-sm', text: '游玩', onClick: () => openPlayerModal(book.id) })

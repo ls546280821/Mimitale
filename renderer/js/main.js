@@ -45,6 +45,8 @@ import { showToast } from './ui/toast.js';
 import { applyTheme, toggleTheme, applyAccent, toggleAccent } from './ui/theme.js';
 import { esc } from './ui/markdown.js';
 import { applyFieldIcons } from './ui/icons.js';
+import { initMoreMenu } from './ui/menu.js';
+import { initModelMenu } from './ui/modelMenu.js';
 
 import { persistLibrary, markWorldbooksLoaded } from './data/persist.js';
 import { currentEndpoint, isBridgeProvider } from './data/providers.js';
@@ -207,9 +209,6 @@ function bindEvents() {
     showToast('已复制整段对话', 'ok');
   });
 
-  // 右上角切换模型
-  el.modelSwitch.addEventListener('change', () => applyModelChoice(el.modelSwitch.value));
-
   el.btnExportChar.addEventListener('click', exportCharacter);
   el.btnExportConvo.addEventListener('click', exportConversation);
   // 状态卡入口条不用在这里绑事件 —— 头像的点击由 views/panelUi.js 铺的时候就地挂上。
@@ -231,7 +230,7 @@ function bindEvents() {
   // 左上角的昼夜切换
   el.btnTheme.addEventListener('click', toggleTheme);
 
-  // 左上角的配色方案切换（粉 ↔ 蓝）
+  // 左上角的配色方案切换（草莓奶昔 → 苏打气泡 → 抹茶奶绿，循环）
   if (el.btnAccent) el.btnAccent.addEventListener('click', toggleAccent);
 
   el.btnFolder.addEventListener('click', () => {
@@ -422,6 +421,11 @@ async function init() {
   // 各功能模块的事件绑定也在这一步完成（它们的 init 里带着自己的登记）。
   registerRefreshListeners();
   // 只绑事件、不参与整体重绘的模块
+  // 顶栏「⋯」下拉菜单：纯开关，菜单里的功能各有各的归属（见 ui/menu.js）
+  initMoreMenu();
+  // 顶栏「切换模型」弹层：同上，纯开关。列表内容由 renderModelSwitch 铺，
+  // 选中之后干什么这边接给 applyModelChoice —— 它俩不互相认识，免得绕出 import 环。
+  initModelMenu({ onPick: applyModelChoice });
   initPerspectiveUi();
   // 外观弹窗同理：改完即时生效 + 落盘，没有需要整体重绘的 DOM。
   initAppearance();

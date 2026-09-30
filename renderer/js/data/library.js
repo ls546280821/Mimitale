@@ -41,7 +41,7 @@ export function characterAttrs(character) {
 }
 
 /**
- * 这张卡的状态要不要进「当前状态」入口条（showInPanel）。
+ * 这张卡的状态要不要进「在场角色」入口条（showInPanel）。
  * 只对世界书副本有意义：true 才显示，默认 false。单角色聊天绑的卡不受此开关管
  * （那种会话里 TA 就是主角，见 cast.js 的 panelEntities）。
  */

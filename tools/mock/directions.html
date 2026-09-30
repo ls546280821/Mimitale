@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Mimitale · 三个设计方向对比稿</title>
+<style>
+/* ==========================================================================
+   三个方向对比稿 —— 静态设计稿，只服务「出图给人看」，不参与构建。
+
+   每个方向 = 一套完整 token（配色 + 字体角色 + 圆角/层次）+ 一套布局主张。
+   frame 固定 1180x800 = 真实窗口尺寸（main/window.js:70）。
+   data-shot 命名 A1..A4 / B1..B4 / C1..C4，出图脚本按它命名文件。
+
+   三方向的差异写在三处，不是换皮：
+     1) 明暗立场   A 浅 / B 深（默认） / C 浅
+     2) 结构主张   A 单栏宽阅读 / B 对话+浮卡 / C 三栏常驻数据栏
+     3) 字体角色   A 雅黑 / B 楷体 / C 宋体
+   ========================================================================== */
+
+*{box-sizing:border-box}
+/* 出图脚本截整个视口 → body 必须零留白，且滚动条必须藏掉（占位会裁掉 frame 底部） */
+html{scrollbar-width:none}
+::-webkit-scrollbar{width:0;height:0}
+body{margin:0;padding:0;background:#8e8e8a;display:block}
+
+[data-dir]{
+  --font-ui:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;
+  --r:10px;--r-sm:7px;
+}
+
+/* ---------- 方向 A｜墨白：冷灰纸台 + 纯白承载面 + 松绿一点 ---------- */
+[data-dir="A"]{
+  --bg:#f4f4f2; --sheet:#ffffff; --sheet-2:#f8f8f6;
+  --line:#e7e6e2; --line-strong:#d3d2cd;
+  --ink:#17191b; --ink-dim:#565b61; --ink-faint:#676d73;
+  --accent:#2f6b4f; --accent-soft:rgba(47,107,79,.09); --accent-line:rgba(47,107,79,.32);
+  --font-read:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC",system-ui,sans-serif;
+}
+/* ---------- 方向 B｜夜航：墨蓝黑为底，琥珀为灯，楷体阅读 ---------- */
+[data-dir="B"]{
+  --bg:#0f1216; --sheet:#151a1f; --sheet-2:#1b2127;
+  --line:#252c34; --line-strong:#333c46;
+  --ink:#e2e6ea; --ink-dim:#9aa2aa; --ink-faint:#838b93;
+  --accent:#d99a3f; --accent-soft:rgba(217,154,63,.13); --accent-line:rgba(217,154,63,.36);
+  --on-accent:#1a1206;
+  --font-read:KaiTi,"楷体","STKaiti","Kaiti SC",serif;
+}
+/* ---------- 方向 C｜台账：冷蓝灰 + 石板青，宋体印刷感，密度最高 ---------- */
+[data-dir="C"]{
+  --bg:#e9ecef; --sheet:#ffffff; --sheet-2:#f2f4f6;
+  --line:#d9dee3; --line-strong:#c2cad2;
+  --ink:#16191d; --ink-dim:#4e565e; --ink-faint:#666c72;
+  --accent:#33697d; --accent-soft:rgba(51,105,125,.09); --accent-line:rgba(51,105,125,.32);
+  --font-read:SimSun,"宋体","Songti SC",serif;
+}
+[data-dir="A"],[data-dir="C"]{--on-accent:#fff}
+
+/* ---------- frame ---------- */
+.frame{
+  width:1180px;height:800px;display:flex;overflow:hidden;position:relative;
+  background:var(--bg);color:var(--ink);
+  font-family:var(--font-ui);font-size:14px;line-height:1.6;
+}
+.frame *{min-width:0}
+.sp{flex:1}
+
+/* ==========================================================================
+   A｜墨白
+   ========================================================================== */
+.a-rail{width:64px;flex:0 0 64px;display:flex;flex-direction:column;align-items:center;padding:16px 0 14px}
+.a-logo{width:28px;height:28px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:13px}
+.a-rail-g{display:flex;flex-direction:column;gap:4px;margin-top:16px}
+.a-rail-g.bottom{margin-top:auto}
+.a-rail-btn{width:38px;height:38px;border:0;border-radius:9px;background:transparent;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center}
+.a-rail-btn:hover{background:var(--accent-soft);color:var(--ink)}
+.a-rail-btn.on{background:var(--accent-soft);color:var(--accent)}
+.a-me{width:32px;height:32px;border-radius:50%;background:var(--sheet);border:1px solid var(--line);color:var(--ink-dim);display:grid;place-items:center;font-size:13px}
+
+.a-main{flex:1;display:flex;flex-direction:column;background:var(--sheet);position:relative}
+.a-top{height:64px;flex:0 0 64px;display:flex;align-items:center;gap:6px;padding:0 30px}
+.a-title{font-size:15px;font-weight:500}
+.a-sub{font-size:11.5px;color:var(--ink-faint);margin-top:3px;display:flex;gap:6px}
+.a-tb{height:30px;border:0;border-radius:7px;background:none;padding:0 10px;font-size:12.5px;color:var(--ink-faint);cursor:pointer;font-family:var(--font-ui);display:flex;align-items:center;gap:6px}
+.a-tb:hover{background:var(--accent-soft);color:var(--accent)}
+
+.a-scroll{flex:1;overflow:hidden;padding:4px 30px 0}
+.a-read{max-width:712px;margin:0 auto}
+.a-msg{margin-bottom:34px}
+.a-msg.me{padding-left:48px}
+.a-who{font-size:11.5px;color:var(--ink-faint);letter-spacing:.06em;margin-bottom:9px}
+.a-prose{font-family:var(--font-read);font-size:17px;line-height:2;color:var(--ink);letter-spacing:.012em}
+.a-prose p{margin:0 0 .45em}
+.a-prose p:last-child{margin-bottom:0}
+.a-say{font-size:15px;line-height:1.95;color:var(--ink-dim)}
+.a-acts{display:flex;gap:16px;margin-top:15px}
+.a-acts button{background:none;border:0;padding:0;font-size:11.5px;color:var(--ink-faint);cursor:pointer;font-family:var(--font-ui)}
+.a-acts button:hover{color:var(--accent)}
+.a-opts{margin-top:20px;border-top:1px solid var(--line);padding-top:6px}
+.a-opt{display:block;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;font-size:14px;color:var(--ink-dim);cursor:pointer;font-family:var(--font-ui)}
+.a-opt:hover{background:var(--accent-soft);color:var(--accent)}
+.a-opts-f{display:flex;gap:16px;padding:8px 10px 0}
+
+.a-compose{flex:0 0 auto;padding:16px 30px 22px}
+.a-cin{max-width:712px;margin:0 auto;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line-strong);padding-bottom:11px}
+.a-cin:focus-within{border-color:var(--accent)}
+.a-ph{flex:1;font-size:15px;color:var(--ink-faint)}
+.a-icb{width:26px;height:26px;border:0;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center}
+.a-send{width:34px;height:34px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;cursor:pointer}
+.a-hint{max-width:712px;margin:11px auto 0;font-size:11.5px;color:var(--ink-faint)}
+
+.a-page{flex:1;display:flex;flex-direction:column;background:var(--bg)}
+.a-phead{padding:30px 30px 20px;display:flex;align-items:baseline;gap:12px}
+.a-ptitle{font-size:21px;font-weight:500;letter-spacing:.01em}
+.a-psub{font-size:12.5px;color:var(--ink-faint)}
+.a-pbody{flex:1;overflow:hidden;padding:0 30px 26px}
+.a-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.a-card{background:var(--sheet);border-radius:13px;padding:17px;display:flex;gap:13px;cursor:pointer}
+.a-card:hover{box-shadow:0 4px 20px rgba(23,25,27,.08)}
+.a-face{width:52px;height:52px;flex:0 0 52px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-size:21px;font-family:var(--font-read)}
+.a-name{font-size:14.5px;font-weight:500}
+.a-tags{font-size:11.5px;color:var(--ink-faint);margin-top:4px}
+.a-desc{font-size:12.5px;color:var(--ink-dim);margin-top:9px;line-height:1.75;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.a-lfoot{display:flex;gap:13px;margin-top:11px}
+.a-link{background:none;border:0;padding:0;font-size:12px;color:var(--ink-faint);cursor:pointer;font-family:var(--font-ui)}
+.a-link.acc{color:var(--accent)}
+
+.a-veil{position:absolute;inset:0;background:rgba(23,25,27,.34)}
+.a-modal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:872px;height:700px;background:var(--sheet);border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 26px 76px rgba(23,25,27,.26)}
+.a-mhead{padding:24px 30px 16px;display:flex;align-items:flex-start;gap:12px}
+.a-mtitle{font-size:17px;font-weight:500}
+.a-mnote{font-size:11.5px;color:var(--ink-faint);margin-top:4px}
+.a-mbody{flex:1;overflow:hidden;padding:0 30px}
+.a-mfoot{flex:0 0 66px;display:flex;align-items:center;gap:10px;padding:0 30px}
+.a-fl{display:block;font-size:12px;color:var(--ink-dim);margin-bottom:8px}
+.a-inp{width:100%;height:40px;border:0;border-bottom:1px solid var(--line-strong);background:transparent;color:var(--ink);font-family:var(--font-ui);font-size:14px;display:flex;align-items:center;padding:0}
+textarea.a-inp{height:auto;padding:9px 0;line-height:1.85;resize:none;display:block}
+.a-tabs{display:flex;gap:4px;align-items:center;margin:20px 0 12px;border-bottom:1px solid var(--line)}
+.a-tab{padding:7px 12px;font-size:13px;color:var(--ink-dim);border:0;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;cursor:pointer;font-family:var(--font-ui)}
+.a-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.a-arow{display:grid;grid-template-columns:158px 84px 1fr 116px 26px;gap:10px;align-items:center;margin-bottom:10px}
+.a-arow .a-inp{height:38px}
+.a-more{width:26px;height:26px;border:0;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center}
+.btn-a{height:36px;padding:0 20px;border:0;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:13.5px;cursor:pointer;font-family:var(--font-ui)}
+.gh-a{height:36px;padding:0 16px;border:1px solid var(--line);border-radius:9px;background:transparent;color:var(--ink-dim);font-size:13.5px;cursor:pointer;font-family:var(--font-ui)}
+.gh-a:hover{border-color:var(--line-strong);color:var(--ink)}
+.gh-a.danger{color:var(--accent);border-color:var(--accent-line)}
+.icb-a{width:30px;height:30px;border:0;border-radius:8px;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center}
+.icb-a:hover{background:var(--accent-soft);color:var(--accent)}
+
+.a-float{position:absolute;right:32px;top:156px;width:288px;background:var(--sheet);border-radius:15px;overflow:hidden;box-shadow:0 20px 54px rgba(23,25,27,.18)}
+.a-fhead{padding:14px 17px;display:flex;align-items:center;gap:9px}
+.a-fbody{padding:2px 17px 18px;display:flex;flex-direction:column;gap:16px}
+.a-cap{font-size:10.5px;color:var(--ink-faint);letter-spacing:.1em;margin-bottom:10px}
+.a-st{display:flex;justify-content:space-between;font-size:13px;color:var(--ink-dim);margin-bottom:6px}
+.a-st b{font-weight:400;color:var(--ink);font-variant-numeric:tabular-nums}
+.a-track{height:3px;border-radius:2px;background:var(--line);overflow:hidden}
+.a-track i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.a-li{font-size:12.5px;color:var(--ink-dim);padding-left:11px;position:relative}
+.a-li:before{content:"·";position:absolute;left:2px;color:var(--ink-faint)}
+
+/* ==========================================================================
+   B｜夜航
+   ========================================================================== */
+.b-side{width:232px;flex:0 0 232px;background:var(--bg);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:16px 12px 14px}
+.b-brand{display:flex;align-items:center;gap:10px;padding:2px 8px 20px}
+.b-seal{width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-size:13px}
+.b-bname{font-size:14.5px;font-weight:500;letter-spacing:.06em}
+.b-new{width:100%;height:38px;border:0;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:13.5px;cursor:pointer;font-family:var(--font-ui)}
+.b-cap{font-size:10.5px;color:var(--ink-faint);padding:20px 10px 8px;letter-spacing:.1em}
+.b-list{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:2px}
+.b-item{padding:9px 11px;border-radius:8px;font-size:13px;color:var(--ink-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.b-item:hover{background:var(--sheet-2);color:var(--ink)}
+.b-item.on{background:var(--accent-soft);color:var(--accent)}
+.b-foot{padding-top:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:2px}
+
+.b-main{flex:1;display:flex;flex-direction:column;background:var(--sheet);position:relative}
+.b-top{height:54px;flex:0 0 54px;display:flex;align-items:center;gap:8px;padding:0 24px;border-bottom:1px solid var(--line)}
+.b-title{font-size:14.5px;font-weight:500}
+.b-sub{font-size:11px;color:var(--ink-faint);margin-top:2px;display:flex;gap:6px}
+.b-tb{height:29px;border:1px solid var(--line);border-radius:7px;background:none;padding:0 11px;font-size:12px;color:var(--ink-dim);cursor:pointer;font-family:var(--font-ui);display:flex;align-items:center;gap:6px}
+.b-tb:hover{border-color:var(--line-strong);color:var(--ink)}
+
+.b-scroll{flex:1;overflow:hidden;padding:22px 24px 0}
+.b-read{max-width:600px}
+.b-blk{margin-bottom:22px}
+.b-who{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-faint);margin-bottom:9px}
+.b-av{width:22px;height:22px;border-radius:50%;background:var(--sheet-2);color:var(--ink-dim);display:grid;place-items:center;font-size:11px;font-family:var(--font-read);flex:0 0 22px}
+.b-bubble{background:var(--sheet-2);border-radius:16px;padding:16px 19px}
+.b-bubble.me{background:var(--accent-soft);border-left:2px solid var(--accent)}
+.b-prose{font-family:var(--font-read);font-size:16.5px;line-height:2.05;color:var(--ink);letter-spacing:.01em}
+.b-prose p{margin:0 0 .4em}
+.b-prose p:last-child{margin-bottom:0}
+.b-say{font-family:var(--font-ui);font-size:15px;line-height:1.9;color:var(--ink)}
+.b-acts{display:flex;gap:15px;margin-top:12px;padding-left:4px}
+.b-acts button{background:none;border:0;padding:0;font-size:11.5px;color:var(--ink-faint);cursor:pointer;font-family:var(--font-ui)}
+.b-acts button:hover{color:var(--accent)}
+.b-opts{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+.b-opt{text-align:left;border:1px solid var(--line);border-radius:10px;background:none;padding:10px 14px;font-size:13.5px;color:var(--ink-dim);cursor:pointer;font-family:var(--font-ui)}
+.b-opt:hover{border-color:var(--accent-line);color:var(--accent);background:var(--accent-soft)}
+
+.b-compose{flex:0 0 auto;padding:14px 24px 20px}
+.b-cin{max-width:600px;display:flex;gap:10px;align-items:center}
+.b-field{flex:1;height:48px;background:var(--sheet-2);border-radius:13px;display:flex;align-items:center;gap:10px;padding:0 15px}
+.b-field:focus-within{box-shadow:inset 0 0 0 1px var(--accent-line)}
+.b-ph{flex:1;font-size:14px;color:var(--ink-faint)}
+.b-send{height:48px;padding:0 22px;border:0;border-radius:13px;background:var(--accent);color:var(--on-accent);font-size:13.5px;cursor:pointer;font-family:var(--font-ui)}
+.b-hint{max-width:600px;margin:9px 0 0 4px;font-size:11px;color:var(--ink-faint)}
+
+.b-page{flex:1;display:flex;flex-direction:column;background:var(--bg)}
+.b-phead{padding:26px 24px 18px;display:flex;align-items:baseline;gap:12px}
+.b-ptitle{font-size:20px;font-weight:500}
+.b-psub{font-size:12px;color:var(--ink-faint)}
+.b-pbody{flex:1;overflow:hidden;padding:0 24px 24px}
+.b-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.b-card{background:var(--sheet-2);border:1px solid var(--line);border-radius:14px;padding:15px;display:flex;gap:12px;cursor:pointer}
+.b-card:hover{border-color:var(--accent-line)}
+.b-face{width:50px;height:50px;flex:0 0 50px;border-radius:50%;background:var(--bg);border:1px solid var(--line);color:var(--ink-dim);display:grid;place-items:center;font-size:20px;font-family:var(--font-read)}
+.b-name{font-size:14.5px;font-weight:500}
+.b-tags{font-size:11px;color:var(--ink-faint);margin-top:4px}
+.b-desc{font-size:12.5px;color:var(--ink-dim);margin-top:8px;line-height:1.75;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.b-lfoot{display:flex;gap:13px;margin-top:11px}
+.b-link{background:none;border:0;padding:0;font-size:12px;color:var(--ink-faint);cursor:pointer;font-family:var(--font-ui)}
+.b-link.acc{color:var(--accent)}
+
+.b-veil{position:absolute;inset:0;background:rgba(0,0,0,.62)}
+.b-modal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:872px;height:700px;background:var(--sheet);border:1px solid var(--line);border-radius:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 30px 80px rgba(0,0,0,.55)}
+.b-mhead{padding:20px 28px 14px;display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid var(--line)}
+.b-mtitle{font-size:17px;font-weight:500}
+.b-mnote{font-size:11.5px;color:var(--ink-faint);margin-top:4px}
+.b-mbody{flex:1;overflow:hidden;padding:12px 28px 0}
+.b-mfoot{flex:0 0 64px;border-top:1px solid var(--line);display:flex;align-items:center;gap:10px;padding:0 28px}
+.b-fl{display:block;font-size:12px;color:var(--ink-dim);margin-bottom:6px}
+.b-inp{width:100%;height:42px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:13.5px;padding:0 13px;display:flex;align-items:center}
+textarea.b-inp{height:auto;padding:11px 13px;line-height:1.7;resize:none;display:block}
+.b-tabs{display:flex;gap:4px;align-items:center;margin:14px 0 10px}
+.b-tab{padding:7px 14px;border-radius:8px;font-size:13px;color:var(--ink-dim);border:0;background:none;cursor:pointer;font-family:var(--font-ui)}
+.b-tab:hover{background:var(--sheet-2);color:var(--ink)}
+.b-tab.on{background:var(--accent-soft);color:var(--accent)}
+.b-arow{display:grid;grid-template-columns:158px 92px 1fr 116px 28px;gap:10px;align-items:center;margin-bottom:8px}
+.b-more{width:28px;height:28px;border:0;border-radius:7px;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center}
+.b-more:hover{background:var(--sheet-2);color:var(--accent)}
+.btn-b{height:38px;padding:0 22px;border:0;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:13.5px;cursor:pointer;font-family:var(--font-ui)}
+.gh-b{height:38px;padding:0 16px;border:1px solid var(--line);border-radius:10px;background:transparent;color:var(--ink-dim);font-size:13.5px;cursor:pointer;font-family:var(--font-ui)}
+.gh-b:hover{border-color:var(--line-strong);color:var(--ink)}
+.gh-b.danger{color:var(--accent);border-color:var(--accent-line)}
+.icb-b{width:30px;height:30px;border:0;border-radius:8px;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center}
+.icb-b:hover{background:var(--sheet-2);color:var(--accent)}
+
+.b-float{position:absolute;right:24px;top:136px;width:266px;background:var(--sheet-2);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.b-fhead{padding:13px 15px;display:flex;align-items:center;gap:9px;border-bottom:1px solid var(--line)}
+.b-fbody{padding:14px 15px;display:flex;flex-direction:column;gap:15px}
+.b-cap2{font-size:10.5px;color:var(--ink-faint);letter-spacing:.1em;margin-bottom:9px}
+.b-st{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-dim);margin-bottom:6px}
+.b-st b{font-weight:400;color:var(--ink);font-variant-numeric:tabular-nums}
+.b-track{height:5px;border-radius:3px;background:var(--bg);overflow:hidden}
+.b-track i{display:block;height:100%;background:var(--accent);border-radius:3px}
+.b-li{font-size:12.5px;color:var(--ink-dim);padding-left:11px;position:relative}
+.b-li:before{content:"·";position:absolute;left:2px;color:var(--ink-faint)}
+
+/* ==========================================================================
+   C｜台账
+   ========================================================================== */
+.c-side{width:208px;flex:0 0 208px;background:var(--sheet-2);border-right:1px solid var(--line);display:flex;flex-direction:column}
+.c-brand{height:54px;flex:0 0 54px;display:flex;align-items:center;gap:9px;padding:0 16px;border-bottom:1px solid var(--line)}
+.c-seal{width:22px;height:22px;border-radius:5px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-size:12px}
+.c-bname{font-size:13.5px;font-weight:500;letter-spacing:.05em}
+.c-new{margin:12px 14px 2px;height:34px;border:0;border-radius:7px;background:var(--accent);color:var(--on-accent);font-size:12.5px;cursor:pointer;font-family:var(--font-ui)}
+.c-navs{padding:8px 8px 6px;display:flex;flex-direction:column;gap:2px}
+.c-nav{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;font-size:13px;color:var(--ink-dim);cursor:pointer;border:0;background:none;width:100%;text-align:left;font-family:var(--font-ui)}
+.c-nav:hover{background:var(--sheet);color:var(--ink)}
+.c-nav.on{background:var(--sheet);color:var(--accent);font-weight:500}
+.c-secap{font-size:10.5px;color:var(--ink-faint);letter-spacing:.1em;padding:12px 16px 6px}
+.c-rows{flex:1;overflow:hidden;border-top:1px solid var(--line);background:var(--sheet)}
+.c-row{padding:8px 16px;font-size:12.5px;color:var(--ink-dim);border-bottom:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.c-row:hover{background:var(--sheet-2)}
+.c-row.on{color:var(--ink);border-left:2px solid var(--accent);padding-left:14px;background:var(--sheet-2)}
+
+.c-main{flex:1;display:flex;flex-direction:column;background:var(--sheet);min-width:0}
+.c-top{height:54px;flex:0 0 54px;display:flex;align-items:center;gap:9px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--sheet-2)}
+.c-title{font-size:14px;font-weight:500}
+.c-sub{font-size:11px;color:var(--ink-faint);margin-top:2px}
+.c-tb{height:28px;border:1px solid var(--line);border-radius:6px;background:var(--sheet);padding:0 10px;font-size:12px;color:var(--ink-dim);cursor:pointer;font-family:var(--font-ui);display:flex;align-items:center;gap:6px}
+.c-tb:hover{border-color:var(--line-strong);color:var(--ink)}
+
+.c-scroll{flex:1;overflow:hidden;padding:6px 20px 0}
+.c-msg{padding:13px 0 13px 13px;border-bottom:1px solid var(--line);border-left:2px solid var(--line-strong)}
+.c-msg.ai{border-left-color:var(--accent)}
+.c-meta{display:flex;align-items:center;gap:8px;font-size:10.5px;color:var(--ink-faint);margin-bottom:7px;letter-spacing:.03em}
+.c-tag{font-size:10px;line-height:15px;padding:0 6px;border-radius:3px;background:var(--accent-soft);color:var(--accent)}
+.c-prose{font-family:var(--font-read);font-size:15px;line-height:1.95;color:var(--ink)}
+.c-prose p{margin:0 0 .35em}
+.c-prose p:last-child{margin-bottom:0}
+.c-say{font-size:13.5px;line-height:1.9;color:var(--ink)}
+.c-acts{display:flex;gap:14px;margin-top:10px}
+.c-acts button{background:none;border:0;padding:0;font-size:11px;color:var(--ink-faint);cursor:pointer;font-family:var(--font-ui)}
+.c-acts button:hover{color:var(--accent)}
+.c-opts{margin-top:11px;display:flex;flex-direction:column;gap:4px}
+.c-opt{text-align:left;border:1px solid var(--line);border-radius:6px;background:var(--sheet-2);padding:7px 11px;font-size:12.5px;color:var(--ink-dim);cursor:pointer;font-family:var(--font-ui)}
+.c-opt:hover{border-color:var(--accent-line);color:var(--accent)}
+
+.c-compose{flex:0 0 auto;border-top:1px solid var(--line);background:var(--sheet-2);padding:11px 20px 14px}
+.c-cin{display:flex;gap:9px;align-items:center}
+.c-field{flex:1;height:40px;border:1px solid var(--line);border-radius:7px;background:var(--sheet);display:flex;align-items:center;gap:9px;padding:0 12px}
+.c-field:focus-within{border-color:var(--accent-line)}
+.c-ph{flex:1;font-size:13px;color:var(--ink-faint)}
+.c-send{height:40px;padding:0 18px;border:0;border-radius:7px;background:var(--accent);color:var(--on-accent);font-size:13px;cursor:pointer;font-family:var(--font-ui)}
+.c-hint{margin-top:8px;font-size:10.5px;color:var(--ink-faint)}
+
+.c-data{width:300px;flex:0 0 300px;background:var(--sheet-2);border-left:1px solid var(--line);display:flex;flex-direction:column}
+.c-dhead{height:54px;flex:0 0 54px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line)}
+.c-dtitle{font-size:12.5px;font-weight:500}
+.c-dbody{flex:1;overflow:hidden;padding:12px 14px}
+.c-dgrp{margin-bottom:15px}
+.c-dcap{font-size:10.5px;color:var(--ink-faint);letter-spacing:.1em;padding-bottom:6px;border-bottom:1px solid var(--line);margin-bottom:6px;display:flex;justify-content:space-between}
+.c-drow{display:flex;align-items:center;justify-content:space-between;padding:6px 0;font-size:12.5px;color:var(--ink-dim);border-bottom:1px dashed var(--line)}
+.c-drow:last-child{border-bottom:0}
+.c-drow b{font-weight:400;color:var(--ink);font-variant-numeric:tabular-nums}
+.c-mini{width:44px;height:4px;border-radius:2px;background:var(--line);overflow:hidden;display:inline-block;vertical-align:middle;margin-left:9px}
+.c-mini i{display:block;height:100%;background:var(--accent)}
+.c-dfoot{flex:0 0 auto;border-top:1px solid var(--line);padding:10px 14px}
+
+.c-page{flex:1;display:flex;flex-direction:column;background:var(--sheet)}
+.c-phead{height:54px;flex:0 0 54px;display:flex;align-items:center;gap:10px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--sheet-2)}
+.c-ptitle{font-size:14px;font-weight:500}
+.c-pbody{flex:1;overflow:hidden;padding:16px 20px}
+.c-table{border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.c-thead{display:grid;grid-template-columns:50px 1.05fr 1.35fr 1.9fr 118px;gap:12px;padding:9px 14px;background:var(--sheet-2);border-bottom:1px solid var(--line);font-size:10.5px;color:var(--ink-faint);letter-spacing:.08em}
+.c-tr{display:grid;grid-template-columns:50px 1.05fr 1.35fr 1.9fr 118px;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);align-items:center;font-size:12.5px;color:var(--ink-dim)}
+.c-tr:last-child{border-bottom:0}
+.c-tr:hover{background:var(--sheet-2)}
+.c-tface{width:34px;height:34px;border-radius:6px;background:var(--bg);border:1px solid var(--line);color:var(--ink-dim);display:grid;place-items:center;font-size:15px;font-family:var(--font-read)}
+.c-tname{color:var(--ink);font-size:13px}
+.c-tdesc{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.c-tsum{display:flex;gap:11px}
+.c-link{background:none;border:0;padding:0;font-size:12px;color:var(--ink-faint);cursor:pointer;font-family:var(--font-ui)}
+.c-link.acc{color:var(--accent)}
+
+.c-veil{position:absolute;inset:0;background:rgba(22,25,29,.32)}
+.c-modal{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:900px;height:700px;background:var(--sheet);border-radius:10px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 64px rgba(22,25,29,.24)}
+.c-mhead{flex:0 0 58px;display:flex;align-items:center;gap:11px;padding:0 20px;border-bottom:1px solid var(--line);background:var(--sheet-2)}
+.c-mtitle{font-size:15px;font-weight:500}
+.c-mnote{font-size:11px;color:var(--ink-faint)}
+.c-mbody{flex:1;display:flex;min-height:0}
+.c-mnav{width:172px;flex:0 0 172px;border-right:1px solid var(--line);background:var(--sheet-2);padding:12px 8px}
+.c-mi{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font-size:12.5px;color:var(--ink-dim);cursor:pointer}
+.c-mi:hover{background:var(--sheet)}
+.c-mi.on{background:var(--sheet);color:var(--accent);font-weight:500}
+.c-mform{flex:1;padding:18px 22px;overflow:hidden}
+.c-mfoot{flex:0 0 60px;display:flex;align-items:center;gap:10px;padding:0 20px;border-top:1px solid var(--line);background:var(--sheet-2)}
+.c-fl{display:block;font-size:11.5px;color:var(--ink-dim);margin-bottom:6px}
+.c-inp{width:100%;height:36px;border:1px solid var(--line);border-radius:6px;background:var(--sheet);color:var(--ink);font-family:var(--font-ui);font-size:13px;padding:0 11px;display:flex;align-items:center}
+textarea.c-inp{height:auto;padding:9px 11px;line-height:1.8;resize:none;display:block}
+.c-arow{display:grid;grid-template-columns:146px 80px 1fr 108px 26px;gap:9px;align-items:center;margin-bottom:8px}
+.c-arow .c-inp{height:34px}
+.c-more{width:26px;height:26px;border:0;border-radius:6px;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center}
+.c-more:hover{background:var(--sheet-2);color:var(--accent)}
+.c-tabs{display:flex;align-items:center;gap:2px;margin:14px 0 10px;border-bottom:1px solid var(--line)}
+.c-tab{padding:7px 12px;font-size:12.5px;color:var(--ink-dim);border:0;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;cursor:pointer;font-family:var(--font-ui)}
+.c-tab:hover{color:var(--ink)}
+.c-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.btn-c{height:34px;padding:0 18px;border:0;border-radius:7px;background:var(--accent);color:var(--on-accent);font-size:13px;cursor:pointer;font-family:var(--font-ui)}
+.gh-c{height:34px;padding:0 14px;border:1px solid var(--line);border-radius:7px;background:transparent;color:var(--ink-dim);font-size:13px;cursor:pointer;font-family:var(--font-ui)}
+.gh-c:hover{border-color:var(--line-strong);color:var(--ink)}
+.gh-c.danger{color:var(--accent);border-color:var(--accent-line)}
+.icb-c{width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center}
+.icb-c:hover{background:var(--sheet-2);color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// ============================================================================
+//  静态稿渲染：每页一个 frame，出图脚本按 [data-shot] 逐个截。
+//  文案三方向完全一致 —— 对比时只看设计，不看内容差异。
+// ============================================================================
+
+const ICONS = {
+  chat:'<path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9 9 0 0 1-3.9-.9L3 20.5l1.6-4.6A8.3 8.3 0 0 1 3.6 11.5 8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4Z"/>',
+  book:'<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H19v18H6.5A2.5 2.5 0 0 0 4 22.5Z"/><path d="M4 17.5A2.5 2.5 0 0 1 6.5 15H19"/>',
+  globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18Z"/>',
+  gear:'<path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="15.5" cy="7" r="2.2"/><circle cx="9.5" cy="17" r="2.2"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  image:'<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+  more:'<g fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></g>',
+  send:'<path d="M4 12h14M13 6l6 6-6 6"/>',
+  up:'<path d="M12 19V5M6 11l6-6 6 6"/>',
+  x:'<path d="M6 6l12 12M18 6 6 18"/>'
+};
+const ico = (n, s) => `<svg width="${s||17}" height="${s||17}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
+
+const CHATS = ['雨夜，旧书店','选项测试：随便说点什么','顶栏生效测试','冒烟测试世界（分支）','斐法罗斯到底是个什么样'];
+const CHARS = [
+  ['昔','昔涟','原神 · 温婉','常来这家旧书店的姑娘，记得每一本书放在哪一格。'],
+  ['艾','艾玛','原创 · 冷淡','话很少，但会在你写字的时候把灯往你这边推一点。'],
+  ['林','林小雨','测试卡 · 校园','沉默寡言，成绩很好，书包里总有没还的图书馆书。'],
+  ['阿','阿多利','The Fantasy World of Adolion','旅行者，口袋里装着三个国家的硬币和一张旧地图。'],
+  ['裴','斐法罗斯','原创 · 世界观','不出现，只存在于别人口中的那座城。'],
+  ['测','属性测试角色','测试 · 全字段','年龄性别种族属性面板一条不落，用来压边界。']
+];
+const ACTS = ['复制','编辑','重新生成','配图','分支','删除'];
+const OPTS = ['我假装没听见，先去擦干头发','我问她这本书为什么不上架','我说：那你呢，你怎么回去'];
+
+/* ============================ A｜墨白 ============================ */
+function aRail(on){
+  const nav = [['chat','对话'],['book','角色库'],['globe','世界书'],['gear','设置']];
+  return `<aside class="a-rail">
+    <div class="a-logo">书</div>
+    <div class="a-rail-g">${nav.map(([i,t])=>`<button class="a-rail-btn ${on===i?'on':''}">${ico(i,18)}</button>`).join('')}</div>
+    <div class="a-rail-g bottom"><div class="a-me">我</div></div>
+  </aside>`;
+}
+function aTop(){
+  return `<div class="a-top">
+    <div><div class="a-title">雨夜，旧书店</div>
+      <div class="a-sub"><span>昔涟</span><span>·</span><span>deepseek-chat</span></div></div>
+    <span class="sp"></span>
+    <button class="a-tb">deepseek-chat</button>
+    <button class="a-tb">视角</button>
+    <button class="a-tb">外观</button>
+    <button class="a-tb" style="padding:0 8px">${ico('more',17)}</button>
+  </div>`;
+}
+function aCompose(){
+  return `<div class="a-compose">
+    <div class="a-cin">
+      <button class="a-icb">${ico('image',16)}</button>
+      <span class="a-ph">说点什么……</span>
+      <button class="a-send">${ico('send',16)}</button>
+    </div>
+    <div class="a-hint">Enter 发送 · Shift + Enter 换行</div>
+  </div>`;
+}
+function aMsgs(withOpts, withActs){
+  return `
+  <div class="a-msg">
+    <div class="a-who">昔涟</div>
+    <div class="a-prose">
+      <p>雨下到第三天，檐水连成一条不断的线。她把最后一摞旧书上架，回头看你一眼。</p>
+      <p>“伞就放在门口。”她说，“你这身衣服，走到街口就湿透了。”</p>
+    </div>
+    ${withActs?`<div class="a-acts">${ACTS.map(a=>`<button>${a}</button>`).join('')}</div>`:''}
+  </div>
+  <div class="a-msg me">
+    <div class="a-who">我</div>
+    <div class="a-say">我在门口站了一会儿，才把伞收起来。</div>
+  </div>
+  <div class="a-msg">
+    <div class="a-who">昔涟</div>
+    <div class="a-prose"><p>她从梯子上下来，把那本没上架的书抱在怀里，露出半截褪色的书脊。</p></div>
+    ${withOpts?`<div class="a-opts">
+      ${OPTS.map(o=>`<button class="a-opt">${o}</button>`).join('')}
+      <div class="a-opts-f"><button class="a-link">换一批</button><button class="a-link">收起</button></div>
+    </div>`:''}
+  </div>`;
+}
+const aChat = `
+<div class="frame" data-dir="A" data-shot="A1-chat">
+  ${aRail('chat')}
+  <section class="a-main">
+    ${aTop()}
+    <div class="a-scroll"><div class="a-read">${aMsgs(true,true)}</div></div>
+    ${aCompose()}
+  </section>
+</div>`;
+
+const aLib = `
+<div class="frame" data-dir="A" data-shot="A2-char-lib">
+  ${aRail('book')}
+  <section class="a-page">
+    <div class="a-phead">
+      <span class="a-ptitle">角色库</span>
+      <span class="a-psub">6 张卡 · PNG / JSON 都能导</span>
+      <span class="sp"></span>
+      <button class="btn-a" style="align-self:center">导入角色卡</button>
+    </div>
+    <div class="a-pbody">
+      <div class="a-grid">
+        ${CHARS.map(([f,n,t,d])=>`
+        <div class="a-card">
+          <div class="a-face">${f}</div>
+          <div>
+            <div class="a-name">${n}</div>
+            <div class="a-tags">${t}</div>
+            <div class="a-desc">${d}</div>
+            <div class="a-lfoot"><button class="a-link acc">聊天</button><button class="a-link">编辑</button><button class="a-link">导出</button></div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+  </section>
+</div>`;
+
+const aEditor = `
+<div class="frame" data-dir="A" data-shot="A3-editor">
+  ${aRail('book')}
+  <section class="a-page" style="background:var(--sheet-2)"></section>
+  <div class="a-veil"></div>
+  <div class="a-modal">
+    <div class="a-mhead">
+      <div><div class="a-mtitle">编辑角色</div><div class="a-mnote">改完记得点右下角保存</div></div>
+      <span class="sp"></span>
+      <button class="icb-a">${ico('x',16)}</button>
+    </div>
+    <div class="a-mbody">
+      <div style="display:flex;gap:18px;align-items:flex-start">
+        <div style="width:92px;flex:0 0 92px">
+          <div class="a-face" style="width:92px;height:92px;border-radius:50%;font-size:34px">林</div>
+          <div style="font-size:11px;color:var(--ink-faint);text-align:center;margin-top:8px">点击换头像</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:16px;padding-top:4px">
+          <div><label class="a-fl">角色名</label><div class="a-inp">林小雨</div></div>
+          <div><label class="a-fl">标签</label><div class="a-inp" style="color:var(--ink-faint)">分类用，例如：校园，治愈</div></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:20px">
+        <div><label class="a-fl">年龄</label><div class="a-inp">17</div></div>
+        <div><label class="a-fl">性别</label><div class="a-inp">女</div></div>
+        <div><label class="a-fl">种族</label><div class="a-inp">人类</div></div>
+      </div>
+      <div style="margin-top:20px">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:8px">
+          <label class="a-fl" style="margin:0">角色描述</label>
+          <span style="font-size:11px;color:var(--ink-faint)">128 字</span>
+          <span class="sp"></span>
+          <button class="a-link">放大</button>
+        </div>
+        <textarea class="a-inp" rows="3">安静，成绩好，书包里总有一本没还回去的图书馆的书。她不主动搭话，但你问她问题的时候会认真想很久，然后给出一个比预期更长的答案。</textarea>
+      </div>
+      <div class="a-tabs">
+        <button class="a-tab on">状态栏</button>
+        <button class="a-tab">关系</button>
+        <button class="a-tab">背包</button>
+        <button class="a-tab" style="color:var(--ink-faint)">＋ 新建分组</button>
+      </div>
+      <div class="a-arow">
+        <div class="a-inp">体力</div>
+        <div class="a-inp">数值</div>
+        <div class="a-inp">72</div>
+        <div class="a-inp" style="font-size:12.5px;color:var(--ink-faint)">0 — 100</div>
+        <button class="a-more">${ico('more',16)}</button>
+      </div>
+      <div class="a-arow">
+        <div class="a-inp">心情</div>
+        <div class="a-inp">文本</div>
+        <div class="a-inp">平静</div>
+        <div class="a-inp" style="font-size:12.5px;color:var(--ink-faint)">—</div>
+        <button class="a-more">${ico('more',16)}</button>
+      </div>
+    </div>
+    <div class="a-mfoot">
+      <span style="font-size:11.5px;color:var(--ink-faint)">这是你自己写的角色</span>
+      <span class="sp"></span>
+      <button class="gh-a">导出</button>
+      <button class="gh-a danger">删除角色</button>
+      <button class="btn-a">保存角色</button>
+    </div>
+  </div>
+</div>`;
+
+const aState = `
+<div class="frame" data-dir="A" data-shot="A4-state">
+  ${aRail('chat')}
+  <section class="a-main">
+    ${aTop()}
+    <div class="a-scroll" style="padding-right:352px"><div class="a-read">${aMsgs(false,false)}</div></div>
+    ${aCompose()}
+  </section>
+  <div class="a-float">
+    <div class="a-fhead">
+      <div class="a-face" style="width:26px;height:26px;flex:0 0 26px;border-radius:50%;font-size:12px">林</div>
+      <span style="font-size:13px;font-weight:500">林小雨</span>
+      <span class="sp"></span>
+      <button class="a-link">完成</button>
+      <button class="a-link">${ico('x',14)}</button>
+    </div>
+    <div class="a-fbody">
+      <div>
+        <div class="a-cap">状态栏</div>
+        <div style="margin-bottom:11px"><div class="a-st"><span>体力</span><b>72 / 100</b></div><div class="a-track"><i style="width:72%"></i></div></div>
+        <div><div class="a-st"><span>专注</span><b>88 / 100</b></div><div class="a-track"><i style="width:88%"></i></div></div>
+      </div>
+      <div>
+        <div class="a-cap">关系</div>
+        <div style="margin-bottom:11px"><div class="a-st"><span>好感</span><b>41 / 100</b></div><div class="a-track"><i style="width:41%"></i></div></div>
+        <div class="a-st"><span>当前心情</span><b>平静</b></div>
+      </div>
+      <div>
+        <div class="a-cap">背包</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span class="a-li">借书证</span><span class="a-li">钢笔墨水</span><span class="a-li">没还的那本书</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+/* ============================ B｜夜航 ============================ */
+function bSide(on){
+  return `<aside class="b-side">
+    <div class="b-brand"><span class="b-seal">书</span><span class="b-bname">如我所书</span></div>
+    <button class="b-new">＋ 新对话</button>
+    <div class="b-cap">历史会话</div>
+    <div class="b-list">${CHATS.map((t,i)=>`<div class="b-item ${i===0&&on==='chat'?'on':''}">${t}</div>`).join('')}</div>
+    <div class="b-foot">
+      <div class="b-item" ${on==='book'?'style="background:var(--accent-soft);color:var(--accent)"':''}>角色库</div>
+      <div class="b-item">世界书</div>
+      <div class="b-item" ${on==='set'?'style="background:var(--accent-soft);color:var(--accent)"':''}>设置</div>
+    </div>
+  </aside>`;
+}
+function bTop(){
+  return `<div class="b-top">
+    <div><div class="b-title">雨夜，旧书店</div>
+      <div class="b-sub"><span>昔涟</span><span>·</span><span>deepseek-chat</span></div></div>
+    <span class="sp"></span>
+    <button class="b-tb">deepseek-chat</button>
+    <button class="b-tb">视角</button>
+    <button class="b-tb">外观</button>
+    <button class="b-tb" style="padding:0 8px">${ico('more',16)}</button>
+  </div>`;
+}
+function bCompose(){
+  return `<div class="b-compose">
+    <div class="b-cin">
+      <div class="b-field">
+        <button style="border:0;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center">${ico('image',17)}</button>
+        <span class="b-ph">说点什么……</span>
+      </div>
+      <button class="b-send">发送</button>
+    </div>
+    <div class="b-hint">Enter 发送 · Shift + Enter 换行</div>
+  </div>`;
+}
+function bMsgs(withOpts, withActs){
+  return `
+  <div class="b-blk">
+    <div class="b-who"><span class="b-av">昔</span>昔涟</div>
+    <div class="b-bubble">
+      <div class="b-prose">
+        <p>雨下到第三天，檐水连成一条不断的线。她把最后一摞旧书上架，回头看你一眼。</p>
+        <p>“伞就放在门口。”她说，“你这身衣服，走到街口就湿透了。”</p>
+      </div>
+    </div>
+    ${withActs?`<div class="b-acts">${ACTS.map(a=>`<button>${a}</button>`).join('')}</div>`:''}
+  </div>
+  <div class="b-blk">
+    <div class="b-who"><span class="b-av" style="background:var(--accent-soft);color:var(--accent)">我</span>我</div>
+    <div class="b-bubble me"><div class="b-say">我在门口站了一会儿，才把伞收起来。</div></div>
+  </div>
+  <div class="b-blk">
+    <div class="b-who"><span class="b-av">昔</span>昔涟</div>
+    <div class="b-bubble"><div class="b-prose"><p>她从梯子上下来，把那本没上架的书抱在怀里，露出半截褪色的书脊。</p></div></div>
+    ${withOpts?`<div class="b-opts">${OPTS.map(o=>`<button class="b-opt">${o}</button>`).join('')}</div>`:''}
+  </div>`;
+}
+const bChat = `
+<div class="frame" data-dir="B" data-shot="B1-chat">
+  ${bSide('chat')}
+  <section class="b-main">
+    ${bTop()}
+    <div class="b-scroll"><div class="b-read">${bMsgs(true,true)}</div></div>
+    ${bCompose()}
+  </section>
+</div>`;
+
+const bLib = `
+<div class="frame" data-dir="B" data-shot="B2-char-lib">
+  ${bSide('book')}
+  <section class="b-page">
+    <div class="b-phead">
+      <span class="b-ptitle">角色库</span>
+      <span class="b-psub">6 张卡 · PNG / JSON 都能导</span>
+      <span class="sp"></span>
+      <button class="btn-b" style="align-self:center">导入角色卡</button>
+    </div>
+    <div class="b-pbody">
+      <div class="b-grid">
+        ${CHARS.map(([f,n,t,d])=>`
+        <div class="b-card">
+          <div class="b-face">${f}</div>
+          <div>
+            <div class="b-name">${n}</div>
+            <div class="b-tags">${t}</div>
+            <div class="b-desc">${d}</div>
+            <div class="b-lfoot"><button class="b-link acc">聊天</button><button class="b-link">编辑</button><button class="b-link">导出</button></div>
+          </div>
+        </div>`).join('')}
+      </div>
+    </div>
+  </section>
+</div>`;
+
+const bEditor = `
+<div class="frame" data-dir="B" data-shot="B3-editor">
+  ${bSide('book')}
+  <section class="b-page"></section>
+  <div class="b-veil"></div>
+  <div class="b-modal">
+    <div class="b-mhead">
+      <div><div class="b-mtitle">编辑角色</div><div class="b-mnote">改完记得点右下角保存</div></div>
+      <span class="sp"></span>
+      <button class="icb-b">${ico('x',16)}</button>
+    </div>
+    <div class="b-mbody">
+      <div style="display:flex;gap:18px;align-items:flex-start">
+        <div style="width:92px;flex:0 0 92px">
+          <div class="b-face" style="width:92px;height:92px;border-radius:50%;font-size:34px">林</div>
+          <div style="font-size:11px;color:var(--ink-faint);text-align:center;margin-top:8px">点击换头像</div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:14px">
+          <div><label class="b-fl">角色名</label><div class="b-inp">林小雨</div></div>
+          <div><label class="b-fl">标签</label><div class="b-inp" style="color:var(--ink-faint)">分类用，例如：校园，治愈</div></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:12px">
+        <div><label class="b-fl">年龄</label><div class="b-inp">17</div></div>
+        <div><label class="b-fl">性别</label><div class="b-inp">女</div></div>
+        <div><label class="b-fl">种族</label><div class="b-inp">人类</div></div>
+      </div>
+      <div style="margin-top:12px">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:7px">
+          <label class="b-fl" style="margin:0">角色描述</label>
+          <span style="font-size:11px;color:var(--ink-faint)">128 字</span>
+          <span class="sp"></span>
+          <button class="b-link">放大</button>
+        </div>
+        <textarea class="b-inp" rows="3">安静，成绩好，书包里总有一本没还回去的图书馆的书。她不主动搭话，但你问她问题的时候会认真想很久，然后给出一个比预期更长的答案。</textarea>
+      </div>
+      <div class="b-tabs">
+        <button class="b-tab on">状态栏</button>
+        <button class="b-tab">关系</button>
+        <button class="b-tab">背包</button>
+        <button class="b-tab" style="color:var(--ink-faint)">＋ 新建分组</button>
+      </div>
+      <div class="b-arow">
+        <div class="b-inp">体力</div>
+        <div class="b-inp">数值</div>
+        <div class="b-inp">72</div>
+        <div class="b-inp" style="font-size:12.5px;color:var(--ink-faint)">0 — 100</div>
+        <button class="b-more">${ico('more',16)}</button>
+      </div>
+      <div class="b-arow">
+        <div class="b-inp">心情</div>
+        <div class="b-inp">文本</div>
+        <div class="b-inp">平静</div>
+        <div class="b-inp" style="font-size:12.5px;color:var(--ink-faint)">—</div>
+        <button class="b-more">${ico('more',16)}</button>
+      </div>
+    </div>
+    <div class="b-mfoot">
+      <span style="font-size:11.5px;color:var(--ink-faint)">这是你自己写的角色</span>
+      <span class="sp"></span>
+      <button class="gh-b">导出</button>
+      <button class="gh-b danger">删除角色</button>
+      <button class="btn-b">保存角色</button>
+    </div>
+  </div>
+</div>`;
+
+const bState = `
+<div class="frame" data-dir="B" data-shot="B4-state">
+  ${bSide('chat')}
+  <section class="b-main">
+    ${bTop()}
+    <div class="b-scroll"><div class="b-read">${bMsgs(false,false)}</div></div>
+    ${bCompose()}
+  </section>
+  <div class="b-float">
+    <div class="b-fhead">
+      <span class="b-av" style="background:var(--accent);color:var(--on-accent)">林</span>
+      <span style="font-size:12.5px;font-weight:500">林小雨</span>
+      <span class="sp"></span>
+      <button class="b-link">完成</button>
+      <button class="b-link">${ico('x',14)}</button>
+    </div>
+    <div class="b-fbody">
+      <div>
+        <div class="b-cap2">状态栏</div>
+        <div style="margin-bottom:11px"><div class="b-st"><span>体力</span><b>72 / 100</b></div><div class="b-track"><i style="width:72%"></i></div></div>
+        <div><div class="b-st"><span>专注</span><b>88 / 100</b></div><div class="b-track"><i style="width:88%"></i></div></div>
+      </div>
+      <div>
+        <div class="b-cap2">关系</div>
+        <div style="margin-bottom:11px"><div class="b-st"><span>好感</span><b>41 / 100</b></div><div class="b-track"><i style="width:41%"></i></div></div>
+        <div class="b-st"><span>当前心情</span><b>平静</b></div>
+      </div>
+      <div>
+        <div class="b-cap2">背包</div>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <span class="b-li">借书证</span><span class="b-li">钢笔墨水</span><span class="b-li">没还的那本书</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+/* ============================ C｜台账 ============================ */
+function cSide(on){
+  const nav = [['chat','对话'],['book','角色库'],['globe','世界书'],['gear','设置']];
+  return `<aside class="c-side">
+    <div class="c-brand"><span class="c-seal">书</span><span class="c-bname">如我所书</span></div>
+    <button class="c-new">＋ 新对话</button>
+    <div class="c-navs">
+      ${nav.map(([i,t])=>`<button class="c-nav ${on===i?'on':''}">${ico(i,15)}<span>${t}</span></button>`).join('')}
+    </div>
+    <div class="c-secap">历史会话</div>
+    <div class="c-rows">${CHATS.map((t,i)=>`<div class="c-row ${i===0?'on':''}">${t}</div>`).join('')}</div>
+  </aside>`;
+}
+function cTop(){
+  return `<div class="c-top">
+    <div><div class="c-title">雨夜，旧书店</div>
+      <div class="c-sub">昔涟 · deepseek-chat</div></div>
+    <span class="sp"></span>
+    <button class="c-tb">模型：deepseek-chat</button>
+    <button class="c-tb">视角</button>
+    <button class="c-tb">外观</button>
+    <button class="c-tb" style="padding:0 8px">${ico('more',15)}</button>
+  </div>`;
+}
+function cCompose(){
+  return `<div class="c-compose">
+    <div class="c-cin">
+      <div class="c-field">
+        <button style="border:0;background:none;color:var(--ink-faint);cursor:pointer;display:grid;place-items:center">${ico('image',15)}</button>
+        <span class="c-ph">说点什么……</span>
+      </div>
+      <button class="c-send">发送</button>
+    </div>
+    <div class="c-hint">Enter 发送 · Shift + Enter 换行</div>
+  </div>`;
+}
+function cMsgs(withOpts, withActs){
+  return `
+  <div class="c-msg ai">
+    <div class="c-meta"><span class="c-tag">昔涟</span><span>第 12 轮</span><span>·</span><span>deepseek-chat</span></div>
+    <div class="c-prose">
+      <p>雨下到第三天，檐水连成一条不断的线。她把最后一摞旧书上架，回头看你一眼。</p>
+      <p>“伞就放在门口。”她说，“你这身衣服，走到街口就湿透了。”</p>
+    </div>
+    ${withActs?`<div class="c-acts">${ACTS.map(a=>`<button>${a}</button>`).join('')}</div>`:''}
+  </div>
+  <div class="c-msg">
+    <div class="c-meta"><span>我</span><span>第 13 轮</span></div>
+    <div class="c-say">我在门口站了一会儿，才把伞收起来。</div>
+  </div>
+  <div class="c-msg ai">
+    <div class="c-meta"><span class="c-tag">昔涟</span><span>第 13 轮</span><span>·</span><span>deepseek-chat</span></div>
+    <div class="c-prose"><p>她从梯子上下来，把那本没上架的书抱在怀里，露出半截褪色的书脊。</p></div>
+    ${withOpts?`<div class="c-opts">${OPTS.map(o=>`<button class="c-opt">${o}</button>`).join('')}</div>`:''}
+  </div>`;
+}
+function cData(){
+  return `<aside class="c-data">
+    <div class="c-dhead"><span class="c-dtitle">角色数据</span><span class="sp"></span><button class="c-link">${ico('gear',14)}</button></div>
+    <div class="c-dbody">
+      <div class="c-dgrp">
+        <div class="c-dcap"><span>状态栏</span><span>2/2</span></div>
+        <div class="c-drow"><span>体力</span><span><b>72</b><span class="c-mini"><i style="width:72%"></i></span></span></div>
+        <div class="c-drow"><span>专注</span><span><b>88</b><span class="c-mini"><i style="width:88%"></i></span></span></div>
+      </div>
+      <div class="c-dgrp">
+        <div class="c-dcap"><span>关系</span><span>2/2</span></div>
+        <div class="c-drow"><span>好感</span><span><b>41</b><span class="c-mini"><i style="width:41%"></i></span></span></div>
+        <div class="c-drow"><span>当前心情</span><b>平静</b></div>
+      </div>
+      <div class="c-dgrp">
+        <div class="c-dcap"><span>背包</span><span>3 项</span></div>
+        <div class="c-drow"><span>借书证</span><b>1</b></div>
+        <div class="c-drow"><span>钢笔墨水</span><b>1</b></div>
+        <div class="c-drow"><span>没还的那本书</span><b>1</b></div>
+      </div>
+      <div class="c-dgrp">
+        <div class="c-dcap"><span>我的状态</span><span>1/1</span></div>
+        <div class="c-drow"><span>当前位置</span><b>旧书店</b></div>
+      </div>
+    </div>
+    <div class="c-dfoot"><button class="gh-c" style="width:100%">编辑字段</button></div>
+  </aside>`;
+}
+const cChat = `
+<div class="frame" data-dir="C" data-shot="C1-chat">
+  ${cSide('chat')}
+  <section class="c-main">
+    ${cTop()}
+    <div class="c-scroll">${cMsgs(true,true)}</div>
+    ${cCompose()}
+  </section>
+  ${cData()}
+</div>`;
+
+const cLib = `
+<div class="frame" data-dir="C" data-shot="C2-char-lib">
+  ${cSide('book')}
+  <section class="c-page">
+    <div class="c-phead">
+      <span class="c-ptitle">角色库</span>
+      <span class="c-sub" style="margin-top:0">6 张卡</span>
+      <span class="sp"></span>
+      <button class="btn-c">导入角色卡</button>
+    </div>
+    <div class="c-pbody">
+      <div class="c-table">
+        <div class="c-thead"><span>头像</span><span>角色名</span><span>来源 / 标签</span><span>简介</span><span>操作</span></div>
+        ${CHARS.map(([f,n,t,d])=>`
+        <div class="c-tr">
+          <div class="c-tface">${f}</div>
+          <span class="c-tname">${n}</span>
+          <span>${t}</span>
+          <span class="c-tdesc">${d}</span>
+          <span class="c-tsum"><button class="c-link acc">聊天</button><button class="c-link">编辑</button></span>
+        </div>`).join('')}
+      </div>
+    </div>
+  </section>
+</div>`;
+
+const cEditor = `
+<div class="frame" data-dir="C" data-shot="C3-editor">
+  ${cSide('book')}
+  <section class="c-page"></section>
+  <div class="c-veil"></div>
+  <div class="c-modal">
+    <div class="c-mhead">
+      <span class="c-mtitle">编辑角色 · 林小雨</span>
+      <span class="c-mnote">改完记得保存</span>
+      <span class="sp"></span>
+      <button class="icb-c">${ico('x',15)}</button>
+    </div>
+    <div class="c-mbody">
+      <div class="c-mnav">
+        <div class="c-mi on">基本信息</div>
+        <div class="c-mi">角色描述</div>
+        <div class="c-mi">性格</div>
+        <div class="c-mi">开场白</div>
+        <div class="c-mi">示例对话</div>
+        <div class="c-mi">属性面板</div>
+        <div class="c-mi">世界书</div>
+      </div>
+      <div class="c-mform">
+        <div style="display:flex;gap:16px;align-items:flex-start">
+          <div style="width:80px;flex:0 0 80px">
+            <div class="c-tface" style="width:80px;height:80px;font-size:30px;border-radius:8px">林</div>
+            <div style="font-size:10.5px;color:var(--ink-faint);text-align:center;margin-top:6px">点击换头像</div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column;gap:12px">
+            <div><label class="c-fl">角色名</label><div class="c-inp">林小雨</div></div>
+            <div><label class="c-fl">标签</label><div class="c-inp" style="color:var(--ink-faint)">分类用，例如：校园，治愈</div></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:14px">
+          <div><label class="c-fl">年龄</label><div class="c-inp">17</div></div>
+          <div><label class="c-fl">性别</label><div class="c-inp">女</div></div>
+          <div><label class="c-fl">种族</label><div class="c-inp">人类</div></div>
+        </div>
+        <div style="margin-top:14px">
+          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px">
+            <label class="c-fl" style="margin:0">角色描述</label>
+            <span style="font-size:10.5px;color:var(--ink-faint)">128 字</span>
+            <span class="sp"></span>
+            <button class="c-link">放大</button>
+          </div>
+          <textarea class="c-inp" rows="3">安静，成绩好，书包里总有一本没还回去的图书馆的书。她不主动搭话，但你问她问题的时候会认真想很久，然后给出一个比预期更长的答案。</textarea>
+        </div>
+        <div class="c-tabs">
+          <button class="c-tab on">状态栏</button>
+          <button class="c-tab">关系</button>
+          <button class="c-tab">背包</button>
+          <button class="c-tab" style="color:var(--ink-faint)">＋ 新建分组</button>
+        </div>
+        <div class="c-arow">
+          <div class="c-inp">体力</div>
+          <div class="c-inp">数值</div>
+          <div class="c-inp">72</div>
+          <div class="c-inp" style="font-size:12px;color:var(--ink-faint)">0 — 100</div>
+          <button class="c-more">${ico('more',15)}</button>
+        </div>
+        <div class="c-arow">
+          <div class="c-inp">心情</div>
+          <div class="c-inp">文本</div>
+          <div class="c-inp">平静</div>
+          <div class="c-inp" style="font-size:12px;color:var(--ink-faint)">—</div>
+          <button class="c-more">${ico('more',15)}</button>
+        </div>
+      </div>
+    </div>
+    <div class="c-mfoot">
+      <span style="font-size:11px;color:var(--ink-faint)">这是你自己写的角色</span>
+      <span class="sp"></span>
+      <button class="gh-c">导出</button>
+      <button class="gh-c danger">删除角色</button>
+      <button class="btn-c">保存角色</button>
+    </div>
+  </div>
+</div>`;
+
+const cState = `
+<div class="frame" data-dir="C" data-shot="C4-state">
+  ${cSide('chat')}
+  <section class="c-main">
+    ${cTop()}
+    <div class="c-scroll">${cMsgs(false,false)}</div>
+    ${cCompose()}
+  </section>
+  ${cData()}
+</div>`;
+
+document.getElementById('root').innerHTML =
+  aChat + aLib + aEditor + aState +
+  bChat + bLib + bEditor + bState +
+  cChat + cLib + cEditor + cState;
+</script>
+</body>
+</html>

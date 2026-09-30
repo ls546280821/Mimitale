@@ -28,29 +28,47 @@ export function applyTheme(theme) {
 }
 
 // ---------------------------------------------------------------------------
-//  配色方案（accent）：pink（可爱粉）/ blue（商务蓝），和明暗模式正交。
-//  体现在 <html> 的 data-accent 上，具体配色在 style.css 的变量里。
+//  配色方案（accent）：pink（草莓奶昔）/ blue（苏打气泡）/ matcha（抹茶奶绿），
+//  和明暗模式正交。体现在 <html> 的 data-accent 上，具体配色在 style.css 的变量里。
+//  点一下主色按钮 = 按 ORDER 往后轮一个，转一圈回到 pink。
 // ---------------------------------------------------------------------------
 
+const ACCENT_ORDER = ['pink', 'blue', 'matcha'];
+
+// 名字只用来拼按钮提示（「切换为苏打气泡」），别的地方不读它
+const ACCENT_NAME = {
+  pink: '草莓奶昔',
+  blue: '苏打气泡',
+  matcha: '抹茶奶绿'
+};
+
+function isAccent(value) {
+  return Object.prototype.hasOwnProperty.call(ACCENT_NAME, value);
+}
+
 export function currentAccent() {
-  return document.documentElement.getAttribute('data-accent') === 'blue' ? 'blue' : 'pink';
+  const value = document.documentElement.getAttribute('data-accent');
+  return isAccent(value) ? value : 'pink';
 }
 
 export function applyAccent(accent) {
-  const next = accent === 'blue' ? 'blue' : 'pink';
+  const next = isAccent(accent) ? accent : 'pink';
   document.documentElement.setAttribute('data-accent', next);
 
   if (el.btnAccent) {
-    const isBlue = next === 'blue';
-    const label = isBlue ? '切换为粉色（可爱）' : '切换为蓝色（商务）';
+    // 按钮是「循环」不是「开关」，所以提示写的是**下一个**是什么；
+    // aria-pressed 表示「不是默认配色」，方便读屏知道当前偏离了默认。
+    const nextName = ACCENT_NAME[ACCENT_ORDER[(ACCENT_ORDER.indexOf(next) + 1) % ACCENT_ORDER.length]];
+    const label = `切换为${nextName}`;
     el.btnAccent.title = label;
     el.btnAccent.setAttribute('aria-label', label);
-    el.btnAccent.setAttribute('aria-pressed', isBlue ? 'true' : 'false');
+    el.btnAccent.setAttribute('aria-pressed', next === 'pink' ? 'false' : 'true');
   }
 }
 
 export function toggleAccent() {
-  const next = currentAccent() === 'blue' ? 'pink' : 'blue';
+  const cur = currentAccent();
+  const next = ACCENT_ORDER[(ACCENT_ORDER.indexOf(cur) + 1) % ACCENT_ORDER.length];
   applyAccent(next);
 
   if (state.settings) state.settings.accent = next;

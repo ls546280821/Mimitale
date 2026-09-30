@@ -89,6 +89,10 @@ const DEFAULT_COMMON_ATTRIBUTES = [
   '时间', '地点', '天气', '背包', '线索'
 ];
 
+// 配色方案的可选值。渲染层 style.css 里每种都有一个 token 块，
+// ui/theme.js 按这个顺序循环切换 —— 加新配色要改这里 + style.css + ui/theme.js + preload.js。
+const ACCENTS = ['pink', 'blue', 'matcha'];
+
 const DEFAULT_SETTINGS = {
   // 可以配置多个服务商，每个都有自己的地址、Key 和模型列表
   providers: [
@@ -129,7 +133,7 @@ const DEFAULT_SETTINGS = {
   maxTurns: 20,
   // 界面主题：light（白天）/ dark（夜间）
   theme: 'light',
-  // 配色方案：pink（可爱粉）/ blue（商务蓝），与明暗模式正交
+  // 配色方案：pink（草莓奶昔）/ blue（苏打气泡）/ matcha（抹茶奶绿），与明暗模式正交
   accent: 'pink',
   sendOnEnter: true,
   showDate: true,
@@ -257,8 +261,8 @@ function normalizeSettings(saved) {
   // 界面主题
   s.theme = raw.theme === 'dark' ? 'dark' : 'light';
 
-  // 配色方案
-  s.accent = raw.accent === 'blue' ? 'blue' : 'pink';
+  // 配色方案（不认识的值退回默认粉）
+  s.accent = ACCENTS.includes(raw.accent) ? raw.accent : 'pink';
 
   // 生图：和聊天完全分开的一组配置，所以这里只做格式清洗，
   // 不存在的服务商 id 就留着 —— 用户可能还没保存那个服务商
@@ -387,6 +391,7 @@ module.exports = {
   PROVIDER_PRESETS,
   COMMON_MODELS,
   DEFAULT_SETTINGS,
+  ACCENTS,
   normalizeProvider,
   normalizeSettings,
   resolveProvider,

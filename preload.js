@@ -16,7 +16,11 @@ const themeArg = (process.argv || []).find((arg) => arg.startsWith('--mimitale-t
 const initialTheme = themeArg && themeArg.endsWith('dark') ? 'dark' : 'light';
 
 const accentArg = (process.argv || []).find((arg) => arg.startsWith('--mimitale-accent='));
-const initialAccent = accentArg && accentArg.endsWith('blue') ? 'blue' : 'pink';
+// 和 main/providers.js 的 ACCENTS 保持同步。preload 跑在渲染进程里、
+// 拿不到主进程模块，所以这份小列表只能单独列一遍。
+const INITIAL_ACCENTS = ['pink', 'blue', 'matcha'];
+const accentValue = accentArg ? accentArg.slice('--mimitale-accent='.length) : '';
+const initialAccent = INITIAL_ACCENTS.includes(accentValue) ? accentValue : 'pink';
 
 function applyInitialTheme() {
   if (document && document.documentElement) {

@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Mimitale · 可爱风三气质 · 静态稿</title>
+<style>
+/* ==========================================================================
+   可爱风三气质 —— 静态设计稿（只服务出图，不参与构建）
+
+   → 上一版把产品当成「书」做（阅读面 / 楷体旁白 / 去气泡），错了。
+     这是酒馆式的角色扮演聊天：主角是**角色头像和对话气泡**。
+
+   → 所以这一版**结构定死一套**，三个方向只改气质（配色 + 圆角力度 + 气泡形态），
+     不让用户在布局上纠结：
+       左 rail 224 角色列表 ｜ 中 main 对话 ｜ 右 panel 300 角色面板
+     1440x900（屏幕 1920x1080，工作区 1920x1040）
+
+   → 本机**没有圆体**（C:\Windows\Fonts 里中文字体只有 等线/黑体/楷体/宋体/仿宋/雅黑），
+     可爱感只能靠「形状圆 + 配色柔 + 头像气泡主导」来做，字体统一微软雅黑。
+   ========================================================================== */
+
+*{box-sizing:border-box}
+/* 出图截整个视口 → body 零留白；滚动条必须藏掉，否则占位会裁掉 frame 底部 */
+html{scrollbar-width:none}
+::-webkit-scrollbar{width:0;height:0}
+body{margin:0;padding:0;background:#8e8e8a;display:block}
+
+[data-dir]{
+  --font-ui:"Microsoft YaHei UI","Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif;
+  --r-card:16px; --r-bubble:18px; --r-btn:12px; --r-pill:999px;
+  --ink-faint:#7f7f7f;
+}
+
+/* ---------- ① berry 草莓奶昔：暖粉，最萌 ---------- */
+[data-dir="berry"]{
+  --bg:#fff5f8; --rail:#ffeef4; --sheet:#ffffff; --sheet-2:#fff7fa;
+  --line:#f8dee8; --line-2:#f0cbd9;
+  --ink:#2b1f26; --ink-dim:#5f4f58; --ink-faint:#7f6f78;
+  --accent:#d92968; --accent-soft:rgba(217,41,104,.10);
+  --bubble:#ffffff; --bubble-me:#ffd9e6; --bubble-me-ink:#8a1543;
+  --shadow:0 2px 10px rgba(217,41,104,.10);
+  --shadow-lg:0 6px 22px rgba(217,41,104,.14);
+  --logo-g:#ff9dc4,#c78cff;
+}
+/* ---------- ② soda 苏打气泡：清爽蓝 ---------- */
+[data-dir="soda"]{
+  --bg:#f4f9ff; --rail:#e8f3fd; --sheet:#ffffff; --sheet-2:#f7fbff;
+  --line:#dceaf7; --line-2:#c6ddf1;
+  --ink:#16222e; --ink-dim:#4a6076; --ink-faint:#63788e;
+  --accent:#1670b8; --accent-soft:rgba(22,112,184,.10);
+  --bubble:#ffffff; --bubble-me:#d3e9ff; --bubble-me-ink:#0d4a7a;
+  --shadow:0 2px 10px rgba(22,112,184,.10);
+  --shadow-lg:0 6px 22px rgba(22,112,184,.14);
+  --logo-g:#7cc4ff,#4d8cff;
+}
+/* ---------- ③ matcha 抹茶奶绿：温柔绿 ---------- */
+[data-dir="matcha"]{
+  --bg:#f4fbf7; --rail:#e9f7ef; --sheet:#ffffff; --sheet-2:#f7fdfa;
+  --line:#d9eee3; --line-2:#c3e4d3;
+  --ink:#182a22; --ink-dim:#4b6558; --ink-faint:#5b7869;
+  --accent:#1a7d52; --accent-soft:rgba(26,125,82,.10);
+  --bubble:#ffffff; --bubble-me:#cdeedd; --bubble-me-ink:#0c4a30;
+  --shadow:0 2px 10px rgba(26,125,82,.10);
+  --shadow-lg:0 6px 22px rgba(26,125,82,.14);
+  --logo-g:#7fe0b4,#3fb98a;
+}
+
+/* ---------- frame ---------- */
+.frame{
+  width:1440px;height:900px;display:flex;overflow:hidden;position:relative;
+  background:var(--bg);color:var(--ink);
+  font-family:var(--font-ui);font-size:14px;line-height:1.6;
+}
+.frame *{min-width:0}
+.sp{flex:1}
+
+/* ---------- 头像（角色自身的视觉，三方向共用） ---------- */
+.ava{
+  border-radius:50%;display:grid;place-items:center;color:#fff;
+  font-weight:600;flex:0 0 auto;position:relative;letter-spacing:.02em;
+}
+/* 渐变色板刻意不带 .ava 前缀 —— 头像、卡片脸、大预览脸、「我」都是同一套。
+   前缀限死在 .ava 上时，.kface.g3 / .p-ava.g1 / .prev-face.g3 全都拿不到背景，
+   表现为「透明圆 + 白字」，在白卡片上直接隐形。 */
+.g1{background:linear-gradient(135deg,#ffb0d0,#b98cff)}
+.g2{background:linear-gradient(135deg,#b9f0d8,#5fd6a8)}
+.g3{background:linear-gradient(135deg,#ffd9a8,#ffab5e)}
+.g4{background:linear-gradient(135deg,#c8d4ff,#8a9dff)}
+.g5{background:linear-gradient(135deg,#e0d4ff,#a98cff)}
+.g6{background:linear-gradient(135deg,#ffc9c9,#ff8f8f)}
+.gme{background:linear-gradient(135deg,#9fd4ff,#6aa8ff)}
+.ava.sm{width:38px;height:38px;flex-basis:38px;font-size:15px}
+.ava.lg{width:44px;height:44px;flex-basis:44px;font-size:17px}
+.online{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;
+  background:#3fc98a;border:2.5px solid var(--rail)}
+/* 世界书会话的图标是**方的**，角色对话是圆的 —— 形状本身就是分类，不用再挂标签。
+   给「书」单开一条：直接改 .ava 的圆角，别动尺寸（尺寸有 .sm/.lg 在管）。 */
+.ava.book{border-radius:11px}
+.ava.lg.book{border-radius:14px}
+
+/* ---------- 左栏：角色列表 ---------- */
+.rail{width:224px;flex:0 0 224px;background:var(--rail);display:flex;flex-direction:column;padding:16px 12px 14px}
+.brand{display:flex;align-items:center;gap:9px;padding:2px 6px 16px}
+.logo{width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,var(--logo-g));
+  color:#fff;display:grid;place-items:center;font-size:14px;font-weight:600}
+.bname{font-size:14.5px;font-weight:600;letter-spacing:.04em}
+.new-btn{width:100%;height:40px;border:0;border-radius:var(--r-btn);background:var(--accent);
+  color:#fff;font-size:13.5px;font-weight:600;cursor:pointer;font-family:var(--font-ui);
+  margin-bottom:10px;box-shadow:var(--shadow)}
+.search{height:36px;border-radius:var(--r-pill);background:var(--sheet);display:flex;align-items:center;
+  gap:8px;padding:0 13px;font-size:12.5px;color:var(--ink-faint);margin-bottom:14px}
+.rail-cap{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-faint);
+  letter-spacing:.1em;padding:0 8px 8px}
+.rlist{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:3px}
+.ritem{display:flex;align-items:center;gap:10px;padding:8px 9px;border-radius:12px;cursor:pointer}
+.ritem:hover{background:var(--sheet)}
+.ritem.on{background:var(--sheet);box-shadow:var(--shadow)}
+.rinfo{overflow:hidden}
+.rname{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rsub{font-size:11px;color:var(--ink-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.rail-foot{padding-top:10px}
+/* flex 居中是为了带图标的 ghost-btn —— svg 是 inline，靠 baseline 对齐总差半像素 */
+.ghost-btn{width:100%;height:36px;border:0;border-radius:var(--r-btn);background:var(--sheet);
+  color:var(--ink-dim);font-size:12.5px;cursor:pointer;font-family:var(--font-ui);box-shadow:var(--shadow);
+  display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px}
+.ghost-btn.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+
+/* ---------- 中栏 ---------- */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.top{height:68px;flex:0 0 68px;display:flex;align-items:center;gap:12px;padding:0 24px;
+  border-bottom:1px solid var(--line)}
+.tinfo{overflow:hidden}
+.tname{font-size:15px;font-weight:600;display:flex;align-items:center;gap:7px}
+.pill-tag{font-size:10.5px;font-weight:400;padding:1px 8px;border-radius:var(--r-pill);
+  background:var(--accent-soft);color:var(--accent)}
+.tsub{font-size:11.5px;color:var(--ink-faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ic-btn{height:34px;border:0;border-radius:var(--r-btn);background:transparent;padding:0 12px;
+  font-size:12.5px;color:var(--ink-dim);cursor:pointer;font-family:var(--font-ui);
+  display:flex;align-items:center;gap:6px}
+.ic-btn:hover{background:var(--accent-soft);color:var(--accent)}
+
+.chat{flex:1;overflow:hidden;padding:22px 24px 0;display:flex;flex-direction:column;gap:16px}
+.row{display:flex;gap:10px;align-items:flex-start}
+.row.me{justify-content:flex-end}
+.col{display:flex;flex-direction:column;gap:7px;max-width:620px}
+.bubble{background:var(--bubble);border-radius:var(--r-bubble);border-top-left-radius:6px;
+  padding:12px 16px;box-shadow:var(--shadow);font-size:15px;line-height:1.72}
+.bubble p{margin:0 0 .42em}
+.bubble p:last-child{margin-bottom:0}
+.bubble.me{background:var(--bubble-me);color:var(--bubble-me-ink);border-radius:var(--r-bubble);
+  border-top-right-radius:6px;box-shadow:none}
+.acts{display:flex;gap:14px;padding-left:4px}
+.acts button{background:none;border:0;padding:0;font-size:11.5px;color:var(--ink-faint);
+  cursor:pointer;font-family:var(--font-ui)}
+.acts button:hover{color:var(--accent)}
+.opts{display:flex;flex-direction:column;gap:6px;max-width:520px}
+.opt{text-align:left;border:0;border-radius:var(--r-btn);background:var(--sheet);padding:9px 14px;
+  font-size:13.5px;color:var(--ink-dim);cursor:pointer;font-family:var(--font-ui);
+  box-shadow:var(--shadow);display:flex;align-items:center;gap:9px}
+.opt:hover{color:var(--accent)}
+.opt i{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:0 0 5px}
+
+.compose{flex:0 0 auto;padding:14px 24px 18px}
+.cin{display:flex;align-items:center;gap:9px}
+.field{flex:1;height:48px;border-radius:var(--r-pill);background:var(--sheet);display:flex;
+  align-items:center;gap:10px;padding:0 8px 0 16px;box-shadow:var(--shadow)}
+.ph{flex:1;font-size:14px;color:var(--ink-faint)}
+.ic-round{width:34px;height:34px;border:0;border-radius:50%;background:transparent;color:var(--ink-faint);
+  cursor:pointer;display:grid;place-items:center}
+.ic-round:hover{background:var(--accent-soft);color:var(--accent)}
+.send{height:48px;padding:0 26px;border:0;border-radius:var(--r-pill);background:var(--accent);
+  color:#fff;font-size:14px;font-weight:600;cursor:pointer;font-family:var(--font-ui);
+  box-shadow:var(--shadow)}
+
+/* ---------- 右栏：角色面板 ---------- */
+.panel{width:300px;flex:0 0 300px;background:var(--rail);display:flex;flex-direction:column;
+  padding:22px 18px 16px;overflow:hidden}
+.p-ava{width:88px;height:88px;border-radius:50%;margin:0 auto;display:grid;place-items:center;
+  color:#fff;font-size:34px;font-weight:600;position:relative}
+.p-ava .ring{position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--sheet)}
+.p-name{text-align:center;font-size:16px;font-weight:600;margin-top:13px}
+.p-tags{display:flex;justify-content:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.p-tags span{font-size:11px;padding:2px 9px;border-radius:var(--r-pill);background:var(--sheet);color:var(--ink-dim)}
+.p-desc{font-size:12.5px;color:var(--ink-dim);line-height:1.7;text-align:center;margin-top:12px;
+  padding:0 6px}
+.stats{margin-top:16px;padding-top:6px;border-top:1px solid var(--line-2);flex:1;overflow:hidden}
+.s-cap{font-size:10.5px;color:var(--ink-faint);letter-spacing:.12em;margin:13px 0 9px}
+.s-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--ink-dim);margin-bottom:6px}
+.s-row b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:3px;background:var(--sheet);overflow:hidden;margin-bottom:11px}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.panel-foot{padding-top:12px}
+
+/* ---------- 右栏 · 在场角色（世界书 / 多角色时用） ----------
+   一张面板只能服务单角色聊天。世界书游玩时场上会有好几张卡，
+   所以右栏改成「头像行 + 可折叠卡列表」：单角色时就一张展开卡（观感和原来一样），
+   多角色时收成一组，点谁展开谁。 */
+.cast-cap{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink-faint);
+  letter-spacing:.12em}
+.cast-cap b{font-weight:600;color:var(--accent);font-size:11px}
+.cast-top{display:flex;align-items:center;gap:6px;padding:0 4px 9px}
+.cc-all{font-size:10.5px;color:var(--ink-faint);background:none;border:0;cursor:pointer;
+  font-family:var(--font-ui);padding:0}
+.cc-all:hover{color:var(--accent)}
+/* gap 给 10px 而不是 7px：.cav.on 的环往外扩 4.5px，7px 时两枚头像会挤在一起 */
+.cast-avatars{display:flex;gap:10px;padding:0 2px 14px;border-bottom:1px solid var(--line-2)}
+.cav{width:34px;height:34px;flex:0 0 34px;border-radius:50%;display:grid;place-items:center;
+  color:#fff;font-size:14px;font-weight:600;position:relative;cursor:pointer}
+.cav.on{box-shadow:0 0 0 2.5px var(--rail),0 0 0 4.5px var(--accent)}
+.cast-list{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:8px;padding-top:14px}
+.ccard{background:var(--sheet);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+.ccard.open{box-shadow:var(--shadow-lg)}
+.cc-head{display:flex;align-items:center;gap:9px;padding:9px 11px}
+.cc-name{font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cc-tag{font-size:10px;font-weight:400;padding:1px 7px;border-radius:var(--r-pill);
+  background:var(--accent-soft);color:var(--accent);flex:0 0 auto}
+.cc-tog{font-size:11px;color:var(--ink-faint);background:none;border:0;cursor:pointer;
+  font-family:var(--font-ui);flex:0 0 auto;padding:2px 0 2px 4px}
+.cc-body{padding:2px 11px 12px}
+.cc-body .s-cap{margin-top:11px}
+.cc-body .s-cap:first-child{margin-top:2px}
+
+/* 旁白有两种，别合并：
+   · .narration = 场景切换 / 时间跳跃的一句短提示（居中 + 两侧短线）
+   · .gm        = GM 叙述的整段话（无气泡、左侧一条线）
+   共同点是**都没有气泡** —— 「有气泡 = 有人在说话」这条语义要守住，
+   玩家才有办法一眼分清「谁在说」和「叙述者在说」。 */
+.narration{display:flex;align-items:center;gap:11px;padding:2px 4px}
+.narration i{height:1px;flex:0 0 24px;background:var(--line-2);border-radius:1px}
+.narration span{flex:1;text-align:center;font-size:12.5px;color:var(--ink-faint);line-height:1.8}
+
+.gm{font-size:14.5px;line-height:1.9;color:var(--ink-dim);padding:1px 4px 1px 14px;
+  border-left:2px solid var(--line-2)}
+
+/* 多人同场（世界书）才在气泡上写名字；单角色聊天看头像就够，别加噪音。
+   左内边距 16px = 气泡的 padding-left，名字才和气泡里的字对齐成一列。 */
+.mname{font-size:11.5px;color:var(--ink-faint);padding-left:16px}
+
+/* ---------- 角色库页 ---------- */
+.page{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.phead{height:68px;flex:0 0 68px;display:flex;align-items:center;gap:12px;padding:0 24px;
+  border-bottom:1px solid var(--line)}
+.ptitle{font-size:17px;font-weight:600}
+.psub{font-size:12px;color:var(--ink-faint)}
+.pbody{flex:1;overflow:hidden;padding:20px 24px}
+.kgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.kcard{background:var(--sheet);border-radius:var(--r-card);padding:16px;box-shadow:var(--shadow);
+  cursor:pointer;display:flex;flex-direction:column}
+.kcard:hover{box-shadow:var(--shadow-lg)}
+.khead{display:flex;gap:12px;align-items:center}
+/* flex:0 0 auto —— 不要写死 flex-basis，否则内联 style="width:96px" 会被它压回去，
+   大头像变成 54x96 的竖椭圆 */
+.kface{width:54px;height:54px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;
+  color:#fff;font-size:22px;font-weight:600}
+.kname{font-size:15px;font-weight:600}
+.ktags{font-size:11px;color:var(--ink-faint);margin-top:3px}
+.kdesc{font-size:12.5px;color:var(--ink-dim);line-height:1.7;margin-top:12px;flex:1;min-height:3.4em;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.kfoot{display:flex;gap:12px;margin-top:auto;padding-top:12px;border-top:1px solid var(--line)}
+.kfoot button{background:none;border:0;padding:0;font-size:12px;color:var(--ink-faint);
+  cursor:pointer;font-family:var(--font-ui)}
+.kfoot button.acc{color:var(--accent);font-weight:600}
+
+/* ---------- 角色卡编辑页 ---------- */
+.form{flex:1;overflow:hidden;padding:20px 24px}
+.sheet{background:var(--sheet);border-radius:var(--r-card);padding:20px;box-shadow:var(--shadow)}
+.lbl{display:block;font-size:12px;color:var(--ink-dim);font-weight:600;margin-bottom:7px}
+.inp{width:100%;height:42px;border:1.5px solid var(--line);border-radius:11px;background:var(--sheet-2);
+  color:var(--ink);font-family:var(--font-ui);font-size:13.5px;padding:0 14px;display:flex;align-items:center}
+.inp.ph2{color:var(--ink-faint)}
+textarea.inp{height:auto;padding:11px 14px;line-height:1.75;resize:none;display:block}
+.tabs{display:flex;gap:6px;align-items:center;margin:16px 0 12px}
+.tab{padding:7px 14px;border:0;border-radius:var(--r-pill);font-size:12.5px;color:var(--ink-dim);
+  background:var(--sheet-2);cursor:pointer;font-family:var(--font-ui)}
+.tab.on{background:var(--accent);color:#fff;font-weight:600}
+.arow{display:grid;grid-template-columns:1fr 96px 1.2fr 108px 30px;gap:10px;align-items:center;margin-bottom:9px}
+.arow .inp{height:38px}
+.more{width:30px;height:30px;border:0;border-radius:9px;background:transparent;color:var(--ink-faint);
+  cursor:pointer;display:grid;place-items:center}
+.more:hover{background:var(--accent-soft);color:var(--accent)}
+
+/* 右栏预览 */
+.prev-box{background:var(--sheet);border-radius:var(--r-card);padding:16px;box-shadow:var(--shadow);margin-top:14px}
+.prev-cap{font-size:10.5px;color:var(--ink-faint);letter-spacing:.12em;text-align:center;margin-bottom:12px}
+.prev-face{width:66px;height:66px;border-radius:50%;margin:0 auto;display:grid;place-items:center;
+  color:#fff;font-size:26px;font-weight:600}
+.prev-name{text-align:center;font-size:14.5px;font-weight:600;margin-top:10px}
+.prev-tags{text-align:center;font-size:11px;color:var(--ink-faint);margin-top:4px}
+.prev-desc{font-size:12px;color:var(--ink-dim);line-height:1.7;margin-top:10px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+// ============================================================================
+//  静态稿渲染。三方向结构完全一致，只有 data-dir 不同 —— 便于横向对比气质。
+//  文案三份一致：对比时只看设计，不看内容。
+// ============================================================================
+
+const ICONS = {
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  image:'<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="8.8" cy="8.8" r="1.6"/><path d="m21 15-4.5-4.5L5.5 21"/>',
+  smile:'<circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0"/><path d="M9 9.5h.01M15 9.5h.01"/>',
+  more:'<g fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></g>',
+  eye:'<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>',
+  palette:'<path d="M12 21a9 9 0 1 1 9-9c0 2-1.6 3-3 3h-2a2.5 2.5 0 0 0-2 4c.5.7 0 2-2 2Z"/><circle cx="7.5" cy="11" r="1.2" fill="currentColor"/><circle cx="12" cy="7.5" r="1.2" fill="currentColor"/><circle cx="16.5" cy="11" r="1.2" fill="currentColor"/>',
+  book:'<path d="M4 5a2 2 0 0 1 2-2h13v17H6a2 2 0 0 0-2 2Z"/><path d="M4 18a2 2 0 0 1 2-2h13"/>',
+  gear:'<path d="M4 7h9M19 7h1M4 17h3M13 17h7"/><circle cx="15.5" cy="7" r="2.2"/><circle cx="9.5" cy="17" r="2.2"/>',
+  chat:'<path d="M20.5 11.5a7.9 7.9 0 0 1-8.5 7.9 8.6 8.6 0 0 1-3.7-.9L4 19.6l1.4-4.2a7.8 7.8 0 0 1-1-3.9 7.9 7.9 0 0 1 8.6-7.9 8 8 0 0 1 7.5 7.9Z"/>',
+  send:'<path d="M4.5 12h13M13 6.5l5.5 5.5-5.5 5.5"/>',
+  plus:'<path d="M12 5.5v13M5.5 12h13"/>',
+  clip:'<path d="M20 11.5 12.6 19a4.6 4.6 0 0 1-6.5-6.5l7.6-7.6a3 3 0 1 1 4.3 4.3l-7.6 7.6a1.5 1.5 0 0 1-2.1-2.1l6.8-6.8"/>'
+};
+const ico = (n, s) => `<svg width="${s||17}" height="${s||17}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${ICONS[n]}</svg>`;
+
+const CHARS = [
+  ['昔','昔涟','g1','温婉 · 旧书店','常来这家旧书店的姑娘，记得每一本书放在哪一格。'],
+  ['艾','艾玛','g2','冷淡 · 原创','话很少，但会在你写字的时候把灯往你这边推一点。'],
+  ['林','林小雨','g3','校园 · 测试卡','沉默寡言，成绩很好，书包里总有没还的图书馆书。'],
+  ['阿','阿多利','g4','旅行者 · 异世界','口袋里装着三个国家的硬币，和一张折得发白的旧地图。'],
+  ['斐','斐法罗斯','g5','世界观 · 原创','不出现，只存在于别人口中的那座城。'],
+  ['小','小满','g6','开朗 · 原创','奶茶店店员，能记住每个熟客的甜度。']
+];
+
+/* 左栏是**对话列表**（真机上就是 #convo-list），不是角色列表 ——
+   角色库 / 世界书是另外两个页面，入口在左栏底部。
+   kind:'book' 的那条是「进入世界」建的会话：标题 = 世界书名，图标是方的。 */
+const CONVOS = [
+  { f:'昔', g:'g1', n:'昔涟',       sub:'旧书店的雨季 · 刚刚',      kind:'char' },
+  { f:'书', g:'g5', n:'长夜图书馆', sub:'世界书 · 4 人在场',        kind:'book' },
+  { f:'林', g:'g3', n:'林小雨',     sub:'图书馆的下午 · 昨天',      kind:'char' },
+  { f:'阿', g:'g4', n:'阿多利',     sub:'旅途中的招呼 · 3 天前',    kind:'char' },
+  { f:'小', g:'g6', n:'小满',       sub:'奶茶店的常客 · 上周',      kind:'char' }
+];
+
+const MSGS = [
+  ['ai','昔涟','g1',['雨下到第三天，檐水连成一条不断的线。她把最后一摞旧书上架，回头看你一眼。']],
+  ['me',['我在门口站了一会儿，才把伞收起来。']],
+  ['ai','昔涟','g1',['“伞就放在门口。”她说，“你这身衣服，走到街口就湿透了。”']],
+  ['me',['“那本是什么书？”']],
+  ['ai','昔涟','g1',['她从梯子上下来，把那本没上架的书抱在怀里，露出半截褪色的书脊。',
+                     '“一本没人要的。”她把书往怀里按了按，没有松手。']],
+  ['me',['我没有再问，只是把手插回口袋里。']],
+  ['ai','昔涟','g1',['她看了你一眼，把书放在柜台上，推到靠近你的那一侧。']]
+];
+
+/* 世界书游玩：同一条对话里有好几个说话人，还有 GM 叙述。
+   这是「多张角色面板」真正的使用场景 —— 右上那几张卡就是这时候用的。 */
+const WORLD_MSGS = [
+  ['gm','闭馆的铃响过之后，雨还没停。你、工作台后面的两个人、和角落里那个把脚搭在椅子上的旅人，一起被困在了这栋楼里——走廊尽头只剩最后一盏灯。'],
+  ['ai','昔涟','g1',['“别站在门口了。”她把一摞书往怀里又抱紧了些，“水会顺着地板缝渗进来的。”'],1],
+  ['me',['我把伞靠在门边，走过去。']],
+  ['ai','艾玛','g2',['“……钥匙在管理员那儿。”她头也没抬，“他不来，谁也别想走。你要等，就找个地方坐下。”'],1],
+  ['nar','艾玛把最后一本书塞回了架上'],
+  ['ai','阿多利','g4',['“我这儿有三枚不一样的硬币。”他把它们并排摆在桌上，“赌一把谁先撑不住，输的人讲一件自己的事。”'],1],
+  ['me',['“那你大概会输。”']],
+  ['ai','昔涟','g1',['她笑了一声，很轻，随后把那本一直没上架的书塞进你怀里：“拿着，别问为什么。”'],1]
+];
+const OPTS = ['我假装没听见，先去擦干头发','我问她这本书为什么不上架','我说：那你呢，你怎么回去'];
+
+/* ---------------- 公共片段 ---------------- */
+/* activeConvo = 左栏高亮第几条会话（-1 = 一条都不亮，用于角色库/编辑这些非会话页面）。
+   activeFoot  = 底部两个入口哪个是当前所在页；不带参数时 default('') 保证 undefined 也能比。 */
+function rail(dir, activeConvo, activeFoot = ''){
+  return `<aside class="rail">
+    <div class="brand"><span class="logo">书</span><span class="bname">如我所书</span></div>
+    <button class="new-btn">＋ 新建对话</button>
+    <div class="search">${ico('search',15)}<span>搜对话</span></div>
+    <div class="rail-cap">最近 · ${CONVOS.length}</div>
+    <div class="rlist">
+      ${CONVOS.map((c,i)=>`
+      <div class="ritem ${i===activeConvo?'on':''}">
+        <div class="ava ${c.g} sm ${c.kind==='book'?'book':''}">${c.f}${i===0?'<span class="online"></span>':''}</div>
+        <div class="rinfo"><div class="rname">${c.n}</div><div class="rsub">${c.sub}</div></div>
+      </div>`).join('')}
+    </div>
+    <div class="rail-foot" style="display:flex;gap:8px">
+      <button class="ghost-btn ${activeFoot==='chars'?'on':''}">${ico('chat',15)} 角色库</button>
+      <button class="ghost-btn ${activeFoot==='book'?'on':''}">${ico('book',15)} 世界书</button>
+    </div>
+  </aside>`;
+}
+
+/* ---------------- 右栏：在场角色（单角色 / 世界书多角色共用） ----------------
+   items 顺序跟 panelEntities(convo) 一致：玩家在最前，后面是面板里出现过的角色卡。
+   只有展开的那张卡渲染数值，其余收成一行 —— 于是「几张卡在场」这件事不会撑爆右栏。 */
+const STATS_XI = `
+  <div class="s-cap">状态栏</div>
+  <div class="s-row"><span>体力</span><b>72 / 100</b></div>
+  <div class="bar"><i style="width:72%"></i></div>
+  <div class="s-cap">关系</div>
+  <div class="s-row"><span>对玩家的好感</span><b>41 / 100</b></div>
+  <div class="bar"><i style="width:41%"></i></div>`;
+
+const STATS_ME = `
+  <div class="s-cap">我的状态</div>
+  <div class="s-row"><span>所在</span><b>一楼 · 工作台边</b></div>
+  <div class="s-row"><span>体力</span><b>90 / 100</b></div>
+  <div class="bar"><i style="width:90%"></i></div>`;
+
+/* 「其他角色」的通用片段。多面板时每张卡都要矮一点 ——
+   三张展开卡加起来必须装得进右栏，否则最后一张会被 .cast-list 裁掉半行。 */
+const STATS_AI = `
+  <div class="s-cap">状态栏</div>
+  <div class="s-row"><span>心情</span><b>冷淡</b></div>
+  <div class="s-row"><span>信任</span><b>22 / 100</b></div>
+  <div class="bar"><i style="width:22%"></i></div>`;
+
+const STATS_TR = `
+  <div class="s-cap">状态栏</div>
+  <div class="s-row"><span>精力</span><b>80 / 100</b></div>
+  <div class="bar"><i style="width:80%"></i></div>
+  <div class="s-cap">关系</div>
+  <div class="s-row"><span>对玩家的好感</span><b>35 / 100</b></div>
+  <div class="bar"><i style="width:35%"></i></div>`;
+
+/* 每张卡独立展开 —— 不是手风琴。星宝明确要「有时需要同时看多张角色面板」，
+   所以收起/展开是各卡自己的事，顶部再给一个「全部展开 / 全部收起」批量开关。
+   items 顺序跟 panelEntities(convo) 一致：玩家在最前，后面是面板里出现过的角色卡。 */
+function castPanel(items, foot){
+  const anyOpen = items.some((it) => it.open);
+  return `<aside class="panel">
+    <div class="cast-top">
+      <div class="cast-cap">在场角色 <b>${items.length}</b></div>
+      <span class="sp"></span>
+      <button class="cc-all">${anyOpen ? '全部收起' : '全部展开'}</button>
+    </div>
+    <div class="cast-avatars">
+      ${items.map((it)=>`<div class="cav ${it.g} ${it.on?'on':''}">${it.f}</div>`).join('')}
+    </div>
+    <div class="cast-list">
+      ${items.map((it)=>`
+        <div class="ccard ${it.open?'open':''}">
+          <div class="cc-head">
+            <div class="ava ${it.g} sm">${it.f}</div>
+            <div class="cc-name">${it.n}${it.tag?`<span class="cc-tag">${it.tag}</span>`:''}</div>
+            <span class="sp"></span>
+            <button class="cc-tog">${it.open?'收起':'展开'}</button>
+          </div>
+          ${it.open?`<div class="cc-body">${it.stats||''}</div>`:''}
+        </div>`).join('')}
+    </div>
+    <div class="panel-foot"><button class="ghost-btn">${foot}</button></div>
+  </aside>`;
+}
+
+/* 消息渲染器：单角色聊天和世界书共用一套。
+   条目格式 ——
+     ['gm', 文字]                  无气泡的 GM 叙述段
+     ['nar', 文字]                 场景切换的居中短提示
+     ['me', [段落...]]             玩家自己的话
+     ['ai', 名字, 渐变色, [段落...], 要不要写名字]
+   actsAt / optsAt 是「第几条后面挂操作条 / 选项条」，-1 表示不挂。 */
+function renderMsgs(list, actsAt, optsAt){
+  return list.map((m, i)=>{
+    const kind = m[0];
+    if (kind === 'nar') return `<div class="narration"><i></i><span>${m[1]}</span><i></i></div>`;
+    if (kind === 'gm')  return `<div class="gm">${m[1]}</div>`;
+
+    const extra =
+      i === actsAt ? `<div class="acts"><button>复制</button><button>重说</button><button>配图</button><button>分支</button></div>`
+      : i === optsAt ? `<div class="opts">${OPTS.map((o)=>`<button class="opt"><i></i>${o}</button>`).join('')}</div>`
+      : '';
+
+    const wrap = (paras)=>paras.map((p)=>`<p>${p}</p>`).join('');
+
+    if (kind === 'me') {
+      return `<div class="row me">
+        <div class="col"><div class="bubble me">${wrap(m[1])}</div></div>
+        <div class="ava gme sm">我</div>
+      </div>`;
+    }
+
+    const name = m[1], g = m[2];
+    return `<div class="row">
+      <div class="ava ${g} sm">${name.charAt(0)}</div>
+      <div class="col">
+        ${m[4] ? `<div class="mname">${name}</div>` : ''}
+        <div class="bubble">${wrap(m[3])}</div>${extra}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------------- 页 1：对话 ---------------- */
+function chatPage(dir){
+  return `<div class="frame" data-dir="${dir}" data-shot="${dir}-1-chat">
+    ${rail(dir, 0)}
+    <section class="main">
+      <header class="top">
+        <div class="ava g1 lg">昔<span class="online"></span></div>
+        <div class="tinfo">
+          <div class="tname">昔涟<span class="pill-tag">好感 41</span></div>
+          <div class="tsub">常来这家旧书店的姑娘 · deepseek-chat</div>
+        </div>
+        <span class="sp"></span>
+        <button class="ic-btn">${ico('eye',16)}视角</button>
+        <button class="ic-btn">${ico('palette',16)}外观</button>
+        <button class="ic-btn" style="padding:0 9px">${ico('more',17)}</button>
+      </header>
+
+      <div class="chat">${renderMsgs(MSGS, 4, MSGS.length-1)}</div>
+
+      <footer class="compose">
+        <div class="cin">
+          <div class="field">
+            <button class="ic-round">${ico('image',18)}</button>
+            <span class="ph">说点什么……</span>
+            <button class="ic-round">${ico('smile',18)}</button>
+          </div>
+          <button class="send">发送</button>
+        </div>
+      </footer>
+    </section>
+
+    ${castPanel([
+      {f:'我', n:'我', g:'gme', stats:STATS_ME, open:true},
+      {f:'昔', n:'昔涟', g:'g1', tag:'当前', on:true, stats:STATS_XI, open:true}
+    ], ico('book',15) + ' 编辑角色卡')}
+  </div>`;
+}
+
+/* ---------------- 页 2：世界书游玩（多张面板同时展开） ----------------
+   和单角色对话的区别只有两处：
+     · 页顶是世界书名 + 在场人数，不是某一个角色
+     · 右栏的卡多于一张，而且**可以同时展开** —— 这才是「进入世界」后要用的形态 */
+function worldPage(dir){
+  return `<div class="frame" data-dir="${dir}" data-shot="${dir}-2-world">
+    ${rail(dir, 1)}
+    <section class="main">
+      <header class="top">
+        <div class="ava g5 lg book">书</div>
+        <div class="tinfo">
+          <div class="tname">长夜图书馆<span class="pill-tag">GM 模式</span></div>
+          <div class="tsub">世界书 · 12 条设定 · 4 人在场 · deepseek-chat</div>
+        </div>
+        <span class="sp"></span>
+        <button class="ic-btn">${ico('book',16)}世界书</button>
+        <button class="ic-btn">${ico('eye',16)}视角</button>
+        <button class="ic-btn" style="padding:0 9px">${ico('more',17)}</button>
+      </header>
+
+      <div class="chat">${renderMsgs(WORLD_MSGS, 3, -1)}</div>
+
+      <footer class="compose">
+        <div class="cin">
+          <div class="field">
+            <button class="ic-round">${ico('image',18)}</button>
+            <span class="ph">说点什么……</span>
+            <button class="ic-round">${ico('smile',18)}</button>
+          </div>
+          <button class="send">发送</button>
+        </div>
+      </footer>
+    </section>
+
+    ${castPanel([
+      {f:'我', n:'我', g:'gme', stats:STATS_ME, open:false},
+      {f:'昔', n:'昔涟', g:'g1', tag:'当前', on:true, stats:STATS_XI, open:true},
+      {f:'艾', n:'艾玛', g:'g2', stats:STATS_AI, open:true},
+      {f:'阿', n:'阿多利', g:'g4', stats:STATS_TR, open:true}
+    ], ico('book',15) + ' 编辑世界书')}
+  </div>`;
+}
+
+/* ---------------- 页 2：角色库 ---------------- */
+function charsPage(dir){
+  return `<div class="frame" data-dir="${dir}" data-shot="${dir}-3-chars">
+    ${rail(dir, -1, 'chars')}
+    <section class="page">
+      <header class="phead">
+        <div>
+          <div class="ptitle">角色库</div>
+          <div class="psub">${CHARS.length} 张角色卡 · PNG / JSON 都能导</div>
+        </div>
+        <span class="sp"></span>
+        <button class="ic-btn">${ico('plus',16)}导入角色卡</button>
+      </header>
+      <div class="pbody">
+        <div class="kgrid">
+          ${CHARS.map(([f,n,g,t,d])=>`
+          <div class="kcard">
+            <div class="khead">
+              <div class="kface ${g}">${f}</div>
+              <div><div class="kname">${n}</div><div class="ktags">${t}</div></div>
+            </div>
+            <div class="kdesc">${d}</div>
+            <div class="kfoot"><button class="acc">开始聊天</button><button>编辑</button><button>导出</button></div>
+          </div>`).join('')}
+        </div>
+      </div>
+    </section>
+    <aside class="panel">
+      <div class="p-ava g1">昔<span class="ring"></span></div>
+      <div class="p-name">昔涟</div>
+      <div class="p-tags"><span>温婉</span><span>治愈</span><span>原神</span></div>
+      <div class="p-desc">常来这家旧书店的姑娘，记得每一本书放在哪一格。</div>
+      <div class="stats">
+        <div class="s-cap">这张卡里有什么</div>
+        <div class="s-row"><span>角色描述</span><b>128 字</b></div>
+        <div class="s-row"><span>开场白</span><b>已写</b></div>
+        <div class="s-row"><span>示例对话</span><b>3 组</b></div>
+        <div class="s-row"><span>世界书</span><b>2 条</b></div>
+        <div class="s-row"><span>属性面板</span><b>3 组 / 6 项</b></div>
+      </div>
+      <div class="panel-foot"><button class="ghost-btn">${ico('chat',15)} 和昔涟聊天</button></div>
+    </aside>
+  </div>`;
+}
+
+/* ---------------- 页 3：角色卡编辑 ---------------- */
+function cardPage(dir){
+  return `<div class="frame" data-dir="${dir}" data-shot="${dir}-4-card">
+    ${rail(dir, -1, 'chars')}
+    <section class="page">
+      <header class="phead">
+        <div>
+          <div class="ptitle">编辑角色卡 · 林小雨</div>
+          <div class="psub">改完记得点右下角保存</div>
+        </div>
+        <span class="sp"></span>
+        <button class="ghost-btn" style="width:auto;padding:0 16px">导出</button>
+        <button class="new-btn" style="width:auto;padding:0 20px;margin:0">保存角色</button>
+      </header>
+      <div class="form">
+        <div class="sheet">
+          <div style="display:flex;gap:18px;align-items:flex-start">
+            <div style="width:96px;flex:0 0 96px">
+              <div class="kface g3" style="width:96px;height:96px;font-size:36px">林</div>
+              <div style="font-size:11px;color:var(--ink-faint);text-align:center;margin-top:8px">点击换头像</div>
+            </div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:14px">
+              <div><label class="lbl">角色名</label><div class="inp">林小雨</div></div>
+              <div><label class="lbl">标签</label><div class="inp ph2">分类用，例如：校园，治愈</div></div>
+            </div>
+          </div>
+
+          <div style="margin-top:16px">
+            <label class="lbl">角色描述 <span style="font-weight:400;color:var(--ink-faint)">· 128 字</span></label>
+            <textarea class="inp" rows="2">安静，成绩好，书包里总有一本没还回去的图书馆的书。她不主动搭话，但你问她问题的时候会认真想很久。</textarea>
+          </div>
+
+          <div style="margin-top:14px">
+            <label class="lbl">开场白</label>
+            <textarea class="inp" rows="2">放学后的图书馆只剩你们两个。她把书推过来：“这本，你先看。”</textarea>
+          </div>
+
+          <div style="margin-top:14px">
+            <label class="lbl">示例对话 <span style="font-weight:400;color:var(--ink-faint)">· 教它怎么说话</span></label>
+            <textarea class="inp" rows="3">{{char}}：这本我看过了，字很小，你要不要试试。
+{{user}}：好啊。
+{{char}}：……那你别折页。</textarea>
+          </div>
+
+          <div class="tabs">
+            <button class="tab on">状态栏</button>
+            <button class="tab">关系</button>
+            <button class="tab">背包</button>
+            <button class="tab" style="background:transparent;color:var(--accent)">＋ 新建分组</button>
+          </div>
+          <div class="arow">
+            <div class="inp">体力</div>
+            <div class="inp">数值</div>
+            <div class="inp">72</div>
+            <div class="inp ph2">0 — 100</div>
+            <button class="more">${ico('more',16)}</button>
+          </div>
+          <div class="arow">
+            <div class="inp">心情</div>
+            <div class="inp">文本</div>
+            <div class="inp">平静</div>
+            <div class="inp ph2">—</div>
+            <button class="more">${ico('more',16)}</button>
+          </div>
+          <div class="arow">
+            <div class="inp">好感</div>
+            <div class="inp">数值</div>
+            <div class="inp">41</div>
+            <div class="inp ph2">0 — 100</div>
+            <button class="more">${ico('more',16)}</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="prev-cap">角色卡预览</div>
+      <div class="prev-box">
+        <div class="prev-face g3">林</div>
+        <div class="prev-name">林小雨</div>
+        <div class="prev-tags">校园 · 治愈</div>
+        <div class="prev-desc">安静，成绩好，书包里总有一本没还回去的图书馆的书。</div>
+      </div>
+      <div class="stats" style="flex:1">
+        <div class="s-cap">这张卡里有什么</div>
+        <div class="s-row"><span>角色描述</span><b>128 字</b></div>
+        <div class="s-row"><span>开场白</span><b>已写</b></div>
+        <div class="s-row"><span>示例对话</span><b>已写</b></div>
+        <div class="s-row"><span>属性面板</span><b>3 组 / 6 项</b></div>
+        <div class="s-cap">绑定的世界书</div>
+        <div class="s-row"><span>校园设定</span><b>已绑定</b></div>
+        <div class="s-row"><span>图书馆怪谈</span><b>已绑定</b></div>
+      </div>
+      <div class="panel-foot"><button class="ghost-btn">${ico('clip',15)} 从文本粘贴创建</button></div>
+    </aside>
+  </div>`;
+}
+
+const PAGES = [chatPage, worldPage, charsPage, cardPage];
+document.getElementById('root').innerHTML = ['berry', 'soda', 'matcha']
+  .map((d) => PAGES.map((fn) => fn(d)).join(''))
+  .join('');
+</script>
+</body>
+</html>
