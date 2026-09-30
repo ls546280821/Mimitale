@@ -1170,10 +1170,79 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     );
   }
 
+  // --- 6) 模型整轮漏写状态表 → 程序补问一次，把状态表要回来 ---
+  //
+  // 「状态卡不跟着剧情走」最常见的形态**不是**程序没接住，是模型压根没写：
+  // 实测约四分之一的回合会整段丢掉（尤其「我明天要出差几天」这种没有明显状态
+  // 变化的输入）。这段验的是那条兜底链路 —— 正文非空、一个已知字段都没提、
+  // 本局有状态字段 → 自动补问一次（补问语见 panel.js 的 PANEL_PROMPT_NUDGE），
+  // 值真的回到面板上。假后端按两次不同返回模拟，见 smoke-test.js 的「漏状态表」。
+  {
+    setValue('#input', '漏状态表');
+    click('#btn-send');
+    const back = await settlePanelValue('金币', '88', 8000);
+    check(
+      '模型漏写状态表时，程序补问一次把值要了回来（100 → 88）',
+      !!back,
+      '等了 8 秒，金币还没变成 88'
+    );
+
+    // 补出来的状态表同样要按面板行剥掉 —— 气泡里只留正文
+    const lastBubble = $$('#messages .msg').pop();
+    check(
+      '补写的状态表不会挂在气泡里',
+      !!lastBubble && !/【金币】/.test(lastBubble.textContent || ''),
+      lastBubble ? JSON.stringify(lastBubble.textContent.slice(-140)) : '没找到最后一条消息'
+    );
+  }
+
   // 收拾现场：把卡关掉 —— 下一个场景验「入口条常驻、点头像开卡」
   const closeCharCard = charCard().querySelector('.sc-close');
   if (closeCharCard) click(closeCharCard);
   await sleep(150);
+});
+
+// ---------------------------------------------------------------------------
+//  场景 8b：续写路径也要把状态表要回来
+//
+//  「只思考没落笔 → 点继续」这条路绕开了主生成的补问分支（情形三）：正文被
+//  「继续」补出来了，状态表却始终没写，状态卡就停在旧值上 —— 真实反馈里
+//  「一整局都没更新过一次」就是这么来的。断言：点完继续，金币被补问要了回来。
+// ---------------------------------------------------------------------------
+await scenario('续写：也把状态表补回来', async () => {
+  const lastAssistant = () => $$('#messages .msg.assistant').pop();
+
+  setValue('#input', '续写找状态表');
+  click('#btn-send');
+
+  // 主生成只思考不落笔 → 落在那条「点继续」的兜底说明上（正文为空）
+  await waitFor(
+    '落在「只思考没落笔」的兜底说明上',
+    () => {
+      const node = lastAssistant();
+      return !!node && /只输出了思考过程/.test(node.textContent || '');
+    },
+    8000
+  );
+  await waitFor('流式结束', () => byId('btn-send').disabled === false, 8000);
+
+  const node = lastAssistant();
+  check('兜底说明这条上有「继续」', !!node && !!buttonByText(node, '继续'));
+
+  click(buttonByText(node, '继续'));
+  const back = await settlePanelValue('金币', '55', 8000);
+  await waitFor('流式结束', () => byId('btn-send').disabled === false, 8000);
+
+  const convosNow = await window.mimitale.getConversations();
+  const act = convosNow.conversations.find((c) => c.id === convosNow.activeId);
+  const lastNow = lastAssistant();
+  const contentNode = lastNow ? lastNow.querySelector('.msg-content') : null;
+  const tail = contentNode ? contentNode.textContent : '（没有内容节点）';
+  check(
+    '续写之后也会补问状态表（88 → 55）',
+    !!back,
+    '面板=' + JSON.stringify(act && act.panel) + ' / 气泡尾部=' + JSON.stringify(tail.slice(-160))
+  );
 });
 
 // ---------------------------------------------------------------------------

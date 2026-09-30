@@ -21,7 +21,7 @@
 import { CONFIG } from '../core/config.js';
 import { state } from '../core/state.js';
 import { characterForConvo } from './library.js';
-import { cleanAssistantText, convoFieldDisplayNames, formatPanelForPrompt, panelGroupNames } from './panel.js';
+import { cleanAssistantText, convoFieldDisplayNames, formatPanelForPrompt, panelGroupNames, PANEL_PROMPT_REMINDER } from './panel.js';
 import { formatSummaryForPrompt, summarizedCount } from './memory.js';
 import { gmRuleText, isGmMode, narrationInstruction, roleplayRuleText } from './narration.js';
 import { optionsInstruction } from './suggestions.js';
@@ -316,6 +316,14 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
       content: applyMacros(character.postHistoryInstructions, character, me).trim()
     });
   }
+
+  // ---- 7. 状态表的最后一声提醒 ----
+  // 必须是**整批 system 的最后一条**（这时它离生成位置最近）。上面第 5 步的状态表
+  // 段已经交代了格式，但第 5b/6 步（剧情选项、角色的对话后指令）排在它后面 ——
+  // 角色口吻的提醒最容易把注意力拉回「写正文」，模型就把状态表整段丢了。
+  // 实测（真实 API）：同一输入，面板段只在中同时约 1/4 的回合漏写状态表；
+  // 末尾补这一句之后命中率明显上去。没有面板字段时不注入。
+  if (panelText) messages.push({ role: 'system', content: PANEL_PROMPT_REMINDER });
 
   return messages;
 }

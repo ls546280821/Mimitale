@@ -24,7 +24,13 @@ import { ensureConvoEndpoint, isBridgeProvider } from '../data/providers.js';
 import { buildApiMessages, characterContextForConvo } from '../data/messages.js';
 import { matchWorldbookSection } from '../data/cast.js';
 import { recallSection } from '../data/rag.js';
-import { syncConvoPanel, syncPlayerNameFromPanel } from '../data/panel.js';
+import {
+  convoFieldDisplayNames,
+  convoPanelFields,
+  PANEL_PROMPT_NUDGE,
+  syncConvoPanel,
+  syncPlayerNameFromPanel
+} from '../data/panel.js';
 import { syncConvoOptions } from '../data/suggestions.js';
 import { createConvo } from '../data/conversations.js';
 import { openSettings } from './settings.js';
@@ -204,7 +210,7 @@ function reasoningTokensOf(usage) {
  * 刻意不抛异常，返回 { ok, usage, finishReason, error } —— 好让调用方自己决定
  * 是弹提示（用户手动点「继续」）还是静默降级（自动续写失败时不必打扰用户）。
  */
-async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSection, nudge) {
+async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSection, nudge, opts) {
   const last = convo.messages[convo.messages.length - 1];
   if (!last || last.role !== 'assistant') return { ok: false, error: '没有可续写的回复' };
 
@@ -229,8 +235,12 @@ async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSect
       return { ok: false, error: (response && response.error) || '调用失败' };
     }
     if (response.usage) state.usage = response.usage;
-    // 以新的收尾信号为准：救回来了是 'stop'，调用方据此决定还要不要再续
-    if (response.finishReason) last.finishReason = response.finishReason;
+    // 以新的收尾信号为准：救回来了是 'stop'，调用方据此决定还要不要再续。
+    //
+    // 例外是**补问状态表**（keepFinishReason）：那是一次附加的补救请求，不是
+    // 正文的续写 —— 让它的收尾信号覆盖过来，会把「正文其实已经写完了」说成
+    // 「撞上限还没写完」，界面上就多挂一条误导的截断说明。
+    if (response.finishReason && !(opts && opts.keepFinishReason)) last.finishReason = response.finishReason;
 
     // 有的服务商不推流式分片，直接给全文 —— 那种情况分片处理器一次都没跑过，
     // 这里补一次追加（正文没变就说明没收到过分片）
@@ -245,10 +255,51 @@ async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSect
 }
 
 /**
+ * 这一轮的回复里有没有写状态表？
+ *
+ * 判据是「出现了本会话已知的字段行」（【字段名】：值）—— 拿已知字段名去比，
+ * 而不是随便一个【】就算数：正文里本来就常有【提示】这类方括号引用。
+ * 本局压根没有状态字段时算「写了」（没有要维护的东西）。
+ */
+function panelWrittenIn(convo, text) {
+  const known = new Set(convoFieldDisplayNames(convo));
+  if (!known.size) return true;
+
+  for (const rawLine of String(text || '').split('\n')) {
+    const m = rawLine.trim().match(/^【([^】\n]{1,24})】[：:]/);
+    if (m && known.has(m[1].trim())) return true;
+  }
+  return false;
+}
+
+/**
+ * 正文写完了，但整轮没提状态表 → 补问一句，把状态表接到同一条回复后面。
+ *
+ * 为什么值得单独兜一下：状态表是「每轮维护」的东西，模型偶尔会整段丢掉
+ * （实测约四分之一的回合，尤其「我明天要出差几天」这种没有明显状态变化的输入）。
+ * 丢掉就等于状态卡停在上一轮的值上 —— 用户看到的是「角色状态不跟着剧情走」。
+ *
+ * 只补一次、失败就算了：下一轮还有机会，不能在这里把用户卡住。
+ * 走 extendAssistantMessage 是为了复用「分片直接追加到最后一条消息」那条路 ——
+ * 界面上的字接着往外长，不会突然换掉一整条回复。
+ */
+async function ensurePanelWritten(convo, endpoint, worldbookSection, ragSection, assistant) {
+  if (!convoPanelFields(convo).length) return false;
+  if (!String(assistant.content || '').trim()) return false;   // 空正文走别的分支
+  if (panelWrittenIn(convo, assistant.content)) return false;
+
+  const before = String(assistant.content || '');
+  // keepFinishReason：补问只是一次附加的补救请求，别让它改写这条回复的收尾信号
+  const res = await extendAssistantMessage(convo, endpoint, worldbookSection, ragSection, PANEL_PROMPT_NUDGE, {
+    keepFinishReason: true
+  });
+  return res.ok && String(assistant.content || '') !== before;
+}
+
+/**
  * 「继续」：让模型接着最后一条回复往下写（回复被 maxTokens 截断时用）。
  */
-export async function continueLastMessage() {
-  const convo = activeConvo();
+export async function continueLastMessage() {  const convo = activeConvo();
   if (!convo) return;
   if (state.streaming) {
     showToast('正在生成，等它写完再继续');
@@ -279,6 +330,9 @@ export async function continueLastMessage() {
   try {
     const res = await extendAssistantMessage(convo, endpoint, worldbookSection, ragSection, CONTINUE_NUDGE);
     if (!res.ok) throw new Error(res.error);
+    // 续写也可能整轮不提状态表 —— 尤其是「只思考没落笔」之后点继续的那条路径：
+    // 它绕开了 requestCompletion 里的补问分支，不补的话状态卡就一直停在旧值上。
+    await ensurePanelWritten(convo, endpoint, worldbookSection, ragSection, last);
   } catch (err) {
     showToast((err && err.message) || '继续失败', 'error');
   } finally {
@@ -508,6 +562,14 @@ async function requestCompletion(convo, options) {
       const cont = await autoContinueTruncated(convo, index, endpoint, worldbookSection, ragSection);
       assistant.autoContinued = cont.rounds;
       reasoningTokens += cont.reasoningTokens;
+      // 状态表在正文末尾，撞上限时**最先被截掉的就是它** —— 续写把正文救回来之后，
+      // 状态表往往还是缺的。这里照样走一次补问（续写里带了就自动跳过，不重复请求）。
+      await ensurePanelWritten(convo, endpoint, worldbookSection, ragSection, assistant);
+    } else if (!contentEmpty) {
+      // 情形三：正文好好地写完了，但整轮一个状态字段都没提。
+      // 状态卡"不跟着剧情走"最常见的就是这种 —— 不是程序没接住，是模型压根没写。
+      // 补问一次（见 ensurePanelWritten 里的取舍），多半能把状态表要回来。
+      await ensurePanelWritten(convo, endpoint, worldbookSection, ragSection, assistant);
     }
 
     if (reasoningTokens > 0) assistant.reasoningTokens = reasoningTokens;

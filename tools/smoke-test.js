@@ -431,7 +431,12 @@ function registerStubs() {
     // 自动续写同理：它是「在真实输入后面追一轮续写引导」，不回溯就认不出场景。
     const isRetryNudge = (s) => s.includes('直接把这一轮该写的正文完整写出来');
     const isContinueNudge = (s) => s.includes('接着你上一条回复继续往下写');
-    const isNudge = (s) => isRetryNudge(s) || isContinueNudge(s);
+    // 状态表漏写时的补问语（panel.js 的 PANEL_PROMPT_NUDGE）。它也属于「引导语」，
+    // 得回溯到真实输入，否则这一轮的关键词（「漏状态表」）就看不到了。
+    // 认的是「只补这一件事」这个特征串 —— 补问语改过措辞（2026-09-30 加强成
+    // 「现在只补这一件事…」），别拿开头那句当锚，改文案时就断了。
+    const isPanelNudge = (s) => s.includes('只补这一件事');
+    const isNudge = (s) => isRetryNudge(s) || isContinueNudge(s) || isPanelNudge(s);
     const allMsgs = (payload && payload.messages) || [];
     let turn = '';
     for (let i = allMsgs.length - 1; i >= 0; i -= 1) {
@@ -444,10 +449,80 @@ function registerStubs() {
     }
     const retryNudged = isRetryNudge(turn);
     const continuedNudged = isContinueNudge(turn);
+    const panelNudged = isPanelNudge(turn);
     const askedToOnlyThink = turn.includes('只思考不回答');
     const askedThinkBurn = turn.includes('思考挤掉正文');
     const askedTruncatedBody = turn.includes('截断正文');
     const askedTruncatedForever = turn.includes('截断到底');
+    const askedPanelMiss = turn.includes('漏状态表');
+    const askedResumeMiss = turn.includes('续写找状态表');
+
+    // 「漏状态表」：正文写得好好的，但整轮一个状态字段都没提 —— 状态卡"不跟着
+    // 剧情走"最常见的形态。上层应当自动补问一次；补问那一次（panelNudged）
+    // 才把状态表交出来。两次返回不同内容，才验得出「补问真的发生了」。
+    if (askedPanelMiss) {
+      const body = panelNudged
+        ? '嗯，正文就写到这里。\n\n【金币】：88\n【上衣】：斗篷'
+        : '冒烟测试回复：这一段正文写得挺顺，可这一轮我什么状态都没提。';
+      for (const piece of body.match(/[\s\S]{1,6}/g) || []) {
+        if (!event.sender.isDestroyed()) event.sender.send('chat:chunk', { requestId, text: piece });
+        await sleep(4);
+      }
+      return {
+        ok: true,
+        requestId,
+        model,
+        content: body,
+        reasoning: '',
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        finishReason: 'stop'
+      };
+    }
+
+    // 「续写找状态表」：先「只思考没落笔」（正文一个字都没有），再把正文交给
+    // 「继续」补出来 —— 但续写出来的正文照样不提状态表。验证**续写路径**也会补问。
+    //
+    // 为什么单独测这条：主生成那条路（情形三）本来就会补问，但「只思考没落笔 →
+    // 点继续」绕过了它 —— 而「状态卡一整局都不更新」的反馈正是从这条路来的。
+    if (askedResumeMiss) {
+      // ① 主生成（含自动重试）：只思考、不落笔。
+      // 判据要同时排除「继续」和「补问」两种引导语 —— 注意 **CONTINUE_NUDGE 不进历史**，
+      // 所以补问那一次请求里看不到它（continuedNudged 会是 false），光靠它区分不开。
+      if (!continuedNudged && !panelNudged) {
+        const thinking = '我先想想该怎么接，想着想着又扯远了……';
+        for (const piece of thinking.match(/[\s\S]{1,8}/g) || []) {
+          if (!event.sender.isDestroyed()) event.sender.send('chat:reasoning', { requestId, text: piece });
+          await sleep(4);
+        }
+        return {
+          ok: true,
+          requestId,
+          model,
+          content: '',
+          reasoning: thinking,
+          usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, reasoning_tokens: 5 },
+          finishReason: 'length'
+        };
+      }
+
+      // ② 「继续」补出正文（照旧不提状态表）／③ 补问才交出状态表
+      const body = panelNudged
+        ? '接着往下写。\n\n【金币】：55'
+        : '冒烟测试回复：正文被「继续」补出来了，可这一轮照样一个状态都没提。';
+      for (const piece of body.match(/[\s\S]{1,6}/g) || []) {
+        if (!event.sender.isDestroyed()) event.sender.send('chat:chunk', { requestId, text: piece });
+        await sleep(4);
+      }
+      return {
+        ok: true,
+        requestId,
+        model,
+        content: body,
+        reasoning: '',
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        finishReason: 'stop'
+      };
+    }
 
     // 「只思考不回答」：模拟推理模型把 max_tokens 全花在思考上、正文被截断的情形。
     // 只发 reasoning 增量、不发正文增量，最终返回 content 为空、reasoning 非空。
@@ -710,15 +785,72 @@ async function probeHover(win, result) {
 function probeInjection(result) {
   if (!result) return;
 
+  // 状态表注入块那句「归属声明」——用它认面板段在不在，**不用** `[当前状态]`。
+  // 那个方括号抬头本身就是要修掉的毛病：实测（真实 API）有安全对齐的模型会把它
+  // 读成「外部塞进来的一段指令」并明确拒绝执行（thinking 里写着
+  // "…an artifact/injection. I should not execute it"），整轮一个状态字段都不写。
+  const PANEL_HEAD = '这是本局的状态表';
+  const panelFrom = (b) => {
+    const i = b.indexOf(PANEL_HEAD);
+    return i >= 0 ? i : 0;
+  };
+
   const blobs = chatPayloads.map((msgs) => msgs.map((m) => String((m && m.content) || '')).join('\n'));
 
   const panelOk = blobs.some(
-    (b) => b.includes('[当前状态]') && b.includes('【金币】：100') && b.includes('【上衣】：布衣')
+    (b) => b.includes(PANEL_HEAD) && b.includes('【金币】：100') && b.includes('【上衣】：布衣')
   );
   result.results.push({
     name: '属性：注入给模型的消息里带上了状态面板',
     pass: panelOk,
     detail: panelOk ? '' : `翻了 ${blobs.length} 次请求都没找到完整面板`
+  });
+
+  // 抬头必须是「由你在每轮回复的末尾维护」这种归属声明，而不是 `[当前状态]` 块标记；
+  // 同时末尾要有格式承诺（行怎么写、必须落在正文之后）。这两条一起决定模型写不写。
+  const promptShapeOk = blobs.some(
+    (b) => b.includes(PANEL_HEAD) && b.includes('由你在每轮回复的末尾维护') && b.includes('必须写在正文末尾')
+  );
+  result.results.push({
+    name: '属性：面板段用「你在维护」的口吻，并带末尾格式承诺',
+    pass: promptShapeOk,
+    detail: promptShapeOk ? '' : '注入里没找到归属声明 / 末尾格式承诺'
+  });
+  const noMarker = !blobs.some((b) => b.includes('[当前状态]'));
+  result.results.push({
+    name: '属性：面板段不再带 [当前状态] 这种「外部注入」标记',
+    pass: noMarker,
+    detail: noMarker ? '' : '注入里又出现了 [当前状态] —— 模型会把它当成外部注入拒掉'
+  });
+
+  // 提醒段要落在**整批 system 的最后**（离生成位置最近）。角色卡的
+  // post_history_instructions 排在面板段之后时，最容易把状态表的要求挤掉 ——
+  // 实测同一输入下「漏写状态表」的主因就是这个位置。
+  const reminderLast = chatPayloads.some((msgs) => {
+    const sys = msgs.filter((m) => m && m.role === 'system');
+    const last = sys.length ? String(sys[sys.length - 1].content || '') : '';
+    return last.startsWith('（提醒：这一次回复的最后');
+  });
+  result.results.push({
+    name: '属性：状态表的末尾提醒是最后一条 system',
+    pass: reminderLast,
+    detail: reminderLast ? '' : '最后一条 system 不是那句提醒'
+  });
+
+  // 模型整轮没写状态表时的补问：请求的最后一条 user 必须就是那句补问语。
+  // 假后端在「漏状态表」场景里第一次故意不回状态表，靠这条断言确认
+  // 「程序真的补问了一次」，而不只是碰巧拿到了值。
+  // 认「只补这一件事」这个特征串（panel.js 的 PANEL_PROMPT_NUDGE 同理），
+  // 别拿会被改写的句子开头当锚。
+  const nudgedPayload = chatPayloads.find((msgs) => {
+    const users = msgs.filter((m) => m && m.role === 'user');
+    const last = users.length ? String(users[users.length - 1].content || '') : '';
+    return last.includes('只补这一件事');
+  });
+  result.results.push({
+    name: '属性：漏写状态表时程序补问了一次',
+    pass: !!nudgedPayload,
+    detail: nudgedPayload ? '' : '没找到带补问引导语的请求'
   });
 
   // 带范围的数值字段：注入时要告诉模型范围，并明确「超了会被拉回」。
@@ -731,7 +863,7 @@ function probeInjection(result) {
     detail: rangeOk
       ? ''
       : rangeBlob
-        ? `找到了面板行但缺范围/规则：${JSON.stringify(rangeBlob.slice(rangeBlob.indexOf('[当前状态]'), rangeBlob.indexOf('[当前状态]') + 300))}`
+        ? `找到了面板行但缺范围/规则：${JSON.stringify(rangeBlob.slice(panelFrom(rangeBlob), panelFrom(rangeBlob) + 300))}`
         : `翻了 ${blobs.length} 次请求都没找到「【好感度】：20」`
   });
   const warnOk = !!rangeBlob && rangeBlob.includes('超出范围会被程序拉回');
@@ -748,7 +880,7 @@ function probeInjection(result) {
   result.results.push({
     name: '属性：分组小标题被注入给模型',
     pass: hasHeader,
-    detail: hasHeader ? '' : `没找到「—— 关系 ——」：${JSON.stringify(groupBlob.slice(groupBlob.indexOf('[当前状态]'), groupBlob.indexOf('[当前状态]') + 300))}`
+    detail: hasHeader ? '' : `没找到「—— 关系 ——」：${JSON.stringify(groupBlob.slice(panelFrom(groupBlob), panelFrom(groupBlob) + 300))}`
   });
   result.results.push({
     name: '属性：分组小标题刻意不用【】（否则会被当成字段）',
