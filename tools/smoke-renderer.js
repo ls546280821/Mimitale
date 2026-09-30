@@ -5012,4 +5012,73 @@ await scenario('记忆：清空全部摘要', async () => {
   await waitFor('记忆弹窗关闭', () => !shown('#memory-modal'));
 });
 
+// ---------------------------------------------------------------------------
+//  场景：规则文案的段落边界
+//
+//  narration.js 的提示词是**拼接**出来的（【扮演规则】+ 节奏段 + 【标重点】…），
+//  任何一段末尾漏掉 \n，两段就会粘成一行。2026-09-30 逮到过两处：
+//  单角色拼出「…一律不要出现。【标重点】」，世界模式拼出
+//  「…一律不要出现。不要提到自己是 AI、语言模型或助手。」。
+//
+//  这类问题**肉眼几乎看不出来** —— 都在字符串的接缝上，得 dump 出来才发现，
+//  而模型读到的是一行挤在一起的指令。所以钉一条断言，以后改文案不会再漏。
+// ---------------------------------------------------------------------------
+await scenario('规则段：段落之间不粘连', async () => {
+  let mod = null;
+  try {
+    mod = await import(new URL('js/data/narration.js', document.baseURI).href);
+  } catch (err) {
+    check('narration 模块能动态加载', false, (err && err.message) || String(err));
+  }
+  if (!mod) return;
+
+  for (const pace of ['step', 'brisk']) {
+    const solo = mod.roleplayRuleText('测试角色', '测试玩家', { paceMode: pace });
+    check(
+      `单角色(${pace})：节奏段后面换行再接【标重点】`,
+      solo.includes('\n【标重点】') && !solo.includes('。【标重点】'),
+      JSON.stringify(solo.slice(-70))
+    );
+    // 单角色模式下不能出现「NPC」，也不能点名角色自己（该用第二人称「你」）——
+    // 前者会怂恿它凭空造人，后者和「第一人称扮演」的口径打架。
+    check(`单角色(${pace})：不出现「NPC」`, !solo.includes('NPC'), JSON.stringify(solo.match(/.{10}NPC.{10}/g)));
+    check(
+      `单角色(${pace})：不出现「你替 TA」这种自我指涉`,
+      !solo.includes('你替 TA'),
+      JSON.stringify(solo.match(/.{10}你替.{10}/g))
+    );
+
+    const gm = mod.gmRuleText('测试角色', '测试玩家', { paceMode: pace });
+    check(
+      `世界(${pace})：节奏段后面换行再接「不要提到自己是 AI」`,
+      gm.includes('\n不要提到自己是 AI') && !gm.includes('。不要提到'),
+      JSON.stringify(gm.slice(-130))
+    );
+    check(
+      `世界(${pace})：「不要提到自己是 AI」后面换行再接【标重点】`,
+      gm.includes('\n【标重点】'),
+      JSON.stringify(gm.slice(-70))
+    );
+
+    // 占位符防呆：替换链里漏了哪个 {xxx}，它会**原样发给模型**（提示词里冒出一行
+    // "{standByMe}" 这种），而别的断言一条都不会响 —— 所以单独钉一条。
+    for (const [label, text] of [['单角色', solo], ['世界', gm]]) {
+      check(
+        `${label}(${pace})：没有没替换掉的占位符`,
+        !/\{[a-zA-Z]+\}/.test(text),
+        JSON.stringify(text.match(/\{[a-zA-Z]+\}/g))
+      );
+    }
+  }
+
+  // 「标准」不再是空串了（2026-09-30 补了硬约束，和 hint「只写对话和动作」对齐），
+  // 但它不能含占位符 —— 那说明有东西没被替换，会原样发给模型。
+  const standard = mod.narrationInstruction({ narrationMode: 'standard' });
+  check(
+    '标准叙述模式有约束，且不含占位符',
+    standard.trim().length > 0 && !/\{[a-zA-Z]+\}/.test(standard),
+    JSON.stringify(standard)
+  );
+});
+
 return { results, notes, hoverProbe };
