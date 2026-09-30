@@ -2141,6 +2141,38 @@ app.whenReady().then(async () => {
           if (tabs) tabs.scrollIntoView({ block: 'center' });
           await nap(250);
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 属性展开「更多」面板：更新频率下拉 / 分组 / 变化规则，只有截图能确认
+        // 标签文案改长后会不会被截、下拉能不能正常展开。
+        charAttrsMore: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+
+          document.querySelector('#btn-chars')?.click();
+          await nap(400);
+          document.querySelector('#btn-new-char')?.click();
+          await nap(500);
+
+          const nameBox = $('#c-name');
+          if (nameBox) { nameBox.value = '更新频率示例'; fire(nameBox, 'input'); }
+
+          // 加一条属性，再点它的「更多」展开
+          const input = $('#c-attr-new');
+          input.value = '好感度';
+          $('#btn-add-attr').click();
+          await nap(150);
+
+          const row = $$('#c-attr-list .attr-row')[0];
+          const more = row && Array.from(row.querySelectorAll('button')).find(b => b.textContent.trim() === '更多');
+          if (more) more.click();
+          await nap(250);
+
+          // 把「更多」面板滚到视野里
+          const morePanel = row && row.querySelector('.attr-more');
+          if (morePanel) morePanel.scrollIntoView({ block: 'center' });
+          await nap(250);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 长文本框：自动增高 + 右下角拖拽把手。
         // 这两件事全是**纯视觉**的 —— DOM 断言只能说「高度变了」，
         // 说不清把手看不看得见、长高之后上下留白对不对。
