@@ -2060,6 +2060,14 @@ body {
   gap: 14px;
 }
 
+/* 角色卡比世界书卡大一档。
+   卡上那个圆头像其实是**人设图**的位置（3:4 竖版立绘，见下面的 .char-card-avatar），
+   168px 的窄卡里放不下像样的立绘 —— 世界书卡没有图，保持上面那档宽度。 */
+.char-grid {
+  grid-template-columns: repeat(auto-fill, minmax(198px, 1fr));
+  gap: 16px;
+}
+
 .char-card {
   position: relative; /* 给右上角那个悬停才出现的删除按钮定位 */
   display: flex;
@@ -2116,6 +2124,48 @@ body {
 }
 
 .char-card-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* --- 角色库的卡：人设图占满整宽，名字 / 来源 / 按钮排在下面 -------------------
+   世界书卡还是上面那套（「世」字块居中，卡窄一圈）—— 它没有立绘要放。
+   账号头像是圆的，卡上的人设图是**竖版方角**：圆形会把一张立绘裁掉大半。 */
+#char-page-grid .char-card {
+  align-items: stretch;
+  gap: 9px;
+  padding: 10px 10px 12px;
+}
+
+#char-page-grid .char-card-avatar {
+  width: 100%;
+  height: auto;
+  /* 3:4 —— 和存下来的比例（以及编辑器里那个上传框）严格一致 */
+  aspect-ratio: 3 / 4;
+  border-radius: var(--radius-sm);
+  font-size: 52px;
+}
+
+#char-page-grid .char-card-name,
+#char-page-grid .char-card-sub { text-align: center; }
+
+/* 删除 × 现在浮在**人设图上**（以前它落在卡片白底上）。
+   浅色立绘上光靠一个淡灰的 × 根本看不见，所以给它一个半透明白色小圆底；
+   底色不跟主题走 —— 它压的是图片，跟着主题变反而会在暗色下糊掉。 */
+#char-page-grid .char-card-del {
+  top: 16px;
+  right: 16px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.86);
+  color: var(--text-dim);
+  font-size: 15px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
+
+#char-page-grid .char-card-del:hover { background: var(--danger-bg); color: var(--danger); }
 
 .char-card-name {
   max-width: 100%;
@@ -2831,11 +2881,13 @@ body {
   gap: 8px;
 }
 
-/* 头像本身是个按钮：点一下弹文件框 */
+/* 头像（人设图）本身是个按钮：点一下弹文件框。
+   尺寸和列表页卡片上那块**严格一致**（3:4，见 #char-page-grid .char-card-avatar）——
+   上传时看到的裁剪结果，和卡片上、和小头像里看到的是同一份。 */
 .char-avatar {
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: 132px;
+  height: 176px;
   padding: 0;
   border-radius: 14px;
   overflow: hidden;
@@ -2863,7 +2915,7 @@ body {
   justify-content: center;
   background: rgba(0, 0, 0, 0.45);
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
   opacity: 0;
   transition: opacity 0.15s;
   pointer-events: none;
@@ -2872,7 +2924,7 @@ body {
 .char-avatar:hover::after { opacity: 1; }
 
 .char-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.char-avatar-empty { font-size: 11px; color: var(--text-faint); }
+.char-avatar-empty { font-size: 12px; color: var(--text-faint); }
 
 /* 有头像时才显示「清除头像」 */
 .char-avatar-col .btn-sm { padding: 4px 10px; font-size: 11px; }
@@ -3236,15 +3288,19 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 
 .wb-chars-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  /* 标题和按钮**分两行**。以前是一行 space-between：268px 的窄栏里三个按钮
+     不肯换行，「本书角色」四个字被挤成一列竖排，末尾的「↻ 同步属性」还被裁掉半颗。 */
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
   margin-bottom: 8px;
 }
 
 .wb-chars-head .field-label { padding-top: 0; }
 
-.wb-chars-actions { display: flex; gap: 6px; }
+/* 按钮排不下了就换行（宁可两行，也别溢出被裁） */
+.wb-chars-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.wb-chars-actions .btn { white-space: nowrap; }
 
 .wb-char-list { display: flex; flex-wrap: wrap; gap: 6px; }
 
@@ -3431,6 +3487,11 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   gap: 9px;
 }
 
+/* 开场白夹在「本书角色」和条目列表中间。
+   它以前左右贴边（上下两块都有 12px 内边距），看着像漏了缩进；
+   另外它是内容区不是空隙，别让 flex 把它压扁。 */
+.wb-opening { flex: 0 0 auto; padding: 10px 12px 0; }
+
 .wb-entries-title { display: flex; flex-direction: column; gap: 4px; }
 .wb-entries-title input { min-height: 34px; font-size: 13px; padding: 7px 11px; }
 .wb-count { font-size: 11px; color: var(--text-faint); }
@@ -3515,12 +3576,39 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 
 .wb-checks { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 14px; }
 
+/* 条目表单底部：删除 + 「跟着整本书一起保存」那句说明。
+   做成**吸在右栏底部**的：以前它跟着内容滚出屏幕，「保存条目」永远够不着，
+   而「内容」框一撑高，它就更远了。吸住之后不管滚到哪儿，删除都点得到。
+   底色要跟着弹窗底走（不然下面的文字会从它背后透出来）。 */
 .wb-form-foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding-top: 12px;
+  margin-top: auto;
+  padding: 10px 0;
   border-top: 1px solid var(--border-soft);
+  background: var(--bg-elev);
+}
+
+.wb-form-foot-hint {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-faint);
+  text-align: right;
+}
+
+/* 底部「有未保存的改动」：保存前一直亮着，保存完自己消失 */
+.wb-dirty {
+  font-size: 11.5px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 /* 窗口窄时，世界书编辑器从「左右两栏」退成上下 */

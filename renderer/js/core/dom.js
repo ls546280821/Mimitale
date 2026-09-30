@@ -237,6 +237,8 @@ export const el = {
     formEmpty: $('wb-form-empty'),
     form: $('wb-form'),
     footHint: $('wb-foot-hint'),
+    dirtyHint: $('wb-dirty-hint'),
+    btnSave: $('btn-save-wb'),
     e: {
       title: $('wb-e-title'),
       keys: $('wb-e-keys'),
@@ -249,8 +251,7 @@ export const el = {
       recursive: $('wb-e-recursive'),
       enabled: $('wb-e-enabled')
     },
-    btnDelEntry: $('btn-del-entry'),
-    btnSaveEntry: $('btn-save-entry')
+    btnDelEntry: $('btn-del-entry')
   },
   // 从角色库多选加入世界书
   wbPicker: {

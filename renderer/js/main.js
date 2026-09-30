@@ -81,6 +81,7 @@ import { initCharacterList, renderCharacterPage } from './views/characterList.js
 import {
   initWorldbook,
   editWorldbookFromPage,
+  deleteWorldbookById,
   openWorldbookEditor,
   renderWorldbookChars,
   closeWorldbookCharPicker,
@@ -137,8 +138,9 @@ function registerRefreshListeners() {
   onRefresh(refreshLibraryPage);
   // 世界书列表页要「点编辑 = 打开世界书编辑器」，而编辑器开关属于入口层的编排
   // （要设 editingWorldbookId，那是编辑器弹窗的状态）。所以注入进去。
+  // 卡片右上角那个删除 × 同理：它要一起解绑会话、收掉编辑器里的草稿。
   // 它自己不登记重绘 —— 列表页的重绘由上面的 refreshLibraryPage 按当前视图分发。
-  initWorldbookList({ openEditor: editWorldbookFromPage });
+  initWorldbookList({ openEditor: editWorldbookFromPage, remove: deleteWorldbookById });
 }
 
 // ---------------------------------------------------------------------------

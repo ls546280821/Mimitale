@@ -61,6 +61,14 @@ $M = @{
   'EXIT_TIPS_1'    = '    set MIMITALE_OPEN_DEVTOOLS=1'
   'EXIT_TIPS_2'    = '    npm start'
   'EXIT_TIPS_3'    = 'Then send the red errors from the DevTools Console panel.'
+  # Electron sandbox fallback (see the numeric exit-code check further down).
+  'SANDBOX_HIT'    = '[note] Startup aborted inside the Electron sandbox (exit code {CODE} = 0x80000003).'
+  'SANDBOX_WHY'    = 'This layer is unrelated to the project code: electron --version alone crashes in the same place.'
+  'SANDBOX_RETRY'  = 'Retrying once with the sandbox disabled ...'
+  'SANDBOX_OK'     = 'Started with the sandbox disabled (same features, one less process-isolation layer).'
+  'SANDBOX_TIP1'   = 'If it still fails, look for this line: Chromium cannot create its own user data'
+  'SANDBOX_TIP2'   = 'files (Lock file can not be created: access denied). That means security software'
+  'SANDBOX_TIP3'   = 'or a policy on this machine is blocking Chromium.'
   'EXIT_OK'        = 'Mimitale closed normally.'
   'NO_MSG_FILE'    = '[warn] messages-utf8.txt is missing, showing English only.'
   'PRESS_ENTER'    = 'Press Enter to close this window'
@@ -149,6 +157,14 @@ if (-not (Test-Path -LiteralPath (Join-Path $scriptRoot 'package.json'))) {
 }
 
 # ---------- 3. install on first run ---------------------------------------
+# Electron's binary mirror. This used to live in .npmrc as `electron_mirror=`,
+# which npm 11 flags as an unknown config key and npm 12 will drop entirely.
+# @electron/get reads ELECTRON_MIRROR from the environment, so set it here
+# (only if the caller has not already chosen a mirror).
+if (-not $env:ELECTRON_MIRROR) {
+  $env:ELECTRON_MIRROR = 'https://npmmirror.com/mirrors/electron/'
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $scriptRoot 'node_modules\electron'))) {
   Say ''
   Say (T 'FIRST_RUN') 'Yellow'
@@ -184,10 +200,39 @@ Say ''
 & $npmCmd.Source start
 
 $code = $LASTEXITCODE
+$sandboxTried = $false
+
+# ---------- 4b. sandbox fallback -------------------------------------------
+# Electron aborts during startup with STATUS_BREAKPOINT (0x80000003) when
+# Chromium cannot initialise its sandbox; npm reports that as -2147483645
+# (the same 32 bits, read as a signed int). It is a native crash that happens
+# before any of this project's code runs -- `electron --version` alone shows it.
+# npm run smoke / diag have always passed --no-sandbox for this reason; the app
+# was the only path missing it, so retry once with the sandbox off.
+if ($code -eq -2147483645) {
+  Say ''
+  Say (T 'SANDBOX_HIT' ([string]$code)) 'Yellow'
+  Say (T 'SANDBOX_WHY') 'DarkGray'
+  Say (T 'SANDBOX_RETRY') 'Cyan'
+  Say ''
+
+  & $npmCmd.Source run start:no-sandbox
+  $code = $LASTEXITCODE
+  $sandboxTried = $true
+}
+
 Say ''
 if ($code -ne 0) {
   Say (T 'EXIT_ERR' ([string]$code)) 'Red'
   Say ''
+  # The sandbox retry failed too: the usual next wall is Chromium being unable
+  # to create files under the user profile, so say that instead of nothing.
+  if ($sandboxTried) {
+    Say (T 'SANDBOX_TIP1') 'Yellow'
+    Say (T 'SANDBOX_TIP2') 'Yellow'
+    Say (T 'SANDBOX_TIP3') 'Yellow'
+    Say ''
+  }
   Say (T 'EXIT_TIPS') 'Yellow'
   Say (T 'EXIT_TIPS_1') 'White'
   Say (T 'EXIT_TIPS_2') 'White'
@@ -196,5 +241,6 @@ if ($code -ne 0) {
 }
 
 Say (T 'EXIT_OK') 'Green'
+if ($sandboxTried) { Say (T 'SANDBOX_OK') 'Yellow' }
 if (-not $msgLoaded) { Say (T 'NO_MSG_FILE') 'DarkGray' }
 Wait-Exit 0

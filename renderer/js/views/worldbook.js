@@ -4,6 +4,11 @@
 //  左栏选书，中栏列条目，右栏编辑。数据在主进程的 worldbooks.json。
 //  词条只由「会话绑定了哪本书」生效；每本书还能装若干角色副本（独立个体）。
 //
+//  「保存后才生效」：书名 / 开场白 / 条目全是**草稿**（wbDrafts，按书各存一份），
+//  改动只进内存里的那一份，点底部「保存」才写回 state.worldbooks 并落盘。
+//  没保存就关弹窗要问一句「放弃改动？」。角色副本不在此列 ——
+//  见 wbDrafts 上面那段注释。
+//
 //  两处刻意的边界：
 //
 //   · 本书角色的「编辑 / 新建」要切角色编辑器的作用域（charEditorScope）
@@ -20,6 +25,7 @@
 //  只有「编辑某一本」这个入口动作（editWorldbookFromPage）例外：它要设
 //  editingWorldbookId —— 那是**本模块**的状态，所以它住在这儿并导出，
 //  由入口层反过来注入给世界书列表页（列表页不需要知道「当前选中的是哪本」）。
+//  「删除某一本」（deleteWorldbookById）同理：列表页卡片右上角的 × 也走它。
 // ---------------------------------------------------------------------------
 
 import { api } from '../core/api.js';
@@ -74,7 +80,7 @@ export function initWorldbook(opts = {}) {
   el.wb.btnNewEntry.addEventListener('click', newEntry);
   el.wb.btnDelBook.addEventListener('click', deleteWorldbook);
   el.wb.btnDelEntry.addEventListener('click', deleteEntry);
-  el.wb.btnSaveEntry.addEventListener('click', saveEntry);
+  el.wb.btnSave.addEventListener('click', saveWorldbook);
   el.wb.btnPreview.addEventListener('click', previewWorldbook);
   el.wb.btnAddChars.addEventListener('click', openWorldbookCharPicker);
   el.wb.btnNewChar.addEventListener('click', newWorldbookCharacter);
@@ -88,19 +94,43 @@ export function initWorldbook(opts = {}) {
     if (event.target === el.wbPicker.modal) closeWorldbookCharPicker();
   });
 
-  // 世界书名称和条目内容都是边打字边留在内存里，关闭弹窗时统一落盘
+  // 书名 / 开场白 / 条目全是**草稿**：边打字边留在内存里的草稿里，
+  // 点「保存」才写回世界书并落盘（见文件头）。所以这里只写草稿 + 举「未保存」的旗子，
+  // 不再顺手重画列表页 —— 没保存的东西不该在外面的卡片上露头。
   el.wb.name.addEventListener('input', () => {
-    const book = currentWorldbook();
-    if (!book) return;
-    book.name = el.wb.name.value.trim() || '未命名世界书';
-    renderWorldbookPage();
-    renderWorldbookChars();
+    if (!currentDraft()) return;
+    stashWorldbookName();
+    markDraftDirty();
   });
 
   el.wb.opening.addEventListener('input', () => {
-    const book = currentWorldbook();
-    if (!book) return;
-    book.opening = el.wb.opening.value.slice(0, 4000);
+    const draft = currentDraft();
+    if (!draft) return;
+    draft.opening = el.wb.opening.value.slice(0, 4000);
+    markDraftDirty();
+  });
+
+  // 条目表单里的任何一下改动都算「这本书有未保存的改动」。
+  // 回填（fillEntryForm）是程序写 .value，不触发事件 —— 所以不会误标。
+  // input 管文本 / 数字 / 文本域，change 管下拉和几个勾选框。
+  el.wb.form.addEventListener('input', markDraftDirty);
+  el.wb.form.addEventListener('change', markDraftDirty);
+
+  // 条目名 / 关键词跟着左栏那一行实时走。以前这一步是「保存条目」那颗按钮干的，
+  // 现在没有它了 —— 不同步的话，新建的条目会一直叫「新条目」，
+  // 直到整本书保存才改过来，看着像名字没生效。
+  el.wb.e.title.addEventListener('input', () => {
+    const entry = currentEntry();
+    if (!entry) return;
+    entry.title = el.wb.e.title.value.trim().slice(0, 200) || '未命名条目';
+    renderEntryList();
+  });
+
+  el.wb.e.keys.addEventListener('input', () => {
+    const entry = currentEntry();
+    if (!entry) return;
+    entry.keys = parseEntryKeys(el.wb.e.keys.value);
+    renderEntryList();
   });
 
   el.wb.modal.addEventListener('click', (event) => {
@@ -123,11 +153,167 @@ const WB_NEW_ENTRY_DEFAULTS = {
 let editingWorldbookId = null; // 世界书弹窗里当前选中的世界书
 let editingEntryId = null; // 编辑器里当前选中的条目
 
+/**
+ * 编辑器里的草稿：bookId → { name, opening, entries, dirty, isNew }。
+ *
+ * 「保存后才生效」就落在这儿。书名 / 开场白 / 条目的改动一律先写进草稿，
+ * 界面上（列表页卡片、会话注入用的 state.worldbooks）看到的还是**上次保存过**的那份；
+ * 点「保存」才 commitDraft() 写回 state.worldbooks 并落盘。
+ *
+ * 三处刻意的选择：
+ *   · **每本书各留一份**（不是一个全局草稿）—— 在两本书之间来回切不会把没保存的改动弄丢，
+ *     也不用在切换的半路上弹一个「要保存吗」。
+ *   · **不含 characters**。世界书里的角色副本由「本书角色」那一排按钮直接改、直接落盘，
+ *     角色编辑器也在往上写（它认的是 currentWorldbook()）。草稿只认书名/开场白/条目，
+ *     提交时也只覆盖这三个字段，两边才不会互相踩。
+ *   · `isNew`：新建出来还没保存过的书。关弹窗时要是被放弃，连壳一起收掉
+ *     （它从来没进过 worldbooks.json，留着就是一个重启就没的幽灵）。
+ */
+const wbDrafts = new Map();
+
+/** 条目的深拷贝：草稿改了不能顺手改到 state 里那份 */
+function cloneEntries(entries) {
+  return JSON.parse(JSON.stringify(Array.isArray(entries) ? entries : []));
+}
+
+function draftFor(book) {
+  if (!book) return null;
+  let draft = wbDrafts.get(book.id);
+  if (!draft) {
+    draft = {
+      name: book.name || '未命名世界书',
+      opening: book.opening || '',
+      entries: cloneEntries(book.entries),
+      dirty: false,
+      isNew: false
+    };
+    wbDrafts.set(book.id, draft);
+  }
+  return draft;
+}
+
+/** 编辑器里正在显示的那一本的草稿 */
+function currentDraft() {
+  return currentWorldbook() ? draftFor(currentWorldbook()) : null;
+}
+
+/** 有未保存改动的那些书（关弹窗时用它拼提示语） */
+function unsavedDrafts() {
+  const out = [];
+  for (const [id, draft] of wbDrafts) {
+    const book = worldbookById(id);
+    if (book && draft.dirty) out.push({ book, draft });
+  }
+  return out;
+}
+
+/** 举旗子：这本书有未保存的改动 */
+function markDraftDirty() {
+  const draft = currentDraft();
+  if (!draft) return;
+  if (!draft.dirty) draft.dirty = true;
+  renderDirtyHint();
+}
+
+/**
+ * 底部的「有未保存的改动」提示。
+ * 只显示当前这本的状态 + 顺带说一句别的书还欠着几本 ——
+ * 把别的书的改动说成本书的，会让人以为点了「保存」就全存了。
+ */
+function renderDirtyHint() {
+  const node = el.wb.dirtyHint;
+  if (!node) return;
+
+  const mine = currentDraft();
+  const all = unsavedDrafts().length;
+  const others = all - (mine && mine.dirty ? 1 : 0);
+
+  let text = '';
+  if (mine && mine.dirty) text = others ? `有未保存的改动（另有 ${others} 本）` : '有未保存的改动';
+  else if (others) text = `另有 ${others} 本有未保存的改动`;
+
+  node.textContent = text;
+  node.classList.toggle('hidden', !text);
+}
+
+/** 草稿写回世界书（点「保存」时用）。返回是否真的提交了 */
+function commitDraft(bookId) {
+  const book = worldbookById(bookId);
+  const draft = wbDrafts.get(bookId);
+  if (!book || !draft) return false;
+
+  book.name = String(draft.name || '').trim().slice(0, 120) || '未命名世界书';
+  book.opening = String(draft.opening || '').slice(0, 4000);
+  book.entries = cloneEntries(draft.entries);
+  book.updatedAt = now();
+
+  // 草稿作废：下次进这本书会按刚保存的内容重新拷一份
+  wbDrafts.delete(bookId);
+  return true;
+}
+
+/**
+ * 丢掉所有草稿（关弹窗时「放弃改动」那一步）。
+ * 新建但没保存过的书连壳一起收掉 —— 它还不算存在。
+ */
+function discardDrafts() {
+  for (const [id, draft] of [...wbDrafts]) {
+    if (draft.isNew) {
+      state.worldbooks = worldbooks().filter((w) => w.id !== id);
+      // 编辑器里正显示着这本，而它现在不存在了 —— 选中项一起清掉，
+      // 免得下次打开时拿着一个指向空气的 id 去查
+      if (editingWorldbookId === id) editingWorldbookId = null;
+    }
+    wbDrafts.delete(id);
+  }
+}
+
+/**
+ * 把「正在编辑的这本书」保存到磁盘。
+ *
+ * 保存的粒度是**整本书**（书名 + 开场白 + 所有条目）—— 条目不是独立对象，
+ * 拆成「保存条目」只会让人以为存过了其实没存。所以界面上只有一个「保存」。
+ */
+async function saveWorldbook() {
+  const book = currentWorldbook();
+  const draft = currentDraft();
+  if (!book || !draft) return;
+
+  // 输入框里的内容可能还没进草稿（比如刚敲完就点保存）
+  stashWorldbookName();
+  stashEntryForm();
+
+  if (!draft.dirty) {
+    showToast('没有要保存的改动');
+    return;
+  }
+
+  // 既没关键词也不是常驻的条目永远不会被注入，提醒一下（但不阻止保存）。
+  // 提醒并进保存结果那一条 toast 里 —— 弹两条只有后一条看得见。
+  const dead = draft.entries.filter((e) => !e.constant && !(Array.isArray(e.keys) && e.keys.length));
+
+  const name = draft.name;
+  commitDraft(book.id);
+
+  // 保存之后才是「真的改了」：列表页卡片、条目数、会话注入用的数据都在这一刻对齐
+  renderWorldbookPage();
+  renderWorldbookChars();
+  renderDirtyHint();
+
+  const ok = await persistLibrary();
+  if (!ok) {
+    showToast('保存失败，没能写入磁盘', 'error');
+    return;
+  }
+  const tail = dead.length ? ` · ${dead.length} 条没有关键词也不是常驻，永远不会被注入` : '';
+  showToast(`「${name}」已保存${tail}`, 'ok');
+}
+
 /** 世界书的条目数展示 */
-function wbEntryCountText(book) {
-  if (!book) return '';
-  const total = (book.entries || []).length;
-  const on = (book.entries || []).filter((e) => e.enabled !== false).length;
+function wbEntryCountText(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  const total = list.length;
+  const on = list.filter((e) => e.enabled !== false).length;
   return on === total ? `${total} 条条目` : `${total} 条条目 · ${on} 条启用`;
 }
 
@@ -136,36 +322,36 @@ export function currentWorldbook() {
 }
 
 function currentEntry() {
-  const book = currentWorldbook();
-  if (!book) return null;
-  return (book.entries || []).find((e) => e.id === editingEntryId) || null;
+  const draft = currentDraft();
+  if (!draft) return null;
+  return draft.entries.find((e) => e.id === editingEntryId) || null;
 }
 
-/** 把世界书表单里的内容写回内存（书名 + 开场白） */
+/** 把世界书表单里的内容写进草稿（书名 + 开场白）。不落盘，只改内存里的那一份 */
 function stashWorldbookName() {
-  const book = currentWorldbook();
-  if (!book || el.wb.entriesWrap.classList.contains('hidden')) return;
-  const name = el.wb.name.value.trim() || '未命名世界书';
-  book.name = name.slice(0, 120);
-  book.opening = el.wb.opening.value.slice(0, 4000);
-  book.updatedAt = now();
+  const draft = currentDraft();
+  if (!draft || el.wb.entriesWrap.classList.contains('hidden')) return;
+  draft.name = (el.wb.name.value.trim() || '未命名世界书').slice(0, 120);
+  draft.opening = el.wb.opening.value.slice(0, 4000);
 }
 
-/** 把条目表单里的内容写回内存 */
+/** 关键词输入框 → 关键词数组（逗号分隔，中英文逗号都认） */
+function parseEntryKeys(value) {
+  return String(value || '')
+    .split(/[,，]/)
+    .map((k) => k.trim())
+    .filter(Boolean)
+    .slice(0, 200);
+}
+
+/** 把条目表单里的内容写进草稿里的那条条目 */
 function stashEntryForm() {
   const entry = currentEntry();
   if (!entry || el.wb.form.classList.contains('hidden')) return;
 
-  const parseKeys = (value) =>
-    String(value || '')
-      .split(/[,，]/)
-      .map((k) => k.trim())
-      .filter(Boolean)
-      .slice(0, 200);
-
-  entry.title = el.wb.e.title.value.trim().slice(0, 200) || parseKeys(el.wb.e.keys.value)[0] || '未命名条目';
-  entry.keys = parseKeys(el.wb.e.keys.value);
-  entry.secondaryKeys = parseKeys(el.wb.e.keys2.value);
+  entry.title = el.wb.e.title.value.trim().slice(0, 200) || parseEntryKeys(el.wb.e.keys.value)[0] || '未命名条目';
+  entry.keys = parseEntryKeys(el.wb.e.keys.value);
+  entry.secondaryKeys = parseEntryKeys(el.wb.e.keys2.value);
   entry.selectiveLogic = el.wb.e.logic.value;
   entry.content = el.wb.e.content.value.slice(0, 20000);
 
@@ -180,7 +366,7 @@ function stashEntryForm() {
   entry.enabled = el.wb.e.enabled.checked;
 }
 
-/** 把「编辑器里正在填的东西」先写回内存 —— 导入 / 切书之前要调 */
+/** 把「编辑器里正在填的东西」先写进草稿 —— 导入 / 切书 / 打开角色编辑器之前要调 */
 export function stashWorldbookForm() {
   stashWorldbookName();
   stashEntryForm();
@@ -189,10 +375,10 @@ export function stashWorldbookForm() {
 function renderEntryList() {
   el.wb.entryList.innerHTML = '';
 
-  const book = currentWorldbook();
-  if (!book) return;
+  const draft = currentDraft();
+  if (!draft) return;
 
-  const entries = book.entries || [];
+  const entries = draft.entries;
   if (!entries.length) {
     el.wb.entryList.appendChild(
       h('div', { class: 'wb-list-empty', text: '这本书还没有条目，点「＋ 条目」加一条' })
@@ -254,6 +440,9 @@ function fillEntryForm(entry) {
  * 那两个 stash 读的是界面上的输入框，只有此时 currentWorldbook() 还指着
  * 「正在显示的那一本」才写得对。外部（openWorldbooksModal 的调用方）
  * 千万别抢先把 editingWorldbookId 设成目标书，否则脏表单会盖到新书上。
+ *
+ * 现在 stash 写的是**草稿**（不是世界书本身），所以「盖到新书上」这件事
+ * 从结构上就不成立了 —— 每本书的草稿各归各的。
  */
 function selectWorldbook(id) {
   stashWorldbookName();
@@ -269,22 +458,27 @@ function selectWorldbook(id) {
     editingEntryId = null;
     showEntryForm(false);
     renderWorldbookChars();
+    renderDirtyHint();
     return;
   }
 
-  el.wb.name.value = book.name;
-  el.wb.opening.value = book.opening || '';
-  el.wb.entryCount.textContent = wbEntryCountText(book);
+  // 有草稿就显示草稿（切走再切回来不会丢没保存的改动），没有就按当前内容新拷一份
+  const draft = draftFor(book);
+  el.wb.name.value = draft.name;
+  el.wb.opening.value = draft.opening;
+  el.wb.entryCount.textContent = wbEntryCountText(draft.entries);
+  // 底部提示写的是**落盘过的**书名：一眼分得清「界面上在改什么」和「盘上是什么」
   el.wb.footHint.textContent = `「${book.name}」只保存在你自己电脑上`;
 
   // 上一本书选中的条目在新书里不存在，自动落到第一条
   if (!currentEntry()) {
-    editingEntryId = (book.entries || []).length ? book.entries[0].id : null;
+    editingEntryId = draft.entries.length ? draft.entries[0].id : null;
   }
 
   renderEntryList();
   fillEntryForm(currentEntry());
   renderWorldbookChars();
+  renderDirtyHint();
 }
 
 function selectEntry(id) {
@@ -642,16 +836,37 @@ function openWorldbooksModal(targetId) {
   el.wb.modal.classList.remove('hidden');
 }
 
-/** 关世界书编辑器。导出是为了让入口层的 Esc 链统一关它（见 main.js） */
-export function closeWorldbooksModal() {
+/**
+ * 关世界书编辑器。导出是为了让入口层的 Esc 链统一关它（见 main.js）。
+ *
+ * 「保存后才生效」的另一面是「不保存就会丢」，所以有草稿改动时先问一句。
+ * 选「继续改」就直接返回，弹窗留着 —— 和角色编辑器放弃新建那个确认框同一个套路。
+ */
+export async function closeWorldbooksModal() {
   stashWorldbookName();
   stashEntryForm();
 
+  const pending = unsavedDrafts();
+  if (pending.length) {
+    const names = pending.map(({ draft, book }) => `「${draft.name || book.name}」`).slice(0, 3).join('、');
+    const tail = pending.length > 3 ? ` 等 ${pending.length} 本` : '';
+    const ok = await confirmDialog({
+      title: '放弃未保存的改动',
+      message: `${names}${tail}有没保存的改动，关掉就丢了。`,
+      confirmText: '放弃改动',
+      danger: true
+    });
+    if (!ok) return;
+  }
+
+  // 放弃：草稿清掉，新建但没保存过的书连壳一起收掉
+  discardDrafts();
+
   el.wb.modal.classList.add('hidden');
   renderWorldbookChars();
-  persistLibrary();
-
-  // 列表页可能还开着（编辑完回来看得到最新状态）
+  renderDirtyHint();
+  // 列表页可能还开着（编辑完回来看得到最新状态）。放掉草稿之后要重画一次 ——
+  // 没保存的东西不该留在卡片上（本来也没露过头，这里是给「新建又放弃」收尾）。
   renderWorldbookPage();
 }
 
@@ -667,9 +882,14 @@ function newWorldbook() {
   };
 
   state.worldbooks = [...worldbooks(), book];
-  renderWorldbookPage();
 
-  // 切到新书这一步交给 openWorldbooksModal —— 它会先把旧书的表单收回去再切。
+  // 新建的这本还没落盘，所以草稿从出生起就是脏的：点「保存」才真的写进
+  // worldbooks.json；直接关掉的话它会被当成「没建成」收回去（见 discardDrafts）。
+  const draft = draftFor(book);
+  draft.isNew = true;
+  draft.dirty = true;
+
+  // 切到新书这一步交给 openWorldbooksModal —— 它会先把旧书的表单收进旧书的草稿再切。
   // 自己在这里先写 editingWorldbookId 的话，旧书残留的书名会被写进这本新书里。
   openWorldbooksModal(book.id);
   el.wb.name.focus();
@@ -677,8 +897,8 @@ function newWorldbook() {
 }
 
 function newEntry() {
-  const book = currentWorldbook();
-  if (!book) return;
+  const draft = currentDraft();
+  if (!draft) return;
 
   stashEntryForm();
 
@@ -697,10 +917,10 @@ function newEntry() {
     enabled: true
   };
 
-  book.entries = [...(book.entries || []), entry];
-  book.updatedAt = now();
+  draft.entries = [...draft.entries, entry];
+  markDraftDirty();
 
-  el.wb.entryCount.textContent = wbEntryCountText(book);
+  el.wb.entryCount.textContent = wbEntryCountText(draft.entries);
   renderEntryList();
   selectEntry(entry.id);
 
@@ -708,31 +928,10 @@ function newEntry() {
   el.wb.e.title.select();
 }
 
-async function saveEntry() {
-  const entry = currentEntry();
-  const book = currentWorldbook();
-  if (!entry || !book) return;
-
-  stashEntryForm();
-
-  // 没关键词又不是常驻的条目永远不会触发，提醒一下（但不阻止保存）
-  if (!entry.constant && !entry.keys.length) {
-    showToast('这条既没有关键词、也不是常驻，永远不会被注入', 'error');
-  }
-
-  book.updatedAt = now();
-  el.wb.entryCount.textContent = wbEntryCountText(book);
-  renderEntryList();
-  fillEntryForm(entry);
-
-  await persistLibrary();
-  showToast('条目已保存', 'ok');
-}
-
 async function deleteEntry() {
   const entry = currentEntry();
-  const book = currentWorldbook();
-  if (!entry || !book) return;
+  const draft = currentDraft();
+  if (!entry || !draft) return;
 
   stashEntryForm();
 
@@ -744,23 +943,32 @@ async function deleteEntry() {
   });
   if (!ok) return;
 
-  book.entries = (book.entries || []).filter((e) => e.id !== entry.id);
-  book.updatedAt = now();
+  draft.entries = draft.entries.filter((e) => e.id !== entry.id);
+  markDraftDirty();
 
-  editingEntryId = book.entries.length ? book.entries[0].id : null;
-  el.wb.entryCount.textContent = wbEntryCountText(book);
+  editingEntryId = draft.entries.length ? draft.entries[0].id : null;
+  el.wb.entryCount.textContent = wbEntryCountText(draft.entries);
   renderEntryList();
   fillEntryForm(currentEntry());
 
-  await persistLibrary();
-  showToast('条目已删除');
+  showToast('条目已删除，点「保存」才会写进磁盘');
 }
 
-async function deleteWorldbook() {
-  const book = currentWorldbook();
-  if (!book) return;
+/**
+ * 删掉一本书。两个入口共用这一份逻辑：编辑器里的「删除本书」，
+ * 和列表页卡片右上角那个 ×（跟角色卡一样，悬停浮出来）。
+ * 返回是否真的删了。
+ */
+export async function deleteWorldbookById(id) {
+  const book = worldbookById(id);
+  if (!book) return false;
 
-  stashWorldbookName();
+  // 表单里正在填的东西先收进草稿 —— 确认框弹出来这一下 currentWorldbook()
+  // 还指着这本，写进去才有地方落（确认之后整本连同草稿一起没了，不会留下脏数据）。
+  if (editingWorldbookId === book.id) {
+    stashWorldbookName();
+    stashEntryForm();
+  }
 
   const charCount = worldbookCharacters(book).length;
   const usedByConvo = state.conversations.filter((c) => convoWorldbookIds(c).includes(book.id)).length;
@@ -774,15 +982,16 @@ async function deleteWorldbook() {
     confirmText: '删除',
     danger: true
   });
-  if (!ok) return;
+  if (!ok) return false;
 
+  wbDrafts.delete(book.id);
   state.worldbooks = worldbooks().filter((w) => w.id !== book.id);
 
   // 会话上还绑着这本书的要一起摘掉，别留下指向空气的 id
   for (const convo of state.conversations) {
     const ids = convoWorldbookIds(convo);
     if (ids.includes(book.id)) {
-      convo.worldbookIds = ids.filter((id) => id !== book.id);
+      convo.worldbookIds = ids.filter((wid) => wid !== book.id);
       convo.updatedAt = now();
     }
   }
@@ -790,29 +999,46 @@ async function deleteWorldbook() {
   // 角色编辑器可能正开在这本书的副本上，退回角色库
   releaseScope();
 
-  // ⚠️ 必须走 selectWorldbook 真正「切」到另一本 —— 它会重填书名 / 开场白 / 条目表单。
-  // 以前这里只改 editingWorldbookId 再重画列表页，编辑区里还留着**刚删掉那本**的字段；
-  // 接着关弹窗时 stashWorldbookName() 会把这个残留书名写进 currentWorldbook()
-  // —— 也就是列表里第一本书 —— 等于把别人的书改名 + 覆盖开场白，还会立刻落盘。
-  // （此刻 currentWorldbook() 已经是 undefined，所以 selectWorldbook 内部的
-  //   stashWorldbookName() 会早退，不会把脏字段写出去。）
-  selectWorldbook(worldbooks().length ? worldbooks()[0].id : null);
+  // ⚠️ 编辑器里正显示着这本时必须走 selectWorldbook 真正「切」到另一本 ——
+  // 它会重填书名 / 开场白 / 条目表单。以前这里只改 editingWorldbookId 再重画列表页，
+  // 编辑区里还留着**刚删掉那本**的字段；接着关弹窗时 stashWorldbookName() 会把这个
+  // 残留书名写进 currentWorldbook() —— 也就是列表里第一本书 —— 等于把别人的书改名 +
+  // 覆盖开场白。（现在草稿是按书存的，这一步仍然要有：不切的话界面显示的就是不存在的那本。）
+  if (editingWorldbookId === book.id) {
+    selectWorldbook(worldbooks().length ? worldbooks()[0].id : null);
+  }
+
   renderWorldbookPage();
+  renderDirtyHint();
 
   persistConversations(0);
   await persistLibrary();
   showToast('世界书已删除');
+  return true;
+}
+
+/** 编辑器底部那个「删除本书」：删的就是当前正在编辑的这本 */
+async function deleteWorldbook() {
+  await deleteWorldbookById(editingWorldbookId);
 }
 
 /**
  * 预览「正在编辑的这本书」会在当前会话里命中哪些条目。
  * 用的就是真实请求时的扫描逻辑，方便排查关键词写没写对。
- * 以前是预览「会话绑定的那些书」，绑定那套拿掉之后改成预览当前编辑的这本。
+ *
+ * ⚠️ 预览跑在**主进程**里，读的是已经落盘的那份数据 —— 所以有没保存的改动时
+ * 得先说一声，不然会拿着旧内容预览，看着像关键词没写对。
  */
 async function previewWorldbook() {
   const book = currentWorldbook();
   if (!book) {
     showToast('先选一本书', 'error');
+    return;
+  }
+
+  const draft = currentDraft();
+  if (draft && draft.dirty) {
+    showToast('有未保存的改动，先点「保存」再预览命中', 'error');
     return;
   }
 
@@ -857,15 +1083,19 @@ async function previewWorldbook() {
   }
 }
 
-/** 导出当前编辑的世界书 */
+/** 导出当前编辑的世界书（导出的是界面上这份草稿，不是盘上那份） */
 async function exportWorldbook() {
   const book = currentWorldbook();
-  if (!book) return;
+  const draft = currentDraft();
+  if (!book || !draft) return;
+
+  stashWorldbookName();
+  stashEntryForm();
 
   await saveExport({
     title: '导出世界书',
-    fileName: `${safeFileName(book.name)}.json`,
+    fileName: `${safeFileName(draft.name)}.json`,
     filters: [{ name: '世界书 JSON（酒馆可直接导入）', extensions: ['json'] }],
-    text: JSON.stringify(worldbookPayload(book), null, 2)
+    text: JSON.stringify(worldbookPayload({ ...book, name: draft.name, entries: draft.entries }), null, 2)
   });
 }

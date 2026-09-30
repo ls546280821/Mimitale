@@ -869,7 +869,7 @@
             </div>
 
             <!-- 开场白：进这个世界时自动作为第一条消息 -->
-            <label class="field field-stack">
+            <label class="field field-stack wb-opening">
               <span class="field-label">开场白</span>
               <textarea id="wb-opening" rows="3" spellcheck="false" placeholder="进这个世界时自动作为第一条消息。留空则让 AI 按设定现生成一段开局。"></textarea>
             </label>
@@ -964,7 +964,9 @@
 
             <div class="wb-form-foot">
               <button id="btn-del-entry" class="btn btn-danger btn-sm" type="button">删除条目</button>
-              <button id="btn-save-entry" class="btn btn-primary btn-sm" type="button">保存条目</button>
+              <!-- 条目没有自己的「保存」：书名 / 开场白 / 条目一起算这本书的内容，
+                   改动先落在草稿里，点右下角的「保存」才一起写进磁盘。 -->
+              <span class="wb-form-foot-hint">条目改动跟着整本书一起保存</span>
             </div>
           </div>
         </section>
@@ -973,7 +975,11 @@
       <footer class="modal-foot">
         <span id="wb-foot-hint" class="foot-hint">世界书只保存在你自己电脑上</span>
         <div class="foot-actions">
+          <!-- 「有未保存的改动」只在草稿和已保存的内容不一致时出现。
+               书名 / 开场白 / 条目的改动都不算数，点「保存」才真的写进 worldbooks.json。 -->
+          <span id="wb-dirty-hint" class="wb-dirty hidden"></span>
           <button id="btn-export-wb" class="btn btn-ghost" type="button" title="导出成酒馆能直接导入的 JSON">导出</button>
+          <button id="btn-save-wb" class="btn btn-primary" type="button" title="把这本书的书名 / 开场白 / 条目写进磁盘">保存</button>
           <button id="btn-close-worldbooks-2" class="btn btn-ghost" type="button">关闭</button>
         </div>
       </footer>

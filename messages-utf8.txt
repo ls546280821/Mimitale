@@ -54,6 +54,19 @@ EXIT_TIPS_2|    npm start
 EXIT_TIPS_3|然后把弹出的开发者工具里 Console 一栏的红色报错发出来。
 EXIT_OK|Mimitale 已正常退出。
 
+# ---------- Electron 沙箱起不来时自动重试 ----------
+# 现象：npm start 退出码 -2147483645（= 0x80000003 STATUS_BREAKPOINT）。
+# 这是 Electron/Chromium 在启动阶段的原生崩溃，和本项目代码无关 ——
+# 单独跑 `electron --version` 也会崩在同一处。
+# 所以重试一次「关掉沙箱」的启动方式；smoke / diag 一直就是这么跑的。
+SANDBOX_HIT|[提示] 这次启动崩在了 Electron 的沙箱初始化那一步（返回码 {CODE} = 0x80000003）。
+SANDBOX_WHY|这一层和本项目的代码无关：单独运行 electron --version 也会崩在同一处。
+SANDBOX_RETRY|正在改用「关闭沙箱」的方式重试一次……
+SANDBOX_OK|已用关闭沙箱的方式启动（功能完全一样，只是少一层进程隔离）。
+SANDBOX_TIP1|要是这次仍然起不来，注意看有没有这行：Chromium 建不了自己的用户数据文件
+SANDBOX_TIP2|（Lock file can not be created: 拒绝访问）—— 那说明是这台机器上的安全软件
+SANDBOX_TIP3|或权限策略在拦 Chromium，换一个普通账户、或临时关掉杀毒再试。
+
 # ---------- 其他 ----------
 NO_MSG_FILE|[提示] 没找到 messages-utf8.txt，本次只显示英文提示（不影响功能）。
 PRESS_ENTER|按回车键关闭这个窗口

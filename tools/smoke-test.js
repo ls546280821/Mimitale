@@ -65,7 +65,24 @@ const {
 } = require('../main/vectors.js');
 
 const APP_DIR = path.join(__dirname, '..');
-const OVERALL_TIMEOUT_MS = 90000;
+// 兜底超时。⚠️ 它是**整套**的墙钟上限，不是单个场景的 —— 场景越加越多，
+// 2026-09-30 加进「世界书：保存后才生效 / 卡片上删除」之后原来那 90 秒就不够了
+// （跑到「剧情选项」正好卡线，看上去像卡死，其实只是还没跑完）。
+const OVERALL_TIMEOUT_MS = 150000;
+
+// --shot-only：**只出图，不跑断言**。
+//
+// 为什么要有它：--shot=<场景> 原来必须等整套断言跑完才轮得到截图 ——
+// 改一行 CSS 想看效果，也要先等 1 分半。这不是「测试严谨」，是**工具用错了**：
+// 光看样式根本不需要 800 条断言，需要的是几秒钟出一张图。
+// 加了它之后：直接灌一份给截图用的种子数据 → 打开场景 → 拍照，几秒钟的事。
+//
+// ⚠️ 它**不产生任何断言结果**，所以别拿它当验证 —— 出图归出图，验证还得跑整套。
+// ⚠️ 依赖场景副作用搭出来的界面（会话 / 面板 / 状态卡那类）在这里是空的：
+//    那种场景请老实跑整套。这里够用的是「纯布局」那批：
+//    chars / charArt / charEditor / charAttrs / charTextareas / worldbook /
+//    worldbookPage / settings / modelMenu / moreMenu。
+const SHOT_ONLY = process.argv.includes('--shot-only');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
@@ -194,6 +211,66 @@ function makeStore() {
 }
 
 const store = makeStore();
+
+// 给截图用的种子角色 / 世界书。**只在 --shot-only 下灌**，结构照着断言场景里
+// 那批卡来（属性、分组、标签都有），这样出图看到的就是真实布局该有的样子。
+// 这里不做任何断言，所以它跑偏了也不会让测试变绿 —— 但也正因为如此，
+// 它**不能**替断言场景里那份真实数据。改字段形状时两边都看一眼。
+function seedForShots() {
+  const card = (id, name, extra) =>
+    Object.assign(
+      {
+        id,
+        name,
+        avatar: '',
+        description: `${name}的设定文本。`,
+        personality: '沉默寡言',
+        scenario: '',
+        firstMes: '',
+        mesExample: '',
+        systemPrompt: '',
+        postHistoryInstructions: '',
+        creatorNotes: '',
+        tags: ['手写'],
+        attributes: [],
+        source: 'manual',
+        createdAt: 1,
+        updatedAt: 1
+      },
+      extra || {}
+    );
+
+  store.characters = [
+    card('c-shot-1', '属性测试角色', {
+      description: '属性测试角色的设定文本',
+      tags: ['测试分类', '治愈'],
+      attributes: [
+        { name: '金币', type: 'text', value: '100' },
+        { name: '上衣', type: 'text', value: '布衣' },
+        { name: '好感度', type: 'meter', value: '20', min: 0, max: 100, group: '关系', hint: '按剧情合理增减' }
+      ]
+    }),
+    card('c-shot-2', '字段往返测试', { tags: ['甲', '乙'] }),
+    card('c-shot-3', '粘贴测试角色'),
+    card('c-shot-4', '模板测试角色', {
+      attributes: [
+        { name: '好感度', type: 'meter', value: '0', min: 0, max: 100, group: '关系' },
+        { name: '关系阶段', type: 'text', value: '陌生', group: '关系' },
+        { name: '物品', type: 'list', value: '钥匙', group: '背包' }
+      ]
+    }),
+    card('c-shot-5', '分组测试角色', { tags: ['原神'] }),
+    card('c-shot-6', '分组改名角色'),
+    card('c-shot-7', '自带世界书测试', { worldbookIds: ['w-test'], worldbookEnabled: true }),
+    card('c-shot-8', '选项测试角色', { optionsSpec: { count: 3, hint: '语气轻松些' } })
+  ];
+
+  // 两本书：一本有内容，一本空的 —— 卡片上的「N 条设定 · N 个角色 / N 条设定」两种写法都看得到
+  store.worldbooks.push({ id: 'w-shot-2', name: '新世界书', entries: [], characters: [], opening: '' });
+}
+
+if (SHOT_ONLY) seedForShots();
+
 const calls = []; // 记录渲染层请求过的写操作，方便排查
 let chatPayloads = []; // 每次发给模型的完整消息（按顺序留着，供宿主侧断言用）
 let lastExport = null; // 最后一次「导出」交给主进程的东西
@@ -2090,6 +2167,10 @@ app.whenReady().then(async () => {
 
   const consoleErrors = [];
   const consoleWarnings = [];
+  // --progress 才把页面里「跑到第几个场景」打出来。
+  // 没有它的时候，「跑超时了」分不清是**卡死**还是**只是还没跑完** ——
+  // 加场景把总时长顶过兜底超时那次，就是靠它一眼看出停在哪个场景（见 OVERALL_TIMEOUT_MS）。
+  const showProgress = process.argv.includes('--progress');
 
   win.webContents.on('console-message', (...args) => {
     // 新旧 Electron 的事件签名不一样，两种都兜住
@@ -2097,6 +2178,7 @@ app.whenReady().then(async () => {
     const level = typeof args[1] === 'number' ? args[1] : first && first.level;
     const message = typeof args[2] === 'string' ? args[2] : first && first.message;
     const text = String(message == null ? '' : message);
+    if (showProgress && text.startsWith('[progress]')) console.log('    ' + text);
     if (level === 3 || level === 'error') consoleErrors.push(text);
     else if (level === 2 || level === 'warning') consoleWarnings.push(text);
   });
@@ -2109,7 +2191,7 @@ app.whenReady().then(async () => {
   }
 
   let result = null;
-  if (!crashed) {
+  if (!crashed && !SHOT_ONLY) {
     const domScript = fs.readFileSync(path.join(__dirname, 'smoke-renderer.js'), 'utf8');
     try {
       result = await win.webContents.executeJavaScript(`(async () => {\n${domScript}\n})()`);
@@ -2213,20 +2295,107 @@ app.whenReady().then(async () => {
         chars: `
           document.querySelector('#btn-chars')?.click();
           await new Promise(r => setTimeout(r, 500));`,
+        // 角色库：卡片上那块圆头像其实是**人设图**位（3:4 竖版）。
+        // 测试里的角色都没有图（上传那条路被 images:pick 的桩挡着），
+        // 所以这里给每张卡塞一个 3:4 的 SVG 占位立绘 —— 只为看清裁切和排版，
+        // 人设图那条**真路径**在 charEditor 场景里（点上传框会走 shrinkAvatar + 落盘）。
+        charArt: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const art = (hue, label) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400">' +
+            '<rect width="300" height="400" fill="hsl(' + hue + ',70%,90%)"/>' +
+            '<circle cx="150" cy="128" r="60" fill="hsl(' + hue + ',55%,68%)"/>' +
+            '<path d="M42 400c0-82 48-134 108-134s108 52 108 134z" fill="hsl(' + hue + ',55%,68%)"/>' +
+            '<text x="150" y="386" font-size="24" text-anchor="middle" fill="hsl(' + hue + ',50%,36%)">' + label + '</text>' +
+            '</svg>');
+
+          $('#btn-chars')?.click();
+          await nap(550);
+          $$('#char-page-grid .char-card').forEach((card, i) => {
+            const face = card.querySelector('.char-card-avatar');
+            if (!face || face.querySelector('img')) return;
+            const name = card.querySelector('.char-card-name');
+            face.innerHTML = '';
+            const img = document.createElement('img');
+            img.alt = '';
+            img.src = art((i * 71 + 335) % 360, (name ? name.textContent : '角色').slice(0, 2));
+            face.appendChild(img);
+          });
+          await nap(250);
+          // 删除 × 平时是 opacity:0、悬停才浮出来 —— 截图没有指针，
+          // 这里拨上去只为核对它压在人设图上够不够清楚（不动生产样式）。
+          const del = $('#char-page-grid .char-card .char-card-del');
+          if (del) del.style.opacity = '1';
+          await nap(150);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 世界书编辑器：列表页 → 第一本书的「编辑」。
+        // 这个弹窗是「左栏书名 + 本书角色 + 开场白 + 条目列表 / 右栏条目表单」，
+        // 栏宽、间距、「内容」框和底部按钮的位置只有截图能核对。
+        // 最后在内容框上派一次 input（内容一个字没改）—— 让底部那颗
+        // 「有未保存的改动」也进画面，否则那条状态永远没人看过。
+        worldbook: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-worldbooks')?.click();
+          await nap(450);
+          const card = $$('#wb-page-grid .char-card')[0];
+          const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (btn) btn.click();
+          await nap(650);
+          $('#wb-e-content')?.dispatchEvent(new Event('input', { bubbles: true }));
+          await nap(200);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 世界书列表页本身（卡片 + 右上角删除 × + 「有未保存的改动」提示同款药丸）。
+        // 删除键平时是 opacity:0、悬停才浮出来 —— 截图没有指针，
+        // 所以这里直接把透明度拨上去，只为出图（不动生产样式）。
+        worldbookPage: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-worldbooks')?.click();
+          await nap(500);
+          const card = $$('#wb-page-grid .char-card')[0];
+          const del = card && card.querySelector('.char-card-del');
+          if (del) del.style.opacity = '1';
+          await nap(250);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 剧情选项：整条测试跑完正好停在场景 21 的会话里（最新回复带选项），
         // 这里只需要确认在聊天视图、把 toast 收掉，就能截到「气泡下面的选项块」。
         msgOptions: `
           const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
           await new Promise(r => setTimeout(r, 300));`,
+        // 角色编辑器：点左栏上传框会走真实的 shrinkAvatar → 落盘那条路
+        // （images:pick 的桩给的是 1×1 PNG，缩完是一片纯色 —— 看不出裁切）。
+        // 所以出图时直接往上传框里塞一张 3:4 的 SVG 占位立绘，只为核对框子比例。
         charEditor: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
-          document.querySelector('#btn-chars')?.click();
-          await new Promise(r => setTimeout(r, 400));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-chars')?.click();
+          await nap(400);
           const card = $$('#char-page-grid .char-card')[0];
           const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
           if (btn) btn.click();
-          await new Promise(r => setTimeout(r, 600));
-          const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+          await nap(600);
+
+          const face = $('#char-avatar');
+          if (face && !face.querySelector('img')) {
+            face.innerHTML = '';
+            const img = document.createElement('img');
+            img.alt = '';
+            img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+              '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400">' +
+              '<rect width="300" height="400" fill="hsl(335,70%,90%)"/>' +
+              '<circle cx="150" cy="128" r="60" fill="hsl(335,55%,68%)"/>' +
+              '<path d="M42 400c0-82 48-134 108-134s108 52 108 134z" fill="hsl(335,55%,68%)"/>' +
+              '</svg>');
+            face.appendChild(img);
+          }
+          await nap(200);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 属性区的分组标签栏：新建一张卡，按真实交互铺出几个分组再截图 ——
         // 空卡只有一个「未分组」标签，看不出分层的样子。
         charAttrs: `
@@ -2678,11 +2847,23 @@ app.whenReady().then(async () => {
     }
   }
 
+  // --shot-only 没跑断言，别打那份「0/0 通过」的报告 —— 那会让人以为验证过了。
+  if (SHOT_ONLY) {
+    console.log('');
+    console.log('  ℹ --shot-only：只出图，**一条断言都没跑**（验证请去掉这个参数跑整套）');
+    if (consoleErrors.length) {
+      console.log(`  ⚠ 不过页面里有 ${consoleErrors.length} 条控制台报错：`);
+      consoleErrors.slice(0, 5).forEach((e) => console.log('    ! ' + e));
+    }
+    app.exit(0);
+    return;
+  }
+
   const ok = report(result, consoleErrors, consoleWarnings, crashed);
   app.exit(ok ? 0 : 1);
 });
 // 兜底：万一卡住（窗口没起来 / executeJavaScript 不返回），别让终端一直挂着
 setTimeout(() => {
-  console.error('\n  ⏱ 冒烟测试超过 90 秒没有结束，判定失败\n');
+  console.error(`\n  ⏱ 冒烟测试超过 ${Math.round(OVERALL_TIMEOUT_MS / 1000)} 秒没有结束，判定失败\n`);
   app.exit(2);
 }, OVERALL_TIMEOUT_MS).unref();

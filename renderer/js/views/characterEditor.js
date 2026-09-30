@@ -398,10 +398,15 @@ function renderCharAvatar() {
 }
 
 /**
- * 头像统一缩成 256×256 再存。
+ * 头像（= 人设图）统一缩成 384×512（3:4 竖版）再存。
  * 直接存原图的话，一张手机照片就能把 characters.json 撑到几十 MB，
  * 而且每次保存设置都要重写整个文件。
  * 只用 canvas 的标准 API，不引入任何依赖。
+ *
+ * ⚠️ 3:4 不是随便挑的：列表页卡片上那块、编辑器里那个上传框，都是 3:4
+ * （`.char-card-avatar` / `.char-avatar`）。**改这里必须同步改那两处 CSS** ——
+ * 对不上的话立绘会被再裁一刀（存的是 1:1、框是 3:4 就会切掉左右两边）。
+ * 老卡里的 1:1 头像是历史数据，`object-fit: cover` 会按中心裁掉左右，不改它。
  */
 function shrinkAvatar(dataUrl) {
   return new Promise((resolve) => {
@@ -409,17 +414,23 @@ function shrinkAvatar(dataUrl) {
 
     img.onload = () => {
       try {
-        const size = 256;
+        const W = 384;
+        const H = 512;
         const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
+        canvas.width = W;
+        canvas.height = H;
 
         const ctx = canvas.getContext('2d');
-        // 从原图居中裁出一个正方形再缩放，避免变形
-        const side = Math.min(img.width, img.height);
-        const sx = (img.width - side) / 2;
-        const sy = (img.height - side) / 2;
-        ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
+        // 从原图居中裁出一块 3:4 的矩形再缩放，避免变形：
+        // 横图（比 3:4 宽的）裁掉左右，竖图裁掉上下，比例全程不乱。
+        const ratio = W / H;
+        let cw = img.width;
+        let ch = img.height;
+        if (cw / ch > ratio) cw = ch * ratio;
+        else ch = cw / ratio;
+        const sx = (img.width - cw) / 2;
+        const sy = (img.height - ch) / 2;
+        ctx.drawImage(img, sx, sy, cw, ch, 0, 0, W, H);
 
         // webp 体积小又支持透明；浏览器不支持时会自动退回 png
         const out = canvas.toDataURL('image/webp', 0.9);
@@ -963,10 +974,26 @@ async function saveCharacter() {
     return;
   }
 
+  // 新建的角色：点「保存角色」就是这件事的终点 —— 弹窗直接关掉，回到角色列表 /
+  // 世界书编辑器看新卡。改已有的角色则留在弹窗里（多半还要接着改别的字段）。
+  if (creating) {
+    renderCharacterPage();
+    actions.rerender();
+    // 改的是书里的副本，那本书的角色排和世界书列表页也要跟着刷新
+    if (scope === 'worldbook') {
+      renderWorldbookChars();
+      renderWorldbookPage();
+    }
+    await persistCharacters();
+    showToast(`角色「${character.name}」已创建`, 'ok');
+    // 草稿已经提交（charDraft 清空），这里不会再弹「放弃新建？」那个确认框
+    await closeCharsModal();
+    return;
+  }
+
   // 名字可能被规整过，重新填一遍保证界面和数据一致
   renderCharacterPage();
   fillCharForm(character);
-  // 新建的那一行提示语要从「还没保存」换成正常的
   updateCharEditorScopeUi();
   actions.rerender();
 
@@ -977,7 +1004,7 @@ async function saveCharacter() {
   }
 
   await persistCharacters();
-  showToast(creating ? `角色「${character.name}」已创建` : `角色「${character.name}」已保存`, 'ok');
+  showToast(`角色「${character.name}」已保存`, 'ok');
 }
 
 /**

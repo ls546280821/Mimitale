@@ -65,15 +65,21 @@ async function settlePanelValue(name, expected, timeout = 3000) {
   }
 }
 
-/** 每个场景独立 try/catch：一个崩了不影响后面的 */
+/**
+ * 每个场景独立 try/catch：一个崩了不影响后面的。
+ * 开头 / 结尾那两行 [progress] 只在 `--progress` 时由宿主打出来
+ * （跑超时时用它分清「卡死」和「只是还没跑完」）。
+ */
 async function scenario(name, fn) {
   currentScenario = name;
+  console.log(`[progress] ${results.length} 条断言 | 开始场景：${name}`);
   try {
     await fn();
   } catch (err) {
     check('场景没能跑完', false, (err && err.message) || String(err));
   }
   currentScenario = '';
+  console.log(`[progress] ${results.length} 条断言 | 完成场景：${name}`);
 }
 
 function click(target) {
@@ -467,7 +473,9 @@ await scenario('角色库：新建角色', async () => {
   const last = saved[saved.length - 1] || {};
   check('落盘的角色名正确', last.name === '冒烟测试角色', `落盘的是「${last.name}」`);
   check('落盘的描述正确', last.description === '这是冒烟测试写进去的描述', `落盘的是「${last.description}」`);
-  check('标题变回「编辑角色」', byId('chars-title').textContent === '编辑角色', byId('chars-title').textContent);
+  // 新建的角色保存完就完事了：弹窗自己关掉，回到角色列表看新卡
+  check('保存后弹窗自己关掉（不用再点一次关闭）', !shown('#chars-modal'));
+  check('保存后没有多问一句「放弃新建？」', !shown('#confirm-modal'));
 
   const card = $$('#char-page-grid .char-card')[0];
   check('卡片上有「编辑」和「聊天」两个入口', !!buttonByText(card, '编辑') && !!buttonByText(card, '聊天'));
@@ -877,7 +885,7 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   check('下拉里选「未分组」就把它拿出来了', listedNames().join(',') === '好感度', JSON.stringify(listedNames()));
 
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
   await sleep(150);
 
   // 年龄/性别/种族已从编辑器移除（归入描述文字），但「身份四项流转」这条链路
@@ -1958,7 +1966,7 @@ await scenario('世界书：递归扫描', async () => {
 });
 
 // ---------------------------------------------------------------------------
-//  场景 16：世界书 —— 新建条目
+//  场景 16：世界书 —— 新建条目 + 「保存后才生效」
 // ---------------------------------------------------------------------------
 await scenario('世界书：新建条目', async () => {
   click('#btn-worldbooks');
@@ -1972,13 +1980,24 @@ await scenario('世界书：新建条目', async () => {
   setValue('#wb-e-title', '冒烟测试条目');
   setValue('#wb-e-keys', '冒烟');
   setValue('#wb-e-content', '命中时注入的设定内容');
-  click('#btn-save-entry');
 
+  // 左栏那一行跟着表单走（改了名字立刻看得到 —— 以前是点「保存条目」才回填的）
   await waitFor('条目出现在列表里', () => $('#wb-entry-list').textContent.includes('冒烟测试条目'));
+
+  // 「保存后才生效」：改动先落在草稿里，没点保存之前磁盘上不该有它
+  check('没保存的条目不会提前落盘',
+    !((await savedWorldbooks())[0].entries || []).some((e) => e.title === '冒烟测试条目'),
+    `落盘的是 ${JSON.stringify(((await savedWorldbooks())[0].entries || []).map((e) => e.title))}`);
+  check('底部亮起「有未保存的改动」', shown('#wb-dirty-hint'), byId('wb-dirty-hint').textContent);
+
+  click('#btn-save-wb');
+  await sleep(300);
 
   const books = await savedWorldbooks();
   const titles = (books[0].entries || []).map((e) => e.title);
-  check('条目已落盘', titles.includes('冒烟测试条目'), `落盘的是 ${JSON.stringify(titles)}`);
+  check('点「保存」之后条目才落盘', titles.includes('冒烟测试条目'), `落盘的是 ${JSON.stringify(titles)}`);
+  check('保存完「有未保存的改动」自己收掉', !shown('#wb-dirty-hint'), byId('wb-dirty-hint').textContent);
+  check('保存有提示', $('#toast').textContent.includes('已保存'), $('#toast').textContent);
 
   // 顺便把这本书导出一次（这时书里已经有条目了，才验得到条目字段的映射）
   click('#btn-export-wb');
@@ -1987,10 +2006,48 @@ await scenario('世界书：新建条目', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  场景 16b：世界书 —— 关弹窗时「没保存的改动」要拦一下
+// ---------------------------------------------------------------------------
+await scenario('世界书：放弃未保存的改动', async () => {
+  // 世界书弹窗还开着（上一条场景留下的）
+  check('世界书弹窗还开着', shown('#worldbooks-modal'));
+
+  setValue('#wb-name', '改了一半的名字');
+  await sleep(120);
+  check('改名之后亮起未保存提示', shown('#wb-dirty-hint'), byId('wb-dirty-hint').textContent);
+
+  // 点关闭 → 先问一句；选「继续改」就什么都别动
+  click('#btn-close-worldbooks');
+  await waitFor('弹放弃确认框', () => shown('#confirm-modal'));
+  check('有未保存的改动时关弹窗会问一句', shown('#confirm-modal'));
+  click('#confirm-cancel');
+  await sleep(120);
+  check('选「继续改」弹窗留着', shown('#worldbooks-modal'));
+  check('名字还是改了一半的那个', byId('wb-name').value === '改了一半的名字', byId('wb-name').value);
+
+  // 再来一次，这回真的放弃
+  click('#btn-close-worldbooks');
+  await waitFor('再弹一次确认框', () => shown('#confirm-modal'));
+  click('#confirm-ok');
+  await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
+
+  const names = (await savedWorldbooks()).map((b) => b.name);
+  check('放弃之后改的名字没落盘', !names.includes('改了一半的名字'), JSON.stringify(names));
+  check('列表页卡片还是落盘过的那个名字',
+    $$('#wb-page-grid .char-card-name').some((n) => n.textContent === '冒烟测试世界'),
+    JSON.stringify($$('#wb-page-grid .char-card-name').map((n) => n.textContent)));
+});
+
+// ---------------------------------------------------------------------------
 //  场景 11：世界书 —— 新建「本书角色」，同时验证编辑器没被世界书弹窗盖住
 // ---------------------------------------------------------------------------
 await scenario('世界书：本书角色', async () => {
-  // 世界书弹窗还开着
+  // 上一条场景把弹窗关掉了，这里自己从列表页开进去
+  click('#btn-worldbooks');
+  await waitFor('切到世界书页面', () => shown('#view-worldbooks'));
+  click(buttonByText($$('#wb-page-grid .char-card')[0], '编辑'));
+  await waitFor('世界书弹窗打开', () => shown('#worldbooks-modal'));
+
   click('#btn-new-wb-char');
   await waitFor('角色编辑器打开', () => shown('#chars-modal'));
   check('标题是「新建本书角色」', byId('chars-title').textContent === '新建本书角色', byId('chars-title').textContent);
@@ -2154,7 +2211,7 @@ await scenario('角色卡：字段往返不丢', async () => {
   setValue($$('#c-attr-list .attr-row')[0].querySelector('.attr-value'), '777');
 
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
   await sleep(150);
 
   // 身份三项走导入/数据层通道进来：验证 normalizeCharacter 白名单仍保留它们
@@ -2248,7 +2305,7 @@ await scenario('角色属性：粘贴文本批量生成', async () => {
 
   // 存盘往返（顺带再验一次白名单没漏字段）
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
   await sleep(150);
 
   const saved = (await savedCharacters()).find((c) => c.name === '粘贴测试角色');
@@ -2317,7 +2374,7 @@ await scenario('角色属性：套用互动模板', async () => {
 
   // 保存后落盘：类型/范围/hint/分组都在
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
   await sleep(150);
 
   const saved = (await savedCharacters()).find((c) => c.name === '模板测试角色');
@@ -2421,7 +2478,7 @@ await scenario('角色属性：分组标签栏', async () => {
   check('切回去还是那两行、顺序不变', listedNames().join(',') === '道具,上衣', JSON.stringify(listedNames()));
 
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
   await sleep(150);
 
   const saved = (await savedCharacters()).find((c) => c.name === '分组测试角色');
@@ -2571,7 +2628,7 @@ await scenario('角色属性：分组改名与解散', async () => {
 
   // --- 视图状态别跟着落盘 ---
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
   await sleep(150);
 
   const saved = (await savedCharacters()).find((c) => c.name === '分组改名角色');
@@ -2901,7 +2958,7 @@ await scenario('角色：绑定自带的世界书', async () => {
   setChecked('#c-wb-enabled', true);
   await sleep(100);
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色', 8000);
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'), 8000);
   await sleep(200);
 
   const saved = (await savedCharacters()).find((c) => c.name === NAME);
@@ -2948,7 +3005,7 @@ await scenario('角色自带的世界书：顶部能看出生效', async () => {
   click(target);
   await waitFor('清单里出现这本', () => $$('#c-wb-list .cwb-row').length === 1);
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色', 8000);
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'), 8000);
   await sleep(200);
 
   // 关掉编辑器，回聊天视图（关编辑器不会自动切页，得点会话）
@@ -3117,7 +3174,7 @@ await scenario('剧情选项', async () => {
   setValue('#c-options-hint', '语气轻松些，总有一条冒险的选择');
 
   click('#btn-save-char');
-  await waitFor('保存完成', () => byId('chars-title').textContent === '编辑角色', 8000);
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'), 8000);
   await sleep(150);
 
   const saved = await savedCharacters();
@@ -3847,7 +3904,14 @@ await scenario('状态卡：点头像查看与编辑', async () => {
 
 // ---------------------------------------------------------------------------
 //  场景 26：切世界书时，编辑器残留的旧表单不能盖到刚切过去的那一本。
-//  根因：stash 写的是 currentWorldbook()，此时已被改成新书，旧书名会写进新书。
+//
+//  老根因：stash 写的是 currentWorldbook()，此时已被改成新书，旧书名会写进新书。
+//  现在书名 / 开场白 / 条目**按书各存一份草稿**（「保存后才生效」），
+//  结构上就没有「旧表单盖到新书」这条路了 —— 这条场景改成钉住新语义：
+//    · 改了一半的名字不会跑到列表页的卡片上（没保存就不算数）；
+//    · 新建的书用自己的默认名，不继承上一本残留的输入；
+//    · 切回原来那本，没保存的改动还在（草稿是按书存的，不是全局一个）；
+//    · 点「保存」之后才真的落盘，两本书各是各的名字。
 // ---------------------------------------------------------------------------
 await scenario('世界书：切书时旧表单不能盖住新书', async () => {
   const namesOnPage = () => $$('#wb-page-grid .char-card-name').map((n) => n.textContent);
@@ -3856,13 +3920,14 @@ await scenario('世界书：切书时旧表单不能盖住新书', async () => {
   click('#btn-worldbooks');
   await waitFor('切到世界书页面', () => shown('#view-worldbooks'));
 
-  // 打开种子里那本，改名「甲书」—— 输入框里从此留着「甲书」
+  // 打开种子里那本，改名「甲书」—— 故意**不保存**，留一份脏草稿
   click(buttonByText($$('#wb-page-grid .char-card')[0], '编辑'));
   await waitFor('世界书弹窗打开', () => shown('#worldbooks-modal'));
   await sleep(150);
   setValue('#wb-name', '甲书');
   await sleep(200);
   check('书名已经改成「甲书」', $('#wb-name').value === '甲书', `输入框里是「${$('#wb-name').value}」`);
+  check('没保存之前列表页上还没改名', !namesOnPage().includes('甲书'), JSON.stringify(namesOnPage()));
 
   // 新建一本：它得用自己的默认名，不能被输入框里残留的「甲书」盖掉
   click('#btn-new-worldbook');
@@ -3872,28 +3937,37 @@ await scenario('世界书：切书时旧表单不能盖住新书', async () => {
     $('#wb-name').value === '新世界书',
     `输入框里是「${$('#wb-name').value}」`
   );
-  check(
-    '列表页上两本书各是各的名字',
-    namesOnPage().includes('甲书') && namesOnPage().includes('新世界书'),
-    JSON.stringify(namesOnPage())
-  );
 
-  // 给这一本也起个自己的名字，然后关掉弹窗（关闭时会落盘）
-  setValue('#wb-name', '乙书');
-  await sleep(200);
-  click('#btn-close-worldbooks');
-  await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
-  await sleep(200);
-
-  const target = cardNamed('甲书');
-  check('列表页上「甲书」还在（没被新书顶掉）', !!target, JSON.stringify(namesOnPage()));
-  click(buttonByText(target, '编辑'));
-  await waitFor('世界书弹窗打开', () => shown('#worldbooks-modal'));
-  await sleep(250);
+  // 切回「甲书」那本：草稿是按书存的，没保存的改动不该被切没了
+  click(buttonByText(cardNamed('冒烟测试世界'), '编辑'));
+  await sleep(300);
   check(
-    '点「编辑」另一本，书名字段显示的是那一本自己的名字',
+    '切回原来那本，没保存的书名还在（草稿按书各存一份）',
     $('#wb-name').value === '甲书',
     `输入框里是「${$('#wb-name').value}」`
+  );
+
+  // 保存它 —— 到这一刻列表页才该改名叫「甲书」
+  click('#btn-save-wb');
+  await sleep(350);
+  check('保存之后列表页上才改名', namesOnPage().includes('甲书'), JSON.stringify(namesOnPage()));
+
+  // 给新建的那本起个自己的名字并保存
+  click(buttonByText(cardNamed('新世界书'), '编辑'));
+  await sleep(300);
+  check(
+    '新建的那本还在，名字还是它自己的默认名',
+    $('#wb-name').value === '新世界书',
+    `输入框里是「${$('#wb-name').value}」`
+  );
+  setValue('#wb-name', '乙书');
+  await sleep(120);
+  click('#btn-save-wb');
+  await sleep(350);
+  check(
+    '两本书各是各的名字',
+    namesOnPage().includes('甲书') && namesOnPage().includes('乙书'),
+    JSON.stringify(namesOnPage())
   );
 
   click('#btn-close-worldbooks');
@@ -3905,6 +3979,52 @@ await scenario('世界书：切书时旧表单不能盖住新书', async () => {
     names.includes('甲书') && names.includes('乙书'),
     JSON.stringify(names)
   );
+});
+
+// ---------------------------------------------------------------------------
+//  场景 26b：世界书列表页卡片右上角的删除 ×
+//
+//  以前这里是**故意没有** × 的（怕「攒了很多条目一下删没了」），删除只留在编辑器里。
+//  现在跟角色卡对齐：悬停浮出、点一下弹确认框 —— 确认框里会把条目数 / 角色副本数 /
+//  被几个会话用着都摆出来，危险的部分靠确认框兜，不靠藏起来。
+// ---------------------------------------------------------------------------
+await scenario('世界书：卡片上删除', async () => {
+  click('#btn-worldbooks');
+  await waitFor('切到世界书页面', () => shown('#view-worldbooks'));
+
+  // 先造一本一次性的书，走真实的「新建 + 保存」
+  click('#btn-new-worldbook');
+  await waitFor('世界书弹窗打开', () => shown('#worldbooks-modal'));
+  setValue('#wb-name', '待删的临时世界');
+  click('#btn-save-wb');
+  await sleep(300);
+  click('#btn-close-worldbooks');
+  await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
+  await sleep(200);
+
+  const namesOnPage = () => $$('#wb-page-grid .char-card-name').map((n) => n.textContent);
+  const card = $$('#wb-page-grid .char-card').find((c) => c.title === '待删的临时世界');
+  check('新建的书出现在列表页上', !!card, JSON.stringify(namesOnPage()));
+  if (!card) return;
+
+  const del = card.querySelector('.char-card-del');
+  check('世界书卡片右上角有删除 ×', !!del);
+  if (!del) return;
+
+  // 和角色卡同一套：平时透明、鼠标移上来（或键盘 Tab 到）才浮出来
+  check('删除 × 平时是透明的（悬停才浮出）',
+    parseFloat(getComputedStyle(del).opacity) === 0, getComputedStyle(del).opacity);
+
+  del.click();
+  await waitFor('删除先弹确认框', () => shown('#confirm-modal'));
+  check('确认框里点明了删的是哪本',
+    byId('confirm-message').textContent.includes('待删的临时世界'), byId('confirm-message').textContent);
+  click('#confirm-ok');
+  await sleep(350);
+
+  check('卡片被删掉了', !namesOnPage().includes('待删的临时世界'), JSON.stringify(namesOnPage()));
+  const after = (await savedWorldbooks()).map((b) => b.name);
+  check('卡片上删除也落了盘', !after.includes('待删的临时世界'), JSON.stringify(after));
 });
 
 // ---------------------------------------------------------------------------
