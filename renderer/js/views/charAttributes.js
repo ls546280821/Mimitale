@@ -434,7 +434,10 @@ function renderAttrGroupEdit(list, bucket) {
         event.preventDefault();
         nameInput.blur(); // 失焦触发下面的 change，提交走同一条路
       } else if (event.key === 'Escape') {
+        // 必须 stopPropagation：main.js 的全局 Esc 链监听在 document 上，
+        // 不拦住的话「取消改名」会顺带把整个角色编辑器关掉（还可能在草稿上多弹一个确认框）。
         event.preventDefault();
+        event.stopPropagation();
         list._groupEditOpen = false;
         renderCharAttrs(list);
       }
@@ -671,7 +674,9 @@ function buildGroupRow(list, attr) {
           event.preventDefault();
           createGroupAndMove(list, attr, nameInput.value);
         } else if (event.key === 'Escape') {
+          // 同上：不 stopPropagation 会连带关掉整个角色编辑器
           event.preventDefault();
+          event.stopPropagation();
           list._movingName = '';
           renderCharAttrs(list);
         }
@@ -857,14 +862,14 @@ function applyParsedAttributes(list, pairs) {
   return { added, updated };
 }
 
-export function toggleAttrPaste(show) {
+function toggleAttrPaste(show) {
   const next = typeof show === 'boolean' ? show : el.c.attrPaste.classList.contains('hidden');
   el.c.attrPaste.classList.toggle('hidden', !next);
   if (next) el.c.attrPasteText.focus();
 }
 
 /** 点「解析并加入」：解析 + 合并 + 告诉用户结果 */
-export function applyAttrPaste(list) {
+function applyAttrPaste(list) {
   const text = el.c.attrPasteText.value;
   if (!String(text).trim()) {
     showToast('先把文本粘进来', 'error');
@@ -890,7 +895,7 @@ export function applyAttrPaste(list) {
 }
 
 /** 加一个属性：保留字拦下，重名跳过，新字段归到当前分组 */
-export function addCharAttr(list, rawName) {
+function addCharAttr(list, rawName) {
   const name = String(rawName || '').trim().slice(0, 24);
   if (!name) return;
 
@@ -924,7 +929,7 @@ export function addCharAttr(list, rawName) {
  * 返回 { added, skipped }，调用方据此给提示。应用完停在「状态栏」这一组，
  * 让用户一眼看到刚种进来的东西。
  */
-export function applyInteractiveTemplate(list) {
+function applyInteractiveTemplate(list) {
   if (!Array.isArray(list)) return { added: 0, skipped: 0 };
 
   const existing = new Set(list.map((a) => a && a.name));

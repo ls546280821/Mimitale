@@ -313,9 +313,9 @@ body {
 /* ------------------------------ 侧边栏 ------------------------------ */
 
 .sidebar {
-  /* 224 而不是 252：右边多了 300 的在场角色栏，左边就得让一点出来，
-     否则对话列反而比改造前更窄（1440-252-300 = 888 < 老的 928）。
-     252→224 之后是 916，至少不倒退。 */
+  /* 224。这个值是当初「右边有 300 在场角色栏」时定的（252 的话对话列会比改造前还窄）；
+     后来右栏撤了、对话列变宽，这个宽度就保持没动 —— 现在是个看着舒服的值，
+     不是被谁挤出来的。 */
   width: 224px;
   flex: 0 0 224px;
   background: var(--bg-side);
@@ -590,19 +590,16 @@ body {
   min-height: 0;
 }
 
-/* 聊天这一屏是**两列**（对话列 + 右栏在场角色），另外两屏还是单列。
-   右栏放在 #view-chat 里面，是为了切到角色库 / 世界书时整块跟着消失 ——
-   放到 .main 外面就得再写一遍「现在在哪一屏」的判断，那种重复迟早对不上。 */
-#view-chat { flex-direction: row; }
-
+/* 聊天这一屏里只有 .chat-col 一个子元素（右栏撤掉之后就是单列了），
+   方向跟着 .view 的 column 走，不用再单独覆盖。 */
 .chat-col {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  /* 提示条 / 建议条以对话列为参照居中（原来参照 .main，
-     加了右栏之后 .main 的中心已经不是对话区的中心了）。 */
+  /* 提示条 / 建议条以对话列为参照居中，**不是**参照 .main ——
+     右栏撤掉之后两者恰好重合，但以后再往 .main 里加一栏就会错位。 */
   position: relative;
 }
 
@@ -634,7 +631,7 @@ body {
 }
 
 /* 顶栏左边那颗头像（设计稿 .top 里的 .ava lg）：
-   44px 渐变圆 + 白字，和侧栏 / 消息区 / 右栏共用同一套色板（js/ui/avatarTone.js）。
+   44px 渐变圆 + 白字，和侧栏 / 消息区 / 状态卡共用同一套色板（js/ui/avatarTone.js）。
    ⚠️ 别在这里写 background —— `.g1`~`.g6` 是同优先级 (0,1,0)，写了会盖掉渐变。 */
 .topbar-avatar {
   flex: 0 0 auto;
@@ -659,7 +656,7 @@ body {
 .topbar-avatar.plain { background: var(--border-soft); color: var(--text-faint); font-weight: 400; }
 
 /* 顶栏标题这一块要能「被压下去然后省略」，不能「被压下去然后逐字换行」——
-   加了右栏之后这一行更挤，标题区只剩几十像素，之前副标题会被挤成一列竖排的字。
+   按钮多起来之后标题区会被挤到只剩几十像素，之前副标题会被挤成一列竖排的字。
    两道都要：min-width 保底不至于完全消失，overflow+ellipsis 负责剩下的一律截断。 */
 .topbar-title {
   flex: 1 1 auto;
@@ -2984,8 +2981,7 @@ body {
 .field > input,
 .field > textarea,
 .field > select,
-.field > .row,
-.field > .input-group { min-width: 0; }
+.field > .row { min-width: 0; }
 
 /* 一行放两个字段，左右各占一半。
    这两个字段改用「标签在上」的排法：152px 的标签列会把输入框挤到只剩 130 多像素，
@@ -3015,9 +3011,6 @@ body {
 
 .field-grid .field > .field-label { padding-top: 0; }
 .field-grid .field > .field-help { grid-column: 1; }
-
-/* 身份三件套（年龄 / 性别 / 种族）挤一行 —— 都是短字段 */
-.field-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 /* 数字等宽，位数变化时不会左右抖 */
 .field-grid input[type="number"] { font-variant-numeric: tabular-nums; }

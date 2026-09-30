@@ -38,7 +38,7 @@ let suggestionsConvoId = null;
 
 let actions = { send: () => {} };
 
-export function hideSuggestions() {
+function hideSuggestions() {
   el.suggestStrip.classList.add('hidden');
   el.suggestList.innerHTML = '';
   suggestionsConvoId = null;

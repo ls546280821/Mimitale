@@ -140,12 +140,7 @@ export function findCardById(convo, id) {
  * 场景（世界本身）的 owner 标识 —— 已停用。老数据里读到 'scene' 按「无主」处理，
  * 别再新增。常量只保留用于兼容。
  */
-export const SCENE_OWNER = 'scene';
-
-/** 是不是「场景」那张卡（世界本身的状态，不归属任何人） */
-export function isSceneOwner(owner) {
-  return String(owner || '') === SCENE_OWNER;
-}
+const SCENE_OWNER = 'scene';
 
 /**
  * 状态卡入口条要显示的人：我（玩家，永远第一）+ 要显示状态的角色卡。

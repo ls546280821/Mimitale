@@ -48,7 +48,7 @@ import { applyFieldIcons } from './ui/icons.js';
 import { initMoreMenu } from './ui/menu.js';
 import { initModelMenu } from './ui/modelMenu.js';
 
-import { persistLibrary, markWorldbooksLoaded } from './data/persist.js';
+import { persistCharacters, persistLibrary, markWorldbooksLoaded } from './data/persist.js';
 import { currentEndpoint, isBridgeProvider } from './data/providers.js';
 import { convoUserName, speakerName } from './data/cast.js';
 import { characters, worldbooks } from './data/library.js';
@@ -65,9 +65,9 @@ import { createConvo } from './data/conversations.js';
 
 import { onRefresh } from './views/refresh.js';
 import { initHeader } from './views/header.js';
-import { initPerspectiveUi } from './views/perspectiveUi.js';
+import { initPerspectiveUi, closePerspectiveModal } from './views/perspectiveUi.js';
 import { closePlayerModal, applyPlayerCharChoice } from './views/player.js';
-import { initMemoryUi } from './views/memoryUi.js';
+import { initMemoryUi, closeMemoryModal } from './views/memoryUi.js';
 import { initPanelUi } from './views/panelUi.js';
 import { initStateCards } from './views/stateCard.js';
 import { initWorldbookList, renderWorldbookPage } from './views/worldbookList.js';
@@ -84,12 +84,15 @@ import {
   openWorldbookEditor,
   renderWorldbookChars,
   closeWorldbookCharPicker,
+  closeWorldbooksModal,
   stashWorldbookForm
 } from './views/worldbook.js';
 import {
   initCharacterEditor,
   openCharacterEditor,
   closeCharsModal,
+  closeWorldbookPicker,
+  isWorldbookPickerOpen,
   startCharacterDraftInBook,
   releaseEditorScope,
   stashCharacterForm,
@@ -289,6 +292,12 @@ function bindEvents() {
       closeWorldbookCharPicker();
       return;
     }
+    // 角色编辑器里那个「绑定世界书」浮层挂在 body 上、层级还比编辑器高，
+    // 所以它是最上面那一层，先关它（别顺手把编辑器一起关了）
+    if (isWorldbookPickerOpen()) {
+      closeWorldbookPicker();
+      return;
+    }
     if (!el.charsModal.classList.contains('hidden')) {
       closeCharsModal();
       return;
@@ -299,6 +308,19 @@ function bindEvents() {
     }
     if (!el.appearanceModal.classList.contains('hidden')) {
       closeAppearanceModal();
+      return;
+    }
+    // 剩下这三个以前漏在链外 —— 只开着它们的时候按 Esc 毫无反应，和别的弹窗行为不一致
+    if (!el.wb.modal.classList.contains('hidden')) {
+      closeWorldbooksModal();
+      return;
+    }
+    if (!el.memoryModal.classList.contains('hidden')) {
+      closeMemoryModal();
+      return;
+    }
+    if (!el.perspectiveModal.classList.contains('hidden')) {
+      closePerspectiveModal();
     }
   });
 
@@ -357,9 +379,15 @@ function bindEvents() {
 
   window.addEventListener('beforeunload', () => {
     api.saveConversationsNow({ conversations: state.conversations, activeId: state.activeId });
-    // 世界书必须跟着角色一起写：主进程收到 worldbooks 才会更新那个文件。
-    // 漏掉的话，刷新/关闭时角色绑定关系会指向一本已经不在磁盘上的书。
-    api.saveCharactersNow({ characters: characters(), worldbooks: worldbooks() });
+    // 角色和世界书一起写（主进程收到 worldbooks 才会更新那个文件，漏掉的话
+    // 角色绑定关系会指向一本已经不在磁盘上的书）。
+    // ⚠️ 必须走 persistCharacters —— 它带着「世界书没读出来就别写」的守卫
+    // （data/persist.js 的 worldbooksLoaded）。以前这里直接调
+    // api.saveCharactersNow({ ..., worldbooks: worldbooks() }) 把守卫绕过去了：
+    // 世界书读失败时 state.worldbooks 是空数组，而主进程 store.js 判断的是
+    // 「Array.isArray(payload.worldbooks)」—— 空数组照样算「带了世界书」，
+    // 于是「启动读失败 + 关一次窗口」就把 worldbooks.json 清空了。
+    persistCharacters(true);
   });
 }
 

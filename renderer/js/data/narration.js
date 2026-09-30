@@ -63,7 +63,7 @@ export function isGmMode(convo) {
  * 读起来累。所以这里明确告诉它可以用哪两种标记、以及**别用太多**
  * （全都强调等于没强调）。
  */
-export function emphasisRuleText() {
+function emphasisRuleText() {
   return (
     `【标重点】\n` +
     `关键的信息（数值、名字、时间地点、重要决定）用 **加粗**；` +
@@ -172,7 +172,7 @@ export function convoPaceMode(convo) {
   return Object.prototype.hasOwnProperty.call(PACE_MODES, mode) ? mode : DEFAULT_PACE_MODE;
 }
 
-export function paceRuleText(convo) {
+function paceRuleText(convo) {
   const mode = PACE_MODES[convoPaceMode(convo)];
   return mode ? mode.text : PACE_MODES[DEFAULT_PACE_MODE].text;
 }

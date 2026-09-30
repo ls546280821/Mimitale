@@ -14,7 +14,7 @@
         <span class="brand-dot"></span>
         <span class="brand-name">♪ 如我所书</span>
         <button id="btn-accent" class="icon-btn brand-theme" type="button" title="切换为苏打气泡" aria-label="切换为苏打气泡" aria-pressed="false">
-          <svg class="icon-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <circle cx="13.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
             <circle cx="17.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" />
             <circle cx="8.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" />
@@ -50,15 +50,15 @@
     <main class="main">
       <!-- 视图一：聊天 -->
       <section id="view-chat" class="view">
-      <!-- 对话列。右栏（在场角色面板）是它的兄弟 —— 两个都在 #view-chat 里，
-           这样切到角色库 / 世界书时整块一起消失，不用另写判断。 -->
+      <!-- 对话列。整个聊天界面（顶栏 / 入口条 / 消息 / 输入框 / 悬浮状态卡）
+           都在里面，所以切到角色库 / 世界书时整块一起消失，不用另写判断。 -->
       <div class="chat-col">
       <header class="topbar">
         <!-- 顶栏头像（设计稿 .top 里那个 .ava）—— 一眼看出「这一屏是在跟谁聊」：
              绑了角色 → 角色头像 / 名字首字；世界书会话 → 方角的「书」；
-             都没有 → 中性点。底色和侧栏 / 消息区 / 在场角色栏共用同一套
+             都没有 → 中性点。底色和侧栏 / 消息区 / 状态卡共用同一套
              （js/ui/avatarTone.js），同一个角色在哪一屏都是同一个颜色。
-             它是**不可点的**（aria-hidden）—— 要开状态卡走右栏那排头像，
+             它是**不可点的**（aria-hidden）—— 要开状态卡走入口条那排头像，
              顶栏这颗只负责「我在哪儿」。 -->
         <div id="topbar-avatar" class="topbar-avatar" aria-hidden="true">·</div>
         <div class="topbar-title">
@@ -245,7 +245,7 @@
                 <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
               </svg>
             </span>
-            <div class="section-heading">
+            <div>
               <div class="section-title">模型服务</div>
               <div class="section-desc">可以添加多个服务商，随时切换</div>
             </div>
@@ -298,7 +298,7 @@
                 <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
               </svg>
             </span>
-            <div class="section-heading">
+            <div>
               <div class="section-title">生成参数</div>
               <div class="section-desc">控制回答的随机程度和长度</div>
             </div>
@@ -326,7 +326,7 @@
                 <circle cx="12" cy="7" r="4" />
               </svg>
             </span>
-            <div class="section-heading">
+            <div>
               <div class="section-title">人设</div>
               <div class="section-desc">决定 AI 的性格和说话方式</div>
             </div>
@@ -363,7 +363,7 @@
                 <circle cx="16" cy="12" r="3" />
               </svg>
             </span>
-            <div class="section-heading">
+            <div>
               <div class="section-title">行为</div>
               <div class="section-desc">键盘习惯与上下文补充</div>
             </div>
@@ -421,7 +421,7 @@
                 <path d="M4 7h16M4 12h10M4 17h7" />
               </svg>
             </span>
-            <div class="section-heading">
+            <div>
               <div class="section-title">状态属性</div>
               <div class="section-desc">角色编辑器里「属性」的快捷候选词</div>
             </div>
@@ -447,7 +447,7 @@
                 <path d="m21 15-4.5-4.5L3 21" />
               </svg>
             </span>
-            <div class="section-heading">
+            <div>
               <div class="section-title">生图</div>
               <div class="section-desc">给剧情配插画。留空就是不启用</div>
             </div>
@@ -495,7 +495,7 @@
                 <path d="m20 20-3.5-3.5" />
               </svg>
             </span>
-            <div class="section-heading">
+            <div>
               <div class="section-title">语义检索</div>
               <div class="section-desc">按「意思」把相关的旧内容和设定捞回来，而不是靠关键词</div>
             </div>
@@ -733,7 +733,7 @@
 
               <!-- 剧情选项：每轮让 AI 给出几个可点选项，点一下就当玩家回复发出去。
                    关掉时这个角色的会话就没有选项区。 -->
-              <div class="char-options-box">
+              <div>
                 <label class="check">
                   <input id="c-options-on" type="checkbox" />
                   <span>剧情选项（每轮给几个可点选项，点一下就当你说这句话发出去）</span>
@@ -869,7 +869,7 @@
             </div>
 
             <!-- 开场白：进这个世界时自动作为第一条消息 -->
-            <label class="field field-stack wb-opening-field">
+            <label class="field field-stack">
               <span class="field-label">开场白</span>
               <textarea id="wb-opening" rows="3" spellcheck="false" placeholder="进这个世界时自动作为第一条消息。留空则让 AI 按设定现生成一段开局。"></textarea>
             </label>
@@ -1152,7 +1152,7 @@
                 <path d="M17 21v-8H7v8M7 3v5h8" />
               </svg>
             </span>
-            <div class="section-heading">
+            <div>
               <div class="section-title">存档点</div>
               <div class="section-desc">把当前这段对话整个存一份，以后随时退回来</div>
             </div>

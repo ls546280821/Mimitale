@@ -138,7 +138,7 @@ export async function addImageFiles(files) {
   return true;
 }
 
-export function renderAttachStrip() {
+function renderAttachStrip() {
   clear(el.attachStrip);
   el.attachStrip.classList.toggle('hidden', !pendingImages.length);
 

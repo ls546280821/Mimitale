@@ -19,14 +19,6 @@ function setOpen(next) {
   el.btnMore.setAttribute('aria-expanded', next ? 'true' : 'false');
 }
 
-export function openMoreMenu() {
-  setOpen(true);
-}
-
-export function closeMoreMenu() {
-  setOpen(false);
-}
-
 export function initMoreMenu() {
   if (!el.btnMore || !el.moreMenu) return;
 

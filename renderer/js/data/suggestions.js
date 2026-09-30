@@ -75,7 +75,7 @@ const MAX_OPTION_CHARS = 120;
 const MAX_OPTIONS = 6;
 
 /** 当前会话要不要每轮出剧情选项（存在会话上，跟面板走） */
-export function convoOptionsSpec(convo) {
+function convoOptionsSpec(convo) {
   const spec = convo && convo.optionsSpec;
   if (!spec || typeof spec !== 'object') return null;
   const count = Math.max(1, Math.min(MAX_OPTIONS, Math.round(Number(spec.count) || 3)));

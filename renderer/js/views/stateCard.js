@@ -146,14 +146,14 @@ export function openStateCard(owner) {
 }
 
 /** 收掉整张卡（卡片上的 ✕）。字段本身不动，只是不在这里显示了。 */
-export function closeStateCard(owner) {
+function closeStateCard(owner) {
   if (!openCards.has(owner)) return;
   openCards.delete(owner);
   renderStateCards();
 }
 
 /** 把一张卡在「展开 / 收起」之间翻面。收起只是一行标题，卡片不会消失。 */
-export function toggleStateCard(owner) {
+function toggleStateCard(owner) {
   const state = openCards.get(owner);
   if (!state) return;
   state.open = !state.open;
@@ -163,7 +163,7 @@ export function toggleStateCard(owner) {
 }
 
 /** 顶部的批量开关：只要还有一张是展开的，就全部收起；否则全部展开。 */
-export function setAllStateCards(open) {
+function setAllStateCards(open) {
   let changed = false;
   for (const state of openCards.values()) {
     if (state.open !== open) {

@@ -6,7 +6,7 @@
 //  注意：module 脚本要等 HTML 解析完才执行，所以这里取节点是安全的。
 // ============================================================================
 
-export const $ = (id) => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
 export const el = {
   convoList: $('convo-list'),
@@ -156,9 +156,8 @@ export const el = {
     system: $('c-system'),
     post: $('c-post'),
     notes: $('c-notes'),
-    age: $('c-age'),
-    gender: $('c-gender'),
-    race: $('c-race'),
+    // 年龄/性别/种族**没有**输入框：这些是角色的固定设定，写进「角色描述」里。
+    // （index.html 里那三个 id 早删了，这里曾经留着三个指向 null 的键 —— 别加回来。）
     attrNew: $('c-attr-new'),
     btnAttrTemplate: $('btn-attr-template'),
     // 分组标签栏：属性按分组切开，点哪个标签就只看哪一组

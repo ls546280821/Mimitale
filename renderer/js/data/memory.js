@@ -88,7 +88,7 @@ export function formatSummaryForPrompt(convo) {
  * 明确要求「只记事实、不要文学化」，因为摘要会一直占用上下文，
  * 写成抒情散文既费 token 又容易让模型把摘要当成剧情来续写。
  */
-export function buildSummaryPrompt(previousSummary, transcriptText) {
+function buildSummaryPrompt(previousSummary, transcriptText) {
   const parts = [
     '你在帮一个长篇角色扮演对话做剧情摘要。',
     '下面是一段已经发生过的对话原文，请把它压缩成简洁的剧情摘要。',

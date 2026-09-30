@@ -11,7 +11,10 @@ export function esc(text) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    // 单引号也转掉：现在生成的属性都用双引号，所以它不是「当前」的口子，
+    // 而是「以后谁写个 attr='…' 就立刻变成口子」。成本为零，一起关了。
+    .replace(/'/g, '&#39;');
 }
 
 export function renderInline(text) {
@@ -23,10 +26,18 @@ export function renderInline(text) {
     codes.push(code);
     return `\u0000C${codes.length - 1}\u0000`;
   });
+  // 链接文字里也可能嵌了行内代码 —— 那部分不在 out 上，得单独还原一次，
+  // 否则链接会显示成字面量 \u0000C0\u0000
+  const withCodes = (s) => s.replace(/\u0000C(\d+)\u0000/g, (_m, i) => `<code>${codes[Number(i)]}</code>`);
 
-  out = out.replace(/\*\*\*([^*\n]+)\*\*\*/g, '<strong><em>$1</em></strong>');
-  out = out.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-  out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  // 强调。两条踩过的边界：
+  //  · 捕获组**不能禁止 `*`** —— 否则 `**这句话的 *重点* 部分**` 整条匹配不上，
+  //    外层 `**` 会原样露出来。先匹配外侧、里层交给下一步的斜体规则。
+  //  · 开闭标记旁边必须是**非空白** —— 否则 `伤害 = 攻击 * 2 * 倍率` 会被当成斜体。
+  //    角色卡里写数值公式很常见，这个误判一眼就能看见。
+  out = out.replace(/\*\*\*(?!\s)([^\n]+?)(?<!\s)\*\*\*/g, '<strong><em>$1</em></strong>');
+  out = out.replace(/\*\*(?!\s)([^\n]+?)(?<!\s)\*\*/g, '<strong>$1</strong>');
+  out = out.replace(/(^|[^*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?!\*)/g, '$1<em>$2</em>');
   out = out.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
 
   // ==高亮== —— 比加粗更重的一档：加粗 + 主题色 + 一点底色。
@@ -34,16 +45,27 @@ export function renderInline(text) {
   // 用 == 是 Markdown 高亮的通行写法（Obsidian / Typora 都认），模型也更容易照做。
   out = out.replace(/==([^=\n]+)==/g, '<mark class="msg-em">$1</mark>');
 
-  // 链接：只放行 http/https，其他一律当普通文字
+  // 链接 / 图片：只放行 http/https 和 data:image，其他一律当普通文字
   const links = [];
   out = out
-    .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, label, href) => {
-      links.push(`<a href="${href}" target="_blank" rel="noreferrer">${label}</a>`);
+    .replace(/(!?)\[([^\]\n]+)\]\((https?:\/\/[^\s)]+|data:image\/[^\s)]+)\)/g, (_m, bang, label, href) => {
+      // 图片只对 data:image 生效。页面 CSP 的 img-src 是 'self' data:，
+      // 外链图片根本加载不出来 —— 渲染成 <img> 只会得到一个破图标，
+      // 那种情况退化成链接，至少不会多出一个孤零零的 `!`。
+      const isImage = !!bang && /^data:image\//.test(href);
+      links.push(
+        isImage
+          ? `<img src="${href}" alt="${label}" />`
+          : `<a href="${href}" target="_blank" rel="noreferrer">${withCodes(label)}</a>`
+      );
       return `\u0000L${links.length - 1}\u0000`;
     })
-    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_m, pre, href) => {
-      links.push(`<a href="${href}" target="_blank" rel="noreferrer">${href}</a>`);
-      return `${pre}\u0000L${links.length - 1}\u0000`;
+    .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_m, pre, raw) => {
+      // 句尾的标点不算 URL 的一部分 —— 中文标点特别容易粘进来（「见 https://x.com。」）
+      const url = raw.replace(/[.,;:!?。，、；：！？…"'）】》」]+$/, '');
+      const tail = raw.slice(url.length);
+      links.push(`<a href="${url}" target="_blank" rel="noreferrer">${url}</a>`);
+      return `${pre}\u0000L${links.length - 1}\u0000${tail}`;
     });
 
   out = out.replace(/\u0000C(\d+)\u0000/g, (_m, i) => `<code>${codes[Number(i)]}</code>`);
@@ -80,7 +102,14 @@ export function renderMarkdown(source, options) {
     }
   };
 
-  for (const line of lines) {
+  // 表格用：`| a | b |` 有没有两头竖线，以及把一行的格子切出来
+  const isTableRow = (line) => /^\|.*\|$/.test(line.trim());
+  const tableCells = (line) =>
+    line.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+
+  // 用下标循环（不是 for-of）：表格要把后面的分隔行和数据行一起吃掉
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
 
     if (/^\u0000B\d+\u0000$/.test(trimmed)) {
@@ -92,6 +121,31 @@ export function renderMarkdown(source, options) {
     if (!trimmed) {
       closeList();
       continue;
+    }
+
+    // 表格：表头行 + 分隔行（|---|---|）+ 若干数据行。
+    // 样式其实早就在 style.css 的 `.bubble table` 那一组里等着了，只是一直没有生成代码 ——
+    // 模型很爱给表格，之前竖线和 |---| 都是原样显示出来的。
+    if (isTableRow(trimmed) && i + 1 < lines.length) {
+      const sep = lines[i + 1].trim();
+      if (/^\|[\s:|-]+\|$/.test(sep) && sep.includes('-')) {
+        closeList();
+        const head = tableCells(trimmed);
+        const body = [];
+        i += 1; // 吃掉分隔行
+        while (i + 1 < lines.length && isTableRow(lines[i + 1])) {
+          body.push(tableCells(lines[i + 1]));
+          i += 1;
+        }
+        out.push(
+          '<table><thead><tr>' +
+            head.map((c) => `<th>${renderInline(c)}</th>`).join('') +
+            '</tr></thead><tbody>' +
+            body.map((row) => `<tr>${row.map((c) => `<td>${renderInline(c)}</td>`).join('')}</tr>`).join('') +
+            '</tbody></table>'
+        );
+        continue;
+      }
     }
 
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {

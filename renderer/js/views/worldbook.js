@@ -642,7 +642,8 @@ function openWorldbooksModal(targetId) {
   el.wb.modal.classList.remove('hidden');
 }
 
-function closeWorldbooksModal() {
+/** 关世界书编辑器。导出是为了让入口层的 Esc 链统一关它（见 main.js） */
+export function closeWorldbooksModal() {
   stashWorldbookName();
   stashEntryForm();
 
@@ -789,7 +790,13 @@ async function deleteWorldbook() {
   // 角色编辑器可能正开在这本书的副本上，退回角色库
   releaseScope();
 
-  editingWorldbookId = worldbooks().length ? worldbooks()[0].id : null;
+  // ⚠️ 必须走 selectWorldbook 真正「切」到另一本 —— 它会重填书名 / 开场白 / 条目表单。
+  // 以前这里只改 editingWorldbookId 再重画列表页，编辑区里还留着**刚删掉那本**的字段；
+  // 接着关弹窗时 stashWorldbookName() 会把这个残留书名写进 currentWorldbook()
+  // —— 也就是列表里第一本书 —— 等于把别人的书改名 + 覆盖开场白，还会立刻落盘。
+  // （此刻 currentWorldbook() 已经是 undefined，所以 selectWorldbook 内部的
+  //   stashWorldbookName() 会早退，不会把脏字段写出去。）
+  selectWorldbook(worldbooks().length ? worldbooks()[0].id : null);
   renderWorldbookPage();
 
   persistConversations(0);

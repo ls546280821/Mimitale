@@ -25,7 +25,7 @@ const RAG_MIN_SCORE = 0.32;
 const RAG_QUERY_TURNS = 3;
 
 /** 把捞回来的东西拼成注入块 */
-export function formatRagSection(items, character, me) {
+function formatRagSection(items, character, me) {
   if (!items || !items.length) return '';
 
   const lines = items.map((item) => {

@@ -63,7 +63,16 @@ export async function maybeSummarize(convo) {
     const previous = convoSummaries(convo).map((s) => String(s.text || '')).join('\n\n');
 
     const text = await generateSummary(convo, transcript, previous);
-    if (!text) return false;
+    if (!text) {
+      // 这一轮什么都没压成（多半是会话的服务商被删了 / 没填 Key，见 data/memory.js 的
+      // ensureConvoEndpoint）。**必须在这里复位并重画**：
+      // 不复位的话 summaryBusy 会永远停在 true —— 它长在 convo 上会被一起存进
+      // conversations.json，于是头部常驻「正在整理记忆…」、记忆面板的手动压缩按钮
+      // 永久禁用，连重启都好不了。
+      convo.summaryBusy = false;
+      renderHeader();
+      return false;
+    }
 
     // 关键：这里必须以 convo.summaries 的当前值重新取，不能用闭包里的旧引用
     const list = convoSummaries(convo);
@@ -95,6 +104,9 @@ export async function maybeSummarize(convo) {
     renderHeader();
     return false;
   } finally {
+    // 兜底：任何提前 return 都不该把 summaryBusy 留在 true。
+    // UI 的复位在上面各自做了（因为要顺手 renderHeader），这里只是最后一道保险。
+    convo.summaryBusy = false;
     summarizingConvos.delete(convo.id);
   }
 }

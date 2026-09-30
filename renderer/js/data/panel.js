@@ -261,7 +261,7 @@ export function panelFieldAllowed(name) {
  * 「【某某】：……」不会被误收。只有第一次扫（还没有已知字段）时才靠
  * 形态猜测，这时候用「值很短」这个条件兜一下，避免把整段正文当面板。
  */
-export function extractPanelFromText(text, knownFields) {
+function extractPanelFromText(text, knownFields) {
   const known = knownFields && knownFields.length ? new Set(knownFields) : null;
   const found = new Map();
 
@@ -364,7 +364,7 @@ const STATUS_HEADER_RE = /^[\[【]\s*当前状态\s*[\]】]$/;
  * 都只剥 knownGroups 里列出的组名 —— 正文里「—— 他顿了顿 ——」这种破折号引语、
  * 或整行只有 `【别的什么】` 的引用，组名不在列表里，不会被误删。
  */
-export function stripPanelGroupHeaders(text, knownGroups) {
+function stripPanelGroupHeaders(text, knownGroups) {
   const source = String(text || '');
   if (!source.trim()) return source;
   const known = knownGroups && knownGroups.length ? new Set(knownGroups) : null;
@@ -383,7 +383,7 @@ export function stripPanelGroupHeaders(text, knownGroups) {
 }
 
 /** 连续空行压成一个，去掉首尾空白（剥面板后容易留下空格） */
-export function collapseBlankLines(text) {
+function collapseBlankLines(text) {
   return String(text || '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n');
@@ -394,7 +394,7 @@ export function collapseBlankLines(text) {
  * 它和状态栏一样是给程序读的：程序把它解析成按钮之后，正文里再留一份
  * 就是重复（选项已经是可点的按钮了，原文留在气泡里只会吵）。
  */
-export function stripOptionsLine(text) {
+function stripOptionsLine(text) {
   const source = String(text || '');
   if (!source.includes(OPTIONS_LABEL)) return source;
 
@@ -407,7 +407,7 @@ export function stripOptionsLine(text) {
  * 它是程序注入的状态块标题（模型照抄回来时也会带一行），和状态栏行一样是
  * 给模型看的排版提示 —— 值已经由面板权威持有，正文里再留这个标题只会突兀。
  */
-export function stripStatusHeader(text) {
+function stripStatusHeader(text) {
   const source = String(text || '');
   if (!source.trim()) return source;
   const out = source.split('\n').filter((rawLine) => !STATUS_HEADER_RE.test(rawLine.trim()));
@@ -558,24 +558,6 @@ export function panelFieldOwner(convo, key) {
 }
 
 /**
- * 会话里去重后的字段名列表（不含 owner 尾巴）。
- * 这是注入提示词 / 剥正文时用的「已知字段名」—— 模型看到的是字段名本身，
- * 不是复合键，所以这里按名字去重。
- */
-export function convoFieldNames(convo) {
-  const seen = new Set();
-  const out = [];
-  for (const key of convoPanelFields(convo)) {
-    const name = panelFieldName(key);
-    if (name && !seen.has(name)) {
-      seen.add(name);
-      out.push(name);
-    }
-  }
-  return out;
-}
-
-/**
  * 会话里去重后的「显示名」列表（有归属冲突的字段是「角色名·字段名」，其余原名）。
  * 剥正文 / 流式剥状态块时用它做 knownFields —— 因为注入和模型照抄的都是显示名。
  */
@@ -599,7 +581,7 @@ export function convoFieldDisplayNames(convo) {
  * defs 可以不传（默认用会话上的定义表）—— 同步历史时定义表还在构建中，
  * 那时要显式把新的传进来，否则新推断出来的范围当轮不生效。
  */
-export function clampPanelValue(convo, name, value, defs) {
+function clampPanelValue(convo, name, value, defs) {
   const table = defs && typeof defs === 'object' ? defs : convoPanelDefs(convo);
   const def = table[name];
   if (!def || typeof def !== 'object') return value;
@@ -882,7 +864,7 @@ function markPanelManual(convo, key) {
  * 把「只有分子」的值和分母拼回「60/100」。有范围上限的数值字段统一存成
  * 「分子/满值」一种格式；只对数值型 + 有 max 的字段生效，别的原样返回。
  */
-export function mergeMeterValue(value, prev, def) {
+function mergeMeterValue(value, prev, def) {
   const text = String(value == null ? '' : value).trim();
   if (!text || !def || def.type !== 'meter' || typeof def.max !== 'number') return text;
   if (text.includes('/')) return text;
@@ -899,7 +881,7 @@ export function mergeMeterValue(value, prev, def) {
  * 单独列在图例里，而不是跟在值后面 —— 值本身要**原样回显**给模型看
  * （它就是模型上一轮写的），掺上注解会影响它照着抄。
  */
-export function panelFieldLegend(convo, fields) {
+function panelFieldLegend(convo, fields) {
   const clash = clashingFieldNames(convo);
   const lines = [];
   for (const key of fields) {
@@ -920,7 +902,7 @@ export function panelFieldLegend(convo, fields) {
  * （PANEL_LINE_RE 认的就是这个形状），于是模型照着输出、下一轮就多出
  * 一个垃圾字段。用「—— 关系 ——」这种破折号包法就不会误匹配。
  */
-export function panelGroupHeader(title) {
+function panelGroupHeader(title) {
   return `—— ${title} ——`;
 }
 
@@ -935,7 +917,7 @@ export function panelGroupHeader(title) {
  * 刻意**不**推断 min：分母只能告诉我们上限，下限猜不出来（写 0 会错，
  * 留空则由夹取逻辑按「只夹上限」处理）。
  */
-export function inferPanelDef(name, value) {
+function inferPanelDef(name, value) {
   const m = String(value == null ? '' : value).trim().match(/^([-+]?\d+(?:\.\d+)?)\s*\/\s*([-+]?\d+(?:\.\d+)?)$/);
   if (!m) return null;
 

@@ -52,7 +52,7 @@ export function applyMacros(text, character, name) {
  * 格式是每行以 {{user}}: 或 {{char}}: 开头，多组之间用 <START> 分隔。
  * 解析不出来就返回空数组，不会影响正常对话。
  */
-export function parseExampleDialogue(text, charName, me) {
+function parseExampleDialogue(text, charName, me) {
   const out = [];
   const raw = String(text || '');
   if (!raw.trim()) return out;

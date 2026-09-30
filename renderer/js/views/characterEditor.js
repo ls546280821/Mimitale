@@ -274,7 +274,7 @@ function isCharDraft() {
 //  打开 / 关闭
 // ---------------------------------------------------------------------------
 
-export function openCharsModal() {
+function openCharsModal() {
   // 弹窗现在只是「编辑某一个角色」的表单，没有列表了。
   // 谁打开它谁负责先设好 editingCharacterId / charEditorScope。
   // 编辑器的入口指向了别的角色，说明「新建」那个草稿已经被放弃了，顺手清掉。
@@ -345,6 +345,9 @@ export async function closeCharsModal() {
   }
 
   // 草稿从没进过任何列表，丢掉它不用刷新界面
+  // 选书浮层也要一起收掉：它挂在 body 上、z-index 还比编辑器高，
+  // 不收就成了悬在屏幕上的孤儿，而且它盖着编辑器，用户连关闭按钮都点不到。
+  closeWorldbookPicker();
   discardCharDraft();
   el.charsModal.classList.add('hidden');
   el.input.focus();
@@ -769,7 +772,16 @@ function openWorldbookPicker() {
   worldbookPickerEl = overlay;
 }
 
-function closeWorldbookPicker() {
+/**
+ * 选书浮层开着没有。
+ * Esc 链要用：这个浮层**挂在 document.body 上**，而且 z-index(60) 比角色编辑器(50) 还高，
+ * 所以按 Esc 时它是「最上面那一层」，该先关它，而不是把整个编辑器一起关掉。
+ */
+export function isWorldbookPickerOpen() {
+  return !!worldbookPickerEl;
+}
+
+export function closeWorldbookPicker() {
   if (worldbookPickerEl) {
     worldbookPickerEl.remove();
     worldbookPickerEl = null;

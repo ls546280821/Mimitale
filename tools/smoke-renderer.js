@@ -2452,6 +2452,20 @@ await scenario('角色属性：分组改名与解散', async () => {
   );
   check('改名后仍停在那一组，字段也还在', listedNames().join(',') === '体温', JSON.stringify(listedNames()));
 
+  // --- 改名时按 Esc：只该取消改名，**不能**把整个角色编辑器一起关掉 ---
+  // 以前这两个输入框的 Esc 分支只 preventDefault、没 stopPropagation，
+  // 事件冒泡到入口层的全局 Esc 链（document 上）就把 charsModal 关了。
+  await openGroupEdit();
+  {
+    const escBox = $('#c-attr-group-edit input.attr-group-name');
+    escBox.value = '不该生效的名字';
+    escBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await sleep(120);
+    check('改名时按 Esc 不会关掉角色编辑器', shown('#chars-modal'));
+    check('改名时按 Esc 也不会连弹「放弃新建」确认框', !shown('#confirm-modal'));
+    check('按 Esc 是「放弃改名」，名字没被改掉', tabLabels().some((t) => t.startsWith('心情')), JSON.stringify(tabLabels()));
+  }
+
   // --- 改成已有的名字 = 并组 ---
   clickTab('关系');
   await openGroupEdit();
@@ -4681,6 +4695,252 @@ await scenario('世界书：同步属性把角色库的属性补进副本', asyn
   // 幂等：再同步一次，已经没有可补的了
   const again = mod.syncCopyAttrsFromSource(copies, sources);
   check('再同步一次没什么可补的（幂等）', again.touched === 0 && again.added === 0, JSON.stringify(again));
+});
+
+// ---------------------------------------------------------------------------
+//  场景：Markdown 渲染的边界
+//
+//  markdown.js 自己写着「不依赖任何别的东西，可以单独拿去测」—— 这里就单独测它。
+//  下面六条都是「以前渲染错、用户一眼看得见」的：
+//    嵌套强调匹配不上、`a * 2 * b` 被判成斜体、链接文字里的行内代码不还原、
+//    表格完全不认（竖线原样显示）、`![](url)` 多出一个孤零零的 `!`、
+//    自动链接把句尾的中文标点吞进 href。
+// ---------------------------------------------------------------------------
+await scenario('Markdown：渲染边界', async () => {
+  const md = await import(new URL('js/ui/markdown.js', document.baseURI).href);
+  const inline = (s) => md.renderInline(s);
+
+  // 行内规则不认 `*` 的嵌套是踩过的坑：外层 ** 会原样露出来
+  check(
+    '加粗里面套斜体（**a *b* c**）两边都生效',
+    inline('**这句话的 *重点* 部分**') === '<strong>这句话的 <em>重点</em> 部分</strong>',
+    inline('**这句话的 *重点* 部分**')
+  );
+  check('普通加粗没受影响', inline('**加粗**') === '<strong>加粗</strong>', inline('**加粗**'));
+  check('普通斜体没受影响', inline('*斜体*') === '<em>斜体</em>', inline('*斜体*'));
+
+  // 数值公式里的孤立星号不能被当成强调
+  check(
+    '「伤害 = 攻击 * 2 * 倍率」不会被当成斜体',
+    !inline('伤害 = 攻击 * 2 * 倍率').includes('<em>'),
+    inline('伤害 = 攻击 * 2 * 倍率')
+  );
+  check('「2 * 3 * 4」也不会', !inline('2 * 3 * 4').includes('<em>'), inline('2 * 3 * 4'));
+
+  // 链接文字里的行内代码：以前占位符不还原，会显示成字面的 \u0000C0\u0000
+  const linkCode = inline('[`code`](https://example.com)');
+  check(
+    '链接文字里的行内代码能正常渲染',
+    linkCode.includes('<code>code</code>') && linkCode.includes('href="https://example.com"'),
+    linkCode
+  );
+  check('没有占位符漏出来', !linkCode.includes('\u0000'), JSON.stringify(linkCode));
+
+  // 图片：外链图片受 CSP 限制加载不出来，退化成链接；不能留一个孤立的 `!`
+  const img = inline('![图](https://example.com/y.png)');
+  check('外链图片退化成链接，不留孤立的「!」', !img.startsWith('!') && img.includes('<a href='), img);
+
+  // 自动链接别把句尾的中文标点吞进 href
+  const auto = inline('见 https://example.com/x。');
+  check(
+    '自动链接不吞句尾的中文句号',
+    auto.includes('href="https://example.com/x"') && auto.includes('。'),
+    auto
+  );
+
+  // --- 块级：表格 ---
+  const block = (s) => md.renderMarkdown(s);
+  const table = block(['| 角色 | 好感 |', '| --- | --- |', '| 露西娅 | 41 |'].join('\n'));
+  check('表格生成了 <table>', table.includes('<table>') && table.includes('</table>'), table.slice(0, 120));
+  check('表头进了 <th>', table.includes('<th>角色</th>') && table.includes('<th>好感</th>'), table.slice(0, 160));
+  check('数据行进 <td> 且没有残留竖线', table.includes('<td>露西娅</td>') && !table.includes('|'), table.slice(0, 200));
+  check('分隔行 |---| 不会被当成正文', !table.includes('---'), table.slice(0, 200));
+  check('表格里的行内格式照样生效', block('| a |\n| --- |\n| **粗** |').includes('<td><strong>粗</strong></td>'));
+
+  // 单独一行的 `---` 仍然该是分隔线（别被表格逻辑吃掉）
+  check('单独的 --- 还是 <hr />', block('---').includes('<hr />'), block('---'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景：Esc 链 + 浮层清理 + 删掉当前世界书之后编辑器的去向
+//
+//  这几条都是「以前漏了」的坑，单独钉住：
+//    · 世界书 / 记忆 / 视角三个弹窗**没接进入口层的全局 Esc 链** —— 只开着它们时
+//      按 Esc 毫无反应，和别的弹窗行为不一致；
+//    · 角色编辑器里那个「＋ 绑定」选书浮层挂在 document.body 上、z-index 还比
+//      编辑器高，关编辑器时如果不一起收掉，它就悬在屏幕上（而且盖着编辑器，
+//      用户连关闭按钮都点不到了）；
+//    · 删掉「当前正在编辑」的那本世界书后，编辑器里的书名输入框还留着**刚删掉那本**
+//      的名字。这时关弹窗 → stashWorldbookName() 会把残留名字写进列表里第一本书
+//      → 别人的书被静默改名 + 覆盖开场白，而且立刻落盘。
+// ---------------------------------------------------------------------------
+await scenario('Esc 链与弹窗清理', async () => {
+  // 世界书编辑器要从列表页点「编辑」进去（侧栏那个按钮只切页面）
+  const openBookEditor = async () => {
+    click('#btn-worldbooks');
+    await waitFor('切到世界书页面', () => shown('#view-worldbooks'));
+    click(buttonByText($$('#wb-page-grid .char-card')[0], '编辑'));
+    await waitFor('世界书弹窗打开', () => shown('#worldbooks-modal'));
+  };
+
+  // --- 三个以前漏掉的弹窗 ---
+  await openBookEditor();
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await waitFor('Esc 关掉世界书弹窗', () => !shown('#worldbooks-modal'));
+  check('Esc 关得掉世界书弹窗', !shown('#worldbooks-modal'));
+
+  await clickMoreItem('#btn-memory');
+  await waitFor('记忆弹窗打开', () => shown('#memory-modal'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await waitFor('Esc 关掉记忆弹窗', () => !shown('#memory-modal'));
+  check('Esc 关得掉记忆弹窗', !shown('#memory-modal'));
+
+  click('#btn-perspective');
+  await waitFor('视角弹窗打开', () => shown('#perspective-modal'));
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await waitFor('Esc 关掉视角弹窗', () => !shown('#perspective-modal'));
+  check('Esc 关得掉视角弹窗', !shown('#perspective-modal'));
+
+  // --- 选书浮层：Esc 只关最上面那层，别顺手把编辑器也关了 ---
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  const card = $$('#char-page-grid .char-card')[0];
+  if (!card) {
+    check('角色库里有一张卡可以做这个验证', false);
+    return;
+  }
+  click(buttonByText(card, '编辑'));
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+
+  click('#c-wb-add-btn');
+  await waitFor('选书浮层出现', () => !!$('.cwb-picker'));
+  check('「＋ 绑定」会弹出选书浮层', !!$('.cwb-picker'));
+
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await waitFor('Esc 关掉选书浮层', () => !$('.cwb-picker'));
+  check('Esc 关的是最上面那层选书浮层', !$('.cwb-picker'));
+  check('浮层下面的角色编辑器还开着（没被一起关掉）', shown('#chars-modal'));
+
+  // --- 直接点 ✕ 关编辑器：残留的浮层也必须收掉 ---
+  click('#c-wb-add-btn');
+  await waitFor('选书浮层再次出现', () => !!$('.cwb-picker'));
+  click('#btn-close-chars');
+  await waitFor('角色编辑器关闭', () => !shown('#chars-modal'));
+  check('关编辑器时残留的选书浮层被一起收掉（没悬空）', !$('.cwb-picker'));
+
+  // --- 删掉当前正在编辑的那本世界书：编辑器必须真的切到另一本 ---
+  const namesBefore = (await savedWorldbooks()).map((w) => w.name);
+  await openBookEditor();
+
+  click('#btn-new-worldbook'); // 新建一本，它会成为「当前编辑」的那本
+  await waitFor('新建的世界书进编辑器', () => $('#wb-name').value === '新世界书', 3000);
+  setValue('#wb-name', '待删的书');
+  click('#btn-del-worldbook');
+  await waitFor('删除前先确认', () => shown('#confirm-modal'));
+  click('#confirm-ok');
+  await sleep(250);
+
+  check(
+    '删完当前这本之后，书名输入框切到了另一本（不是残留的「待删的书」）',
+    $('#wb-name').value !== '待删的书',
+    `输入框里是「${$('#wb-name').value}」`
+  );
+
+  // 关掉弹窗 —— 以前这一步会把残留的书名写进列表里第一本书
+  click('#btn-close-worldbooks');
+  await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
+  await sleep(250);
+
+  const namesAfter = (await savedWorldbooks()).map((w) => w.name);
+  check(
+    '关弹窗没把残留书名写到别的书上（落盘的书名一本没变）',
+    JSON.stringify(namesAfter) === JSON.stringify(namesBefore),
+    `之前 ${JSON.stringify(namesBefore)} / 之后 ${JSON.stringify(namesAfter)}`
+  );
+  check('新建的那本确实删掉了（数量回到原样）', namesAfter.length === namesBefore.length, `${namesAfter.length} vs ${namesBefore.length}`);
+});
+
+// ---------------------------------------------------------------------------
+//  场景：记忆弹窗 —— 「清空全部摘要」必须真的能清
+//
+//  这是一个**纯人肉才能发现**的 bug：函数写好了、`export` 着，按钮也在
+//  HTML 里、`.disabled` 还跟着摘要条数切换 —— 就是没人写过 addEventListener。
+//  按钮看着一切正常，点下去毫无反应，而 使用说明.md 里明明写着有这功能。
+//  DOM 断言全绿也照不出来，所以这里**真的点它**，看确认框出不出来、摘要少没少。
+//
+//  自己造摘要（而不是等自动压缩）：模块是页面共享的同一个实例，
+//  往当前会话塞两条摘要就行。断言部分一律走真实 DOM + 落盘桥。
+// ---------------------------------------------------------------------------
+await scenario('记忆：清空全部摘要', async () => {
+  const mod = await import(new URL('js/core/state.js', document.baseURI).href);
+  const convo = mod.state.conversations.find((c) => c.id === mod.state.activeId);
+  if (!convo) {
+    check('有活跃会话可以做这个验证', false, 'activeId 找不到对应会话');
+    return;
+  }
+  check('有活跃会话可以做这个验证', true);
+
+  // 造两条摘要：范围盖住前几条消息（end 用 messages 长度封顶）
+  const total = Array.isArray(convo.messages) ? convo.messages.length : 0;
+  const half = Math.max(1, Math.floor(total / 2));
+  convo.summaries = [
+    { id: 'smoke_s1', title: '第 1 段', start: 0, end: half, text: '冒烟测试造的摘要一', at: Date.now() },
+    { id: 'smoke_s2', title: '第 2 段', start: half, end: total, text: '冒烟测试造的摘要二', at: Date.now() }
+  ];
+
+  await clickMoreItem('#btn-memory');
+  await waitFor('记忆弹窗打开', () => shown('#memory-modal'));
+
+  check('两条摘要都铺出来了', $$('#memory-list .memory-card').length === 2, String($$('#memory-list .memory-card').length));
+  check('摘要行显示条数', $('#memory-summary-line').textContent.includes('2 段'), $('#memory-summary-line').textContent);
+  check('有摘要时「清空」按钮可用', $('#btn-memory-clear').disabled === false);
+
+  // --- 先取消一次：危险动作不该只点一下就打出去 ---
+  click('#btn-memory-clear');
+  await waitFor('清空前先确认', () => shown('#confirm-modal'));
+  check('点「清空」会先弹确认框', shown('#confirm-modal'));
+  check(
+    '确认框说清了后果（原文会回到上下文）',
+    $('#confirm-title').textContent.includes('清空') && $('#confirm-message').textContent.includes('token'),
+    `${$('#confirm-title').textContent} / ${$('#confirm-message').textContent}`
+  );
+
+  click('#confirm-cancel');
+  await waitFor('确认框收起', () => !shown('#confirm-modal'));
+  await sleep(150);
+  check('取消之后摘要一条没少', $$('#memory-list .memory-card').length === 2, String($$('#memory-list .memory-card').length));
+
+  // --- 真清空 ---
+  click('#btn-memory-clear');
+  await waitFor('再次弹确认', () => shown('#confirm-modal'));
+  click('#confirm-ok');
+  await waitFor('摘要清空（列表变空）', () => $$('#memory-list .memory-card').length === 0);
+
+  check('清空后列表空了', $$('#memory-list .memory-card').length === 0);
+  check('清空后列表给了空态文案', $('#memory-list .memory-empty') !== null);
+  check('清空后摘要行回到「还没有摘要」', $('#memory-summary-line').textContent.includes('还没有摘要'), $('#memory-summary-line').textContent);
+  check('摘要清零后「清空」按钮变灰', $('#btn-memory-clear').disabled === true);
+  check('「⋯」上的摘要角标收起来了', $('#memory-count').classList.contains('hidden'));
+  check('提示条说了摘要已清空', $('#toast').textContent.includes('摘要已清空'), $('#toast').textContent);
+
+  // 落盘才算真清掉（渲染层清内存、主进程写文件是异步的）。
+  // 注意别把这个轮询塞进 waitFor —— waitFor 里 `if (ok) return ok`，
+  // 回调返回 Promise 永远为真，会当场"通过"。
+  let saved = null;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 3000) {
+    const cs = await window.mimitale.getConversations();
+    const a = cs.conversations.find((c) => c.id === cs.activeId);
+    if (a && Array.isArray(a.summaries) && a.summaries.length === 0) {
+      saved = a;
+      break;
+    }
+    await sleep(50);
+  }
+  check('清空真的落盘了（不是只清了界面）', !!saved, saved ? '' : '磁盘上还留着摘要');
+
+  click('#btn-close-memory');
+  await waitFor('记忆弹窗关闭', () => !shown('#memory-modal'));
 });
 
 return { results, notes, hoverProbe };

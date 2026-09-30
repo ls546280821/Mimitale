@@ -77,6 +77,9 @@ const MAX_EMBED_PER_CALL = 32;
 // 一次请求最多多少条文本（查询 + 补索引共用）
 const MAX_EMBED_INPUTS = 64;
 
+// 「在窗口里打开图片」能接受的 dataURL 长度上限（≈13MB 的图，和头像那条同一量级）
+const MAX_VIEW_IMAGE_CHARS = 18000000;
+
 /** 调一次 /embeddings，返回向量数组（顺序和输入一一对应） */
 async function embedTexts(endpoint, texts) {
   const list = (Array.isArray(texts) ? texts : []).map((t) => String(t || '').slice(0, 8000));
@@ -668,6 +671,9 @@ function registerIpc() {
   ipcMain.handle('images:open', (_event, dataUrl) => {
     const match = /^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/.exec(String(dataUrl || ''));
     if (!match) return false;
+    // 体积上限：正则只管前缀和格式，不管长度 —— 不挡的话，传个超大的 dataURL
+    // 就能往系统临时目录写一个等大的文件。和头像那道上限取同一个量级。
+    if (match[2].length > MAX_VIEW_IMAGE_CHARS) return false;
 
     const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
     const file = path.join(app.getPath('temp'), `mimitale-view-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`);

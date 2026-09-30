@@ -10,7 +10,7 @@ import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { showToast } from './toast.js';
 
-export function currentTheme() {
+function currentTheme() {
   return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
 }
 
@@ -46,7 +46,7 @@ function isAccent(value) {
   return Object.prototype.hasOwnProperty.call(ACCENT_NAME, value);
 }
 
-export function currentAccent() {
+function currentAccent() {
   const value = document.documentElement.getAttribute('data-accent');
   return isAccent(value) ? value : 'pink';
 }

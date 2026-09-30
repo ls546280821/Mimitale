@@ -48,16 +48,8 @@ function setOpen(next) {
   if (next) revealActive();
 }
 
-export function openModelMenu() {
-  setOpen(true);
-}
-
 export function closeModelMenu() {
   setOpen(false);
-}
-
-export function isModelMenuOpen() {
-  return isOpen;
 }
 
 /** 在一组行之间挪焦点。到头就停住 —— 绕回另一头反而容易点错 */

@@ -370,7 +370,18 @@ function loadSettings() {
 
 function saveSettings(patch) {
   const current = loadSettings();
-  const merged = normalizeSettings({ ...current, ...(patch || {}) });
+
+  // 白名单：只收「默认设置里有」或者「磁盘上本来就有」的键。
+  // 没有这道闸的话，渲染层（或者任何能调到这个 IPC 通道的人）随手塞一个键进来，
+  // 就会被 normalizeSettings 里的 `{ ...DEFAULT_SETTINGS, ...raw }` 永久写进
+  // config.json —— 不影响逻辑，但配置会越存越脏。
+  const clean = {};
+  for (const [key, value] of Object.entries(patch && typeof patch === 'object' ? patch : {})) {
+    if (key in DEFAULT_SETTINGS || key in current) clean[key] = value;
+    else console.warn(`保存设置时忽略了未知字段「${key}」`);
+  }
+
+  const merged = normalizeSettings({ ...current, ...clean });
 
   // 落盘前把每个服务商的 Key 都加密
   const toSave = {

@@ -41,7 +41,8 @@ function openPerspectiveModal() {
   el.perspectiveModal.classList.remove('hidden');
 }
 
-function closePerspectiveModal() {
+/** 关视角弹窗。导出是为了让入口层的 Esc 链统一关它（见 main.js） */
+export function closePerspectiveModal() {
   el.perspectiveModal.classList.add('hidden');
   el.input.focus();
 }

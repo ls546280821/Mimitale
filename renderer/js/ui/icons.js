@@ -64,8 +64,11 @@ const ICONS = {
  * @param {string} name ICONS 里的键
  * @returns {string} 找不到时返回空串（调用方自行决定要不要插）
  */
-export function iconSvg(name) {
-  const body = ICONS[name];
+function iconSvg(name) {
+  // Object.hasOwn 而不是 ICONS[name]：后者会走原型链，ICONS['constructor'] 之类的
+  // 会取到函数/对象，再被 insertAdjacentHTML 拼进 DOM。现在 data-icon 全是硬编码的、
+  // 不可达，但这属于「不该留着」的一类写法，一行就能堵上。
+  const body = Object.hasOwn(ICONS, name) ? ICONS[name] : '';
   if (!body) return '';
   return (
     '<svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +

@@ -175,6 +175,14 @@ function checkIcon() {
   return svg;
 }
 
+/** 分组小标题：服务商名，没填 Key 的标出来（本机桥接免 Key，别误标） */
+function modelGroupLabel(p) {
+  return isBridgeProvider(p) || p.apiKey ? p.name : `${p.name}（未填 Key）`;
+}
+
+/** 上一次铺出来的「内容指纹」—— 没变就不重建 DOM（见 renderModelSwitch） */
+let lastModelSwitchSignature = null;
+
 /**
  * 右上角切换模型：按钮上写当前模型，点开是一个按服务商分组的弹层。
  *
@@ -182,8 +190,9 @@ function checkIcon() {
  * 系统字体），CSS 碰不到 —— 跟这套「大圆角 + 柔和阴影」完全不搭，所以换成
  * 和「⋯」共用的 .menu-pop 弹层。开合逻辑在 ui/modelMenu.js，这里只负责铺内容。
  *
- * 顶栏那一行是**每次都重画的**（refreshAll 会喊它），所以铺的时候顺手把
- * 滚动位置记下来还回去，免得正翻着列表被别的重绘弹回顶部。
+ * 这个函数挂在刷新总线上，**发一条消息、点一下状态卡都会把它喊一遍**。
+ * 所以先算一个「内容指纹」，没变就直接返回 —— 否则每次重绘都要把整棵列表树
+ * 拆了重建（连带还得自己存还 scrollTop），纯属白干。
  */
 export function renderModelSwitch() {
   const trigger = el.modelSwitch;
@@ -195,6 +204,15 @@ export function renderModelSwitch() {
   const list = providers();
   const active = modelChoiceValue();
   const scrollTop = menu.scrollTop;
+
+  // 指纹要盖住**所有会影响输出的东西**：当前选中、每个分组的标题（含「未填 Key」）、
+  // 每组下面的模型列表。分组标题直接用最终文案，省得漏掉 isBridgeProvider 那种判断。
+  const signature = [
+    active,
+    list.map((p) => `${p.id}~${modelGroupLabel(p)}~${(p.models || []).join(',')}`).join('|')
+  ].join('\u0000');
+  if (signature === lastModelSwitchSignature) return;
+  lastModelSwitchSignature = signature;
 
   // 按钮上那行字：选了模型就写模型名，没选就写「选择模型」/「未配置模型」
   if (label) {
@@ -217,11 +235,7 @@ export function renderModelSwitch() {
   }
 
   for (const p of list) {
-    // 本机桥接免 Key，别标「未填 Key」误导用户（和原来 select 的分组标题一致）
-    menu.appendChild(h('div', {
-      class: 'model-menu-group',
-      text: isBridgeProvider(p) || p.apiKey ? p.name : `${p.name}（未填 Key）`
-    }));
+    menu.appendChild(h('div', { class: 'model-menu-group', text: modelGroupLabel(p) }));
 
     if (!p.models || !p.models.length) {
       menu.appendChild(h('div', { class: 'model-menu-empty', text: '还没有模型' }));

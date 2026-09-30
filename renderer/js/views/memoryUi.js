@@ -73,7 +73,7 @@ export function renderMemoryIndicator() {
 //  弹窗开关
 // ---------------------------------------------------------------------------
 
-export function openMemoryModal() {
+function openMemoryModal() {
   const convo = activeConvo();
   if (!convo) {
     showToast('当前没有会话', 'error');
@@ -327,7 +327,11 @@ function renumberSummaries(convo) {
   convo.summaries = list.filter((s) => s.end > s.start);
 }
 
-export async function clearAllSummaries() {
+/**
+ * 清空全部摘要（弹窗右上角那颗红按钮）。
+ * 全部删掉之后**不用** renumberSummaries —— 一段都不剩，没有范围要重排。
+ */
+async function clearAllSummaries() {
   const convo = activeConvo();
   if (!convo) return;
 
@@ -349,7 +353,7 @@ export async function clearAllSummaries() {
   persistConversations(0);
   renderMemoryModal();
   renderMemoryIndicator();
-  showToast('摘要已清空');
+  showToast('摘要已清空，原文重新进入上下文');
 }
 
 // ---------------------------------------------------------------------------
@@ -506,6 +510,7 @@ export function initMemoryUi() {
   el.memoryModal.addEventListener('click', (event) => {
     if (event.target === el.memoryModal) closeMemoryModal();
   });
+  el.btnMemoryClear.addEventListener('click', clearAllSummaries);
   el.btnSaveCheckpoint.addEventListener('click', saveCheckpoint);
 
   onRefresh(renderMemoryIndicator);
