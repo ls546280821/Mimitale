@@ -152,7 +152,14 @@ const DEFAULT_SETTINGS = {
   // --- 对话窗口外观（只影响显示，不进提示词）---
   chatFontSize: 14,     // 消息正文字号（px）
   chatBoldColor: '',    // **加粗** 用什么颜色，空 = 跟随主题
-  chatBackground: ''    // 消息区背景图（dataURL），空 = 没有
+  chatBackground: '',   // 消息区背景图（dataURL），空 = 没有
+  // --- 下面两个是界面自己写得出来的键，**必须列在这儿** ---
+  // saveSettings 的白名单是「默认设置里有 or 磁盘上本来就有」。这两个键当初漏在
+  // DEFAULT_SETTINGS 之外，靠的就是「用户磁盘上早写过了」才没被拦 ——
+  // 全新装一份（config.json 里还没有它们）时，第一次保存就会被静默丢掉：
+  // 快捷候选词和自动续写怎么改都不生效，只在主进程打一行看不见的 warn。
+  autoContinue: true,       // 正文被 maxTokens 截断时自动接着写完
+  commonAttributes: []      // 角色编辑器里「属性」的快捷候选词
 };
 
 function newProviderId() {

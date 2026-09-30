@@ -1883,6 +1883,57 @@ function probeAttrModeWording(result) {
   );
 }
 
+/**
+ * 设置白名单体检：界面能写进 config.json 的每个键，都必须登记在 DEFAULT_SETTINGS 里。
+ *
+ * 为什么要有这条：main/providers.js 的 saveSettings 只收「DEFAULT_SETTINGS 里有」
+ * 或「磁盘上本来就有」的键（挡住往配置里塞垃圾）。**「磁盘上本来就有」这半条会掩盖
+ * 漏登记** —— 老用户的 config.json 里早写过了，于是漏了也一直不出事；
+ * 直到全新装一份，第一次保存就被静默丢掉，只在主进程打一行看不见的 warn。
+ * autoContinue / commonAttributes 就是这么漏的（快捷候选词、自动续写，
+ * 界面里怎么改都不生效，而且只在"干净机器"上复现）。
+ *
+ * ⚠️ 新增设置项时：先把它加进 main/providers.js 的 DEFAULT_SETTINGS，
+ *    再来这里补一行 —— 这条断言就是用来逼你想起前一步的。
+ */
+function probeSettingsWhitelist(result) {
+  const push = (name, pass, detail) =>
+    result.results.push({ name, pass: !!pass, detail: detail || '' });
+
+  const UI_WRITABLE_SETTINGS = [
+    // settings.js 的表单
+    'providers', 'activeProviderId', 'activeModel', 'temperature', 'maxTokens',
+    'userName', 'maxTurns', 'systemPrompt', 'sendOnEnter', 'showDate', 'showUsage',
+    'autoContinue', 'worldbookRecursiveDepth',
+    'imageProviderId', 'imageModel', 'imageSize',
+    'ragEnabled', 'embeddingProviderId', 'embeddingModel',
+    'commonAttributes',
+    // appearance.js / theme.js
+    'chatFontSize', 'chatBoldColor', 'chatBackground', 'theme', 'accent'
+  ];
+
+  let defaults = null;
+  try {
+    ({ DEFAULT_SETTINGS: defaults } = require('../main/providers.js'));
+  } catch (err) {
+    push('设置白名单：能读到 main/providers.js', false, (err && err.message) || String(err));
+    return;
+  }
+  push('设置白名单：能读到 main/providers.js', !!defaults);
+
+  const missing = UI_WRITABLE_SETTINGS.filter((key) => !(key in defaults));
+  push(
+    '设置白名单：界面能写的键都在 DEFAULT_SETTINGS 里',
+    missing.length === 0,
+    missing.length ? `漏登记：${missing.join(', ')}` : ''
+  );
+
+  // 反向：白名单必须真的拦得住完全没见过的键，别把闸门开成摆设
+  const unknown = ['__definitely_not_a_setting__'];
+  const leaked = unknown.filter((key) => key in defaults);
+  push('设置白名单：没见过的键确实不在默认表里', leaked.length === 0, leaked.join(', '));
+}
+
 app.whenReady().then(async () => {
   registerStubs();
 
@@ -1948,6 +1999,7 @@ app.whenReady().then(async () => {
       probeVectors(result);
       probeRag(result);
       probeAttrModeWording(result);
+      probeSettingsWhitelist(result);
       await probeHover(win, result);
     } catch (err) {
       crashed = '宿主侧验证失败：' + ((err && err.message) || err);
