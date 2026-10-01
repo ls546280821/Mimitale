@@ -3,7 +3,7 @@
 // ============================================================================
 //  ui/imageCrop.js —— 选好图之后、存下来之前，框一下要哪一块
 //
-//  两处用：角色头像（1:1）、角色形象（3:4）。存下来的比例是固定的，
+//  两处用：角色头像（1:1）、角色形象（2:3）。存下来的比例是固定的，
 //  所以这里不提供自由比例 —— 界面上只有「拖动 / 缩放 / 确定」三件事，
 //  框住的那块就是最终存下来的那块。
 //
@@ -22,11 +22,29 @@ const VIEW_MAX_W = 340;
 const ZOOM_RANGE = 4;
 
 /**
+ * 把宽高比拆成整数对。传进来的 aspect 多半是 `2 / 3` 这种浮点值，
+ * 直接拿它做除法和取整会一路带歪（340 / (2/3) = 510.0000 → 510，
+ * 但换个比例比如 3/4：340 / 0.75 = 453.33 → 453，453/340 = 1.3324 ≠ 4/3，
+ * 输出就成了 1024×1364）。这里把它还原成 [2, 3]，后面的尺寸全用整数算。
+ */
+function ratio(aspect) {
+  const a = Number(aspect);
+  if (!Number.isFinite(a) || a <= 0) return [1, 1];
+  // 常见比例直接给整数，省得靠浮点反推（1:1 / 2:3 / 3:2 / 3:4 / 4:3 够用了）
+  for (let h = 1; h <= 16; h += 1) {
+    const w = a * h;
+    if (Math.abs(w - Math.round(w)) < 1e-9) return [Math.round(w), h];
+  }
+  // 兜底：放大到百万分之一精度再约分
+  return [Math.round(a * 1000), 1000];
+}
+
+/**
  * 打开裁剪浮层。
  *
  * @param {object} options
  * @param {string} options.dataUrl   原图（dataURL）
- * @param {number} [options.aspect]  宽高比（1 = 正方形，3/4 = 竖版）
+ * @param {number} [options.aspect]  宽高比（1 = 正方形，2/3 = 竖版）
  * @param {number} [options.outWidth] 输出宽度（高度按 aspect 算）
  * @param {string} [options.title]   浮层标题
  * @param {string} [options.hint]    标题下的一行说明
@@ -43,17 +61,30 @@ export function openImageCrop({ dataUrl, aspect = 1, outWidth = 512, title = '�
     function build(image) {
       const dpr = Math.max(1, window.devicePixelRatio || 1);
 
+      // 比例一律按**整数**算（2:3 → [2, 3]）。aspect 是 2/3 这种浮点传进来的，
+      // 拿它做除法/取整都会跑偏：340 / 0.75 = 453.33 → 453，453/340 就是 1.3324，
+      // 不是 4/3 —— 视口比例一歪，输出尺寸跟着歪（1024×1536 会变成 1024×1364）。
+      // 用整数比则 vh = vw * b / a，误差只来自一次取整。
+      const [rw, rh] = ratio(aspect);
+
       // 视口尺寸：先按宽度取上限，再按窗口高度收 —— 太高的竖图不能顶到屏幕外
       const maxH = Math.max(160, Math.min(window.innerHeight * 0.52, 460));
-      let vw = Math.min(VIEW_MAX_W, Math.max(180, window.innerWidth - 120));
-      let vh = vw / aspect;
+      let vw = Math.round(Math.min(VIEW_MAX_W, Math.max(180, window.innerWidth - 120)));
+      let vh = Math.round((vw * rh) / rw);
       if (vh > maxH) {
-        vh = maxH;
-        vw = vh * aspect;
+        vh = Math.round(maxH);
+        vw = Math.round((vh * rw) / rh);
       }
 
+      // scale = 原图 1px 在视口里占几 px。minScale 是「图片刚够铺满视口」，
+      // 低于它就露出空白，所以是缩放下限。
       const minScale = Math.max(vw / image.width, vh / image.height);
-      const maxScale = minScale * ZOOM_RANGE;
+      // 理论上限：取景框最多只能缩到原图的 1 个像素（再小就是凭空放大），
+      // 即 scale 不超过 1。再加上「别超过目标输出的像素数」——
+      // 这样默认停在「刚好够目标尺寸」，图省事的用户不用手动缩放就能拿到全清晰度，
+      // 想裁小一点他自己往里推。留一点余量让手感不至于顶死。
+      const fitForOutput = vw / outWidth;
+      const maxScale = Math.max(minScale, Math.min(1, fitForOutput) * ZOOM_RANGE);
 
       // 当前变换：图片左上角相对视口左上角的位移 + 缩放倍数
       let scale = minScale;
@@ -159,21 +190,30 @@ export function openImageCrop({ dataUrl, aspect = 1, outWidth = 512, title = '�
         // 一个细节都补不出来（老卡里的小图尤其明显）。
         const srcWidth = Math.max(1, Math.round(vw / scale));
         const w = Math.max(1, Math.min(outWidth, srcWidth));
-        const h = Math.max(1, Math.round(w / aspect));
+        // 高度**直接从 w 按整数比算**：w * rh / rw。
+        // 中间不能借道视口的取整结果 —— vw/vh 一取整比例就歪了（340 / 453 = 1.3324），
+        // 拿它换算出来是 1365 而不是 1536。
+        const h = Math.max(1, Math.round((w * rh) / rw));
 
         const out = document.createElement('canvas');
         out.width = w;
         out.height = h;
 
+        // 落笔范围和输出同比例，图片不会被拉扁
         const k = w / vw;
         const octx = out.getContext('2d');
         octx.imageSmoothingEnabled = true;
         octx.imageSmoothingQuality = 'high';
         octx.drawImage(image, ox * k, oy * k, image.width * scale * k, image.height * scale * k);
 
-        // webp 体积小又支持透明；浏览器不支持时会自动退回 png
-        let url = out.toDataURL('image/webp', 0.94);
-        if (!url.startsWith('data:image/')) url = out.toDataURL('image/png');
+        // 先按 1.0 存 webp（在有损编码里已经到顶，肉眼看不出区别了）。它体积只有
+        // PNG 的 1/3 左右 —— 而这个文件每存一次角色就要整个重写一遍，体积是实打实的成本。
+        let url = out.toDataURL('image/webp', 1);
+        if (url.startsWith('data:image/')) return url;
+
+        // 浏览器给了张 PNG 回来，说明它压根不支持编码 webp —— 那就直接用这张。
+        // 少走「先试 webp 再转 PNG」那一趟，也省得把图重新编码一遍掉细节。
+        url = out.toDataURL('image/png');
         return url.startsWith('data:image/') ? url : dataUrl;
       }
 

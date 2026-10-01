@@ -51,7 +51,7 @@ function characterCard(c) {
   }
   const subText = subBits.join(' · ');
 
-  // 卡上铺的是**角色形象**（3:4 立绘），不是头像 —— 头像那么小的圆图铺在这块
+  // 卡上铺的是**角色形象**（2:3 立绘），不是头像 —— 头像那么小的圆图铺在这块
   // 会糊成一片。老卡没单独设过形象，characterPortrait 会用头像顶上。
   const portrait = characterPortrait(c);
 

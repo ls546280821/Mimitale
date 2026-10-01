@@ -425,7 +425,7 @@ function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
  * 返回 { content, image, drawReason }。image 是拼好 data: 前缀的 dataURL，
  * 没出图时是 null —— 上层拿它判断「这次有没有图」。
  */
-function bridgeChat({ settings, messages, characterContext, signal, timeoutMs = 300000 }) {
+function bridgeChat({ settings, messages, characterContext, noImage, signal, timeoutMs = 300000 }) {
   return new Promise((resolve, reject) => {
     let target;
     try {
@@ -440,13 +440,20 @@ function bridgeChat({ settings, messages, characterContext, signal, timeoutMs = 
     const body = {
       messages,
       temperature: Number(settings.temperature),
-      max_tokens: Math.max(1, Number(settings.maxTokens) || 2048),
-      // 关闭画风预设：长相完全由 character_context 决定，避免被固定画风钉死成同一个角色。
-      preset: 'none',
-      force_image: false
+      max_tokens: Math.max(1, Number(settings.maxTokens) || 2048)
     };
-    if (String(characterContext || '').trim()) {
-      body.character_context = String(characterContext).trim();
+    // 只要文字：改打桥接的 /chat 端点 —— 那条不做出图判定，省掉「判断该不该画」
+    // 那一步（命中出图时整轮要多等几十秒，还要卸模型腾显存）。
+    // /chat 也不认画风预设这些字段，所以只在要出图的路径上带。
+    if (noImage === true) {
+      target.pathname = '/chat';
+    } else {
+      // 关闭画风预设：长相完全由 character_context 决定，避免被固定画风钉死成同一个角色。
+      body.preset = 'none';
+      body.force_image = false;
+      if (String(characterContext || '').trim()) {
+        body.character_context = String(characterContext).trim();
+      }
     }
 
     const payload = Buffer.from(JSON.stringify(body), 'utf8');

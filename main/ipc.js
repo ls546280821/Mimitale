@@ -406,6 +406,10 @@ function registerIpc() {
           settings: endpoint,
           messages,
           characterContext: request.characterContext,
+          // 生成角色这类「只要文字」的场景传 noImage：桥接默认会按正文语义
+          // 判断该不该配图，命中就要卸文字模型、出图、再把模型热回来 ——
+          // 白等几十秒还占显存。字段缺省时照旧。
+          noImage: request.noImage === true,
           signal
         });
         return {

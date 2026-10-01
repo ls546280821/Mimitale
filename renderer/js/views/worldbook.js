@@ -63,6 +63,8 @@ let draftInBook = () => {};
 let releaseScope = () => {};
 let stashDraft = () => {};
 let importBooks = async () => {};
+// 打开「AI 生成 NPC」弹窗（视图不向上 import 入口层，编排放注入里）
+let aiDraftInBook = () => {};
 
 export function initWorldbook(opts = {}) {
   if (typeof opts.openInBook === 'function') openInBook = opts.openInBook;
@@ -70,6 +72,7 @@ export function initWorldbook(opts = {}) {
   if (typeof opts.releaseScope === 'function') releaseScope = opts.releaseScope;
   if (typeof opts.stashDraft === 'function') stashDraft = opts.stashDraft;
   if (typeof opts.importBooks === 'function') importBooks = opts.importBooks;
+  if (typeof opts.aiDraftInBook === 'function') aiDraftInBook = opts.aiDraftInBook;
 
   // --- 编辑器本体 ---
   el.wb.btnExport.addEventListener('click', exportWorldbook);
@@ -84,6 +87,15 @@ export function initWorldbook(opts = {}) {
   el.wb.btnPreview.addEventListener('click', previewWorldbook);
   el.wb.btnAddChars.addEventListener('click', openWorldbookCharPicker);
   el.wb.btnNewChar.addEventListener('click', newWorldbookCharacter);
+  // 「AI 生成」→ 按这本书的设定生成一个 NPC 副本。生成结果一样落到角色编辑器
+  // 草稿里（和「＋ 新建」同一条路），看过再保存。
+  if (el.wb.btnAiChar) {
+    el.wb.btnAiChar.addEventListener('click', () => {
+      const book = currentWorldbook();
+      if (!book) return;
+      aiDraftInBook(book.id);
+    });
+  }
   if (el.wb.btnSyncAttrs) el.wb.btnSyncAttrs.addEventListener('click', syncWorldbookCharAttrs);
 
   // 从角色库多选加入
@@ -431,6 +443,27 @@ function fillEntryForm(entry) {
   el.wb.e.enabled.checked = entry.enabled !== false;
 
   showEntryForm(true);
+}
+
+/** 当前正在编辑哪一本（给别的视图判「生成结果该落进哪本书」用） */
+export function currentWorldbookId() {
+  return editingWorldbookId;
+}
+
+/**
+ * 把编辑焦点安全地切到某一本。
+ *
+ * 外面要用这个，**不要自己去动 editingWorldbookId** —— 切换前必须让
+ * selectWorldbook 先把界面上的表单 stash 回原来那一本（理由见 selectWorldbook 上面）。
+ * AI 生成角色那条路要它：弹窗开着的时候用户可能已经换了书，生成完得切回原来那本，
+ * 新副本才落对地方。
+ *
+ * @returns {boolean} 有没有切过去（书不存在就是 false）
+ */
+export function focusWorldbook(id) {
+  if (!worldbookById(id)) return false;
+  selectWorldbook(id);
+  return true;
 }
 
 /**

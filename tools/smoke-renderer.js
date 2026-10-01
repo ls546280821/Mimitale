@@ -2077,6 +2077,166 @@ await scenario('世界书：本书角色', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  场景 11.5：AI 生成角色 —— 角色库那一侧
+//
+//  假后端认「system 里有『你是一位角色设定师』」（见 tools/smoke-test.js）。
+//  这里只验「点按钮 → 弹窗 → 生成 → 字段真的填进编辑器草稿 → 保存才落盘」这条链，
+//  不验生成质量（那是提示词的事，测不了）。
+// ---------------------------------------------------------------------------
+await scenario('AI 生成角色：角色库', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+
+  const before = (await savedCharacters()).length;
+
+  // 列表页确实多了一个入口，而且它不会顺手创建什么
+  check('角色库有「AI 生成」按钮', !!byId('btn-ai-char'));
+
+  click('#btn-ai-char');
+  await waitFor('生成弹窗打开', () => shown('.ai-gen-modal'));
+  // 角色库这条路姓「角色」，不是「NPC」—— 两者提示词完全不同
+  check('弹窗是角色库那一版', $('.ai-gen-modal').textContent.includes('AI 生成角色'), $('.ai-gen-modal').textContent.slice(0, 40));
+
+  const prompt = $('#ai-gen-prompt');
+  check('弹窗里有描述输入框', !!prompt);
+  setValue('#ai-gen-prompt', '一个话很少的守夜人');
+  click(buttonByText($('.ai-gen-modal'), '开始生成'));
+
+  // 生成完直接把字段填进角色编辑器草稿
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  // 解析失败时也会开草稿（把原文塞进描述），光看「有没有开」分不出成功和兜底 ——
+  // 所以再看一眼描述框：兜底那份的标题一定是「未命名角色」。
+  check('生成后打开的是新建草稿', byId('chars-title').textContent === '新建角色', byId('chars-title').textContent);
+  check(
+    '走的是正常解析，不是「解析失败」兜底',
+    byId('c-desc').value.length > 0 && byId('c-name').value !== '未命名角色',
+    `name=${byId('c-name').value} / desc=${byId('c-desc').value.slice(0, 30)}`
+  );
+  check('名字已回填', byId('c-name').value === '守夜人', byId('c-name').value);
+  check('描述已回填', byId('c-desc').value.includes('深夜值班'), byId('c-desc').value);
+  check('标签已回填', byId('c-tags').value.includes('测试'), byId('c-tags').value);
+  check('属性已回填', $('#c-attr-list') && $('#c-attr-list').textContent.includes('好感度'), $('#c-attr-list') && $('#c-attr-list').textContent);
+
+  // 最要紧的一条：**这一步还不该落盘** —— 和「新建角色」一样，点保存才算数
+  await sleep(150);
+  check('生成后还没落盘（要用户点保存才创建）', (await savedCharacters()).length === before, `期望 ${before}，实际 ${(await savedCharacters()).length}`);
+
+  click('#btn-save-char');
+  await waitFor('落盘完成', async () => (await savedCharacters()).length === before + 1);
+  const saved = (await savedCharacters())[before] || {};
+  check('保存后角色进了角色库', saved.name === '守夜人', saved.name);
+  check('落盘的属性也跟着进来了', (saved.attributes || []).length === 2, JSON.stringify(saved.attributes));
+  // ⚠️ 这两条断言故意盯着**归一化之后的形状**，不是模型给的原样：
+  //   · 数值字段落盘是 meter（没有 number 这个类型）
+  //   · dynamic 是默认频率，存储时那个键会被省掉（见 main/panel-fields.js）
+  const attrs = saved.attributes || [];
+  check('数值属性落成了 meter', attrs.some((a) => a.name === '好感度' && a.type === 'meter'), JSON.stringify(attrs));
+  check('默认频率（dynamic）不写多余的键', attrs.some((a) => a.name === '好感度' && a.mode === undefined), JSON.stringify(attrs));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 11.55：AI 生成角色 —— 角色库那侧的「背景 / 基调」（可选）
+//
+//  只有角色库那侧有这个框（世界书自带条目 + 开场白当大纲）。
+//  验两件事：① 世界书那侧不该冒出这个框；② 填了之后那段真的进了 system。
+//  第 ② 条靠假后端认「【背景 / 基调】」返回不同的名字（见 tools/smoke-test.js）。
+// ---------------------------------------------------------------------------
+await scenario('AI 生成角色：背景/基调框', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+
+  click('#btn-ai-char');
+  await waitFor('生成弹窗打开', () => shown('.ai-gen-modal'));
+  check('角色库那侧有「背景 / 基调」框', !!byId('ai-gen-brief'));
+
+  setValue('#ai-gen-prompt', '一个值夜班的店员');
+  setValue('#ai-gen-brief', '现代都市的深夜便利店，安静、有点孤独');
+  click(buttonByText($('.ai-gen-modal'), '开始生成'));
+
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  // 名字跟着「有没有基调」变 —— 还是「守夜人」就说明那段没拼进 system
+  check('背景/基调确实拼进了提示词', byId('c-name').value === '便利店店员', byId('c-name').value);
+
+  click('#btn-close-chars');
+  await waitFor('弹出放弃确认框', () => shown('#confirm-modal'));
+  click('#confirm-ok');
+  await waitFor('编辑器关闭', () => !shown('#chars-modal'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 11.6：AI 生成角色 —— 模型返回的不是干净 JSON
+//
+//  真模型经常多写一句「好的，我按你说的写了一个」、再把 JSON 包进 ```json 围栏。
+//  这条验的是兜底：必须剥掉围栏、切出花括号块，正常生成出角色，而不是报错。
+// ---------------------------------------------------------------------------
+await scenario('AI 生成角色：模型输出带围栏和废话', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+
+  click('#btn-ai-char');
+  await waitFor('生成弹窗打开', () => shown('.ai-gen-modal'));
+  setValue('#ai-gen-prompt', '冒烟：烂JSON');
+  click(buttonByText($('.ai-gen-modal'), '开始生成'));
+
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  check('带围栏的输出也能解析出角色', byId('c-name').value === '油烟贩子', byId('c-name').value);
+  check('描述里没有残留的围栏标记', !byId('c-desc').value.includes('```'), byId('c-desc').value);
+
+  // 这份草稿不要了 —— 关掉时弹的确认框要按「放弃」走
+  click('#btn-close-chars');
+  await waitFor('弹出放弃确认框', () => shown('#confirm-modal'));
+  click('#confirm-ok');
+  await waitFor('编辑器关闭', () => !shown('#chars-modal'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 11.7：AI 生成 NPC —— 世界书那一侧
+//
+//  和角色库那条路共用弹窗和草稿，但上下文完全不同：它要带这本书的条目和副本名单。
+//  假后端据 system 里有没有「【世界：」分辨走的是不是 NPC 那条路，返回的角色名
+//  也因此不同（见 tools/smoke-test.js）—— 落盘的名字对不上就说明没带上下文。
+// ---------------------------------------------------------------------------
+await scenario('AI 生成 NPC：依据世界书', async () => {
+  click('#btn-worldbooks');
+  await waitFor('切到世界书页面', () => shown('#view-worldbooks'));
+  click(buttonByText($$('#wb-page-grid .char-card')[0], '编辑'));
+  await waitFor('世界书弹窗打开', () => shown('#worldbooks-modal'));
+
+  check('世界书里有「AI 生成」按钮', !!byId('btn-ai-wb-char'));
+
+  const before = ((await savedWorldbooks())[0].characters || []).length;
+
+  click('#btn-ai-wb-char');
+  await waitFor('生成弹窗打开', () => shown('.ai-gen-modal'));
+  check('弹窗是 NPC 那一版', $('.ai-gen-modal').textContent.includes('AI 生成 NPC'), $('.ai-gen-modal').textContent.slice(0, 40));
+  check('状态行说明了依据哪本书', $('.ai-gen-status').textContent.includes('冒烟测试世界'), $('.ai-gen-status').textContent);
+  // 世界书那侧不该有「背景 / 基调」框 —— 它本身就有大纲（条目 + 开场白）
+  check('世界书那侧没有「背景 / 基调」框', !byId('ai-gen-brief'));
+
+  setValue('#ai-gen-prompt', '酒馆后厨的帮工');
+  click(buttonByText($('.ai-gen-modal'), '开始生成'));
+
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  check('标题是「新建本书角色」', byId('chars-title').textContent === '新建本书角色', byId('chars-title').textContent);
+  // 名字来自假后端的「带世界上下文」分支 —— 对不上就说明 system 里没带上这本书的设定
+  check('生成时确实带上了这本书的上下文', byId('c-name').value === '后厨帮工', byId('c-name').value);
+
+  await sleep(150);
+  check('生成后副本还没落盘', ((await savedWorldbooks())[0].characters || []).length === before, String(((await savedWorldbooks())[0].characters || []).length));
+
+  click('#btn-save-char');
+  await waitFor('副本 chip 出现', () => $('#wb-char-list').textContent.includes('后厨帮工'));
+  check('副本已落进这本书', ((await savedWorldbooks())[0].characters || []).length === before + 1, String(((await savedWorldbooks())[0].characters || []).length));
+
+  click('#btn-close-chars');
+  await sleep(120);
+  check('副本保存后关闭不弹确认框', !shown('#confirm-modal'));
+
+  click('#btn-close-worldbooks');
+  await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
+});
+
+// ---------------------------------------------------------------------------
 //  场景 12：进入世界 —— 玩家角色弹窗
 // ---------------------------------------------------------------------------
 await scenario('进入世界：用角色卡当自己', async () => {
@@ -2253,7 +2413,7 @@ await scenario('角色卡：字段往返不丢', async () => {
 
 // ---------------------------------------------------------------------------
 //  场景：角色头像 / 形象 —— 两张图各管一处
-//    头像（1:1）→ 消息气泡、状态卡；形象（3:4）→ 角色库列表，点开看大图。
+//    头像（1:1）→ 消息气泡、状态卡；形象（2:3）→ 角色库列表，点开看大图。
 //    上传走**真裁剪组件**（不是往框里直接塞图）：images:pick 的桩给一张
 //    1×1 PNG，裁剪浮层照常弹、照常按目标比例输出。
 // ---------------------------------------------------------------------------
@@ -2306,18 +2466,18 @@ await scenario('角色：头像和形象是两张图', async () => {
   check('裁剪标题是「裁剪角色形象」', byId('crop-layer').textContent.includes('裁剪角色形象'));
   click('#crop-ok');
   // 光等「框里有 img」不够 —— 还没单独设形象时，框里本来就沿用着头像那张。
-  // 等到尺寸变成 900 才说明新裁的那张真的换上了。
+  // 等到尺寸变成 1024 才说明新裁的那张真的换上了。
   await waitFor('形象换成新裁的那张', () => {
     const i = byId('char-portrait').querySelector('img');
-    return !!i && i.naturalWidth === 900;
+    return !!i && i.naturalWidth === 1024;
   });
   check('设过形象之后不再标「沿用头像」', !byId('char-portrait').classList.contains('is-inherited'));
 
   const ptImg = byId('char-portrait').querySelector('img');
   check(
-    '形象按 3:4 裁（900×1200）',
-    !!ptImg && ptImg.naturalWidth === 900 && ptImg.naturalHeight === 1200,
-    ptImg ? `${ptImg.naturalWidth}×${ptImg.naturalHeight}` : '框里没图'
+    '形象按 2:3 裁（1024×1536）',
+    !!ptImg && ptImg.naturalWidth === 1024 && ptImg.naturalHeight === 1536,
+    `实际 ${ptImg && ptImg.naturalWidth}×${ptImg && ptImg.naturalHeight} / 视口 ${window.innerWidth}×${window.innerHeight} / dpr ${window.devicePixelRatio}`
   );
 
   click('#btn-save-char');
@@ -5367,9 +5527,9 @@ await scenario('看图：灯箱缩放与关闭', async () => {
   click('#char-portrait');
   await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
   click('#crop-ok');
-  await waitFor('形象按 900 落进框里', () => {
+  await waitFor('形象按 1024 落进框里', () => {
     const i = byId('char-portrait').querySelector('img');
-    return !!i && i.naturalWidth === 900;
+    return !!i && i.naturalWidth === 1024;
   });
 
   click('#btn-save-char');
@@ -5452,7 +5612,7 @@ await scenario('裁剪：原图不够大时不硬撑放大', async () => {
     return cv.toDataURL('image/png');
   })();
 
-  const done = mod.openImageCrop({ dataUrl: small, aspect: 3 / 4, outWidth: 900, title: '裁剪角色形象' });
+  const done = mod.openImageCrop({ dataUrl: small, aspect: 2 / 3, outWidth: 1024, title: '裁剪角色形象' });
   await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
   click('#crop-ok');
   const outUrl = await done;
@@ -5464,9 +5624,17 @@ await scenario('裁剪：原图不够大时不硬撑放大', async () => {
     im.src = outUrl;
   });
 
-  // 200×200 的原图上，3:4 的框最多只能圈到 150×200 —— 输出就该是这么大。
-  // 硬撑到 900×1200 只会把同一份信息摊得更糊、文件还更大。
-  check('输出按原图能给的最大信息量走，不放大', size.w === 150 && size.h === 200, `${size.w}×${size.h}`);
+  // 200×200 的原图上，2:3 的框最多只能圈到 133×200 —— 输出就该是这么大。
+  // 硬撑到 1024×1536 只会把同一份信息摊得更糊、文件还更大。
+  check('输出按原图能给的最大信息量走，不放大', size.w === 133 && size.h === 200, `${size.w}×${size.h}`);
+
+  // 存下来的格式：优先 1.0 的 webp（有损编码里已经到顶，肉眼看不出区别），
+  // 体积只有 PNG 的 1/3 左右 —— 这个文件每存一次角色就要整个重写一遍。
+  check(
+    '用 1.0 的 webp 存（无损级别，体积比 PNG 小三倍）',
+    outUrl.startsWith('data:image/webp'),
+    outUrl.slice(0, 30)
+  );
 });
 
 return { results, notes, hoverProbe };

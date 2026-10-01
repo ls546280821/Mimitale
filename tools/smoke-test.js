@@ -466,16 +466,17 @@ function registerStubs() {
   // 生图桩沿用这张 1×1 PNG（只验链路通不通，尺寸无所谓）
   const TINY_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-  // 「选一张图」返回一张真的 1200×1600 图。裁剪那条链路会按**原图实际像素**决定
-  // 输出尺寸（原图不够大就不放大），拿 1×1 的图去测等于所有输出都是 1px，尺寸根本验不了。
+  // 「选一张图」返回一张真的 1200×1800 图（2:3，和形象的画幅一致）。裁剪那条链路会按
+  // **原图实际像素**决定输出尺寸（原图不够大就不放大），拿 1×1 的图去测等于所有输出都是
+  // 1px，尺寸根本验不了。
   // 用 SVG 而不是 PNG：同样是张能解码的真图，但尺寸写在属性里，改起来一行的事。
   const PICK_IMAGE =
     'data:image/svg+xml;charset=utf-8,' +
     encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1600" viewBox="0 0 1200 1600">' +
-        '<rect width="1200" height="1600" fill="#dfe7f5"/>' +
-        '<rect width="600" height="1600" fill="#c3d2ea"/>' +
-        '<circle cx="600" cy="500" r="220" fill="#9db4d8"/>' +
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1800" viewBox="0 0 1200 1800">' +
+        '<rect width="1200" height="1800" fill="#dfe7f5"/>' +
+        '<rect width="600" height="1800" fill="#c3d2ea"/>' +
+        '<circle cx="600" cy="560" r="220" fill="#9db4d8"/>' +
         '</svg>'
     );
   ipcMain.handle('images:pick', () => ({ canceled: false, dataUrl: PICK_IMAGE }));
@@ -504,6 +505,7 @@ function registerStubs() {
   // 每次回复带个序号 —— 不然「重新生成」出来的候选和原来那条一模一样，
   // 测不出「到底是哪一条」
   let replySeq = 0;
+  let aiGenSeen = 0; // 认出来的 AI 生成请求数（诊断用）
   ipcMain.handle('chat:send', async (event, payload) => {
     remember('chat:send');
     chatPayloads.push(clone((payload && payload.messages) || []));
@@ -538,6 +540,60 @@ function registerStubs() {
     const retryNudged = isRetryNudge(turn);
     const continuedNudged = isContinueNudge(turn);
     const panelNudged = isPanelNudge(turn);
+
+    // 「AI 生成角色」：它和聊天共用 chat:send，靠 system 里的特征串认出来。
+    // 用 system 而不是 user 是因为那两段的 user 文案由调用方拼，容易改；
+    // 而 system 的措辞就在 aiGen.js 的常量里，改的时候一眼能看到这里。
+    //
+    // ⚠️ 这个桩**必须能返回真东西**，否则「界面没反应」这类问题会伪装成别处失败，
+    //    而且返回空和返回垃圾都表现为「生成后字段是空的」，很难分辨。
+    const allText = allMsgs.map((m) => String((m && m.content) || '')).join('\n');
+    if (allText.includes('你是一位角色设定师')) {
+      // 认出来的 AI 生成请求数 —— 只在诊断时打出来（见下面的 TMP 输出），
+      // 用来区分「请求没发出来」和「发出来了但没认出来」。
+      aiGenSeen += 1;
+      // 世界书那条路会把书的设定一起塞进 system —— 用它验证「NPC 描述确实按书生成」
+      const knownBook = allText.includes('【世界：');
+      // 「烂 JSON」场景：模型多写了一句开场白、还把 JSON 包在 ``` 里。
+      // 解析器要能剥掉围栏、切出花括号块，正常生成出角色。
+      const messy = allText.includes('冒烟：烂JSON');
+      // 角色库那侧的「背景 / 基调」是可选的：填了才会拼进 system。
+      // 名字跟着基调变 —— 对不上就说明那段没注入。
+      const withBrief = allText.includes('【背景 / 基调】');
+      const payloadText = messy
+        ? '好的，我按你说的写了一个：\n\n```json\n{"name":"油烟贩子","description":"' +
+          '常在酒馆后巷支摊卖炸物的小贩，围裙上全是油渍，嗓门大。",' +
+          '"personality":"见谁都自来熟，爱打听闲话换点好处。",' +
+          '"tags":["市井","NPC"],"attributes":[{"name":"好感度","type":"number","value":10,"mode":"dynamic"}]}\n```\n\n需要我再调整吗？'
+        : JSON.stringify({
+            name: knownBook ? '后厨帮工' : withBrief ? '便利店店员' : '守夜人',
+            description: knownBook
+              ? '酒馆后厨的帮工，负责洗碗和备料，手上常年有烫伤的疤。'
+              : withBrief
+                ? '深夜便利店的店员，值夜班时总把收音机开得很轻。'
+                : '一个总在深夜值班的人，习惯把话咽回去一半。',
+            personality: '话少，但记得住每个人点过什么。',
+            tags: ['冒烟', '测试'],
+            attributes: [
+              { name: '好感度', type: 'number', value: 5, mode: 'dynamic' },
+              { name: '身份', type: 'text', value: '帮工', mode: 'static' }
+            ]
+          });
+      for (const piece of payloadText.match(/[\s\S]{1,40}/g) || []) {
+        if (!event.sender.isDestroyed()) event.sender.send('chat:chunk', { requestId, text: piece });
+        await sleep(2);
+      }
+      return {
+        ok: true,
+        requestId,
+        model,
+        content: payloadText,
+        reasoning: '',
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        finishReason: 'stop'
+      };
+    }
+
     const askedToOnlyThink = turn.includes('只思考不回答');
     const askedThinkBurn = turn.includes('思考挤掉正文');
     const askedTruncatedBody = turn.includes('截断正文');
@@ -2197,6 +2253,58 @@ function probeRag(result) {
 }
 
 /**
+ * AI 生成的解析体检：把「模型返回的原文」直接喂给 aiGen 的解析函数，
+ * 看它到底能不能解析出字段。这条链路（原文 → 剥围栏 → JSON.parse → 字段）
+ * 跑在渲染层里、又是纯函数，最适合直接 import 进来单测 ——
+ * 真点按钮那条路会掺进「弹窗有没有开、草稿有没有建」等一堆无关变量。
+ */
+async function probeAiGenParse(win, result) {
+  const push = (name, pass, detail) =>
+    result.results.push({ name, pass: !!pass, detail: detail || '' });
+
+  try {
+    const out = await win.webContents.executeJavaScript(`(async () => {
+      const mod = await import(new URL('js/views/aiGen.js', document.baseURI).href);
+      if (typeof mod.parseGeneratedCharacter !== 'function') return { exported: false };
+
+      const clean = JSON.stringify({
+        name: '守夜人',
+        description: '一个总在深夜值班的人。',
+        personality: '话少。',
+        tags: ['冒烟'],
+        attributes: [{ name: '好感度', type: 'number', value: 5, mode: 'dynamic' }]
+      });
+      const fenced = '好的，我按你说的写了一个：\\n\\n\\\`\\\`\\\`json\\n' + clean + '\\n\\\`\\\`\\\`\\n\\n需要我再调整吗？';
+
+      const a = mod.parseGeneratedCharacter(clean);
+      const b = mod.parseGeneratedCharacter(fenced);
+      return {
+        exported: true,
+        clean: { ok: a.ok, name: a.fields && a.fields.name, attrs: (a.fields && a.fields.attributes || []).length, err: a.error },
+        fenced: { ok: b.ok, name: b.fields && b.fields.name, attrs: (b.fields && b.fields.attributes || []).length, err: b.error }
+      };
+    })()`);
+
+    if (!out || !out.exported) {
+      push('AI 生成：解析函数可以从模块里拿到', false, JSON.stringify(out));
+      return;
+    }
+    push(
+      'AI 生成：干净的 JSON 能解析出角色',
+      out.clean.ok && out.clean.name === '守夜人' && out.clean.attrs === 1,
+      JSON.stringify(out.clean)
+    );
+    push(
+      'AI 生成：带围栏和废话的输出也能解析出角色',
+      out.fenced.ok && out.fenced.name === '守夜人' && out.fenced.attrs === 1,
+      JSON.stringify(out.fenced)
+    );
+  } catch (err) {
+    push('AI 生成：解析体检能跑起来', false, (err && err.message) || String(err));
+  }
+}
+
+/**
  * 文案体检：属性编辑器的「更新频率」提示不该硬编码具体字段名（字段是用户
  * 卡片/世界书的数据）。放宿主侧用 fs 读源码，是因为渲染层 CSP 拦 fetch file://。
  */
@@ -2343,6 +2451,7 @@ app.whenReady().then(async () => {
       probeRag(result);
       probeAttrModeWording(result);
       probeSettingsWhitelist(result);
+      await probeAiGenParse(win, result);
       await probeHover(win, result);
       await probeLightboxClick(win, result);
     } catch (err) {
@@ -2425,20 +2534,20 @@ app.whenReady().then(async () => {
         chars: `
           document.querySelector('#btn-chars')?.click();
           await new Promise(r => setTimeout(r, 500));`,
-        // 角色库：卡片上铺的是**角色形象**（3:4 竖版立绘），点开还能看大图。
+        // 角色库：卡片上铺的是**角色形象**（2:3 竖版立绘），点开还能看大图。
         // 测试里的角色都没有图（上传那条路被 images:pick 的桩挡着），
-        // 所以这里给每张卡塞一个 3:4 的 SVG 占位立绘 —— 只为看清裁切和排版；
+        // 所以这里给每张卡塞一个 2:3 的 SVG 占位立绘 —— 只为看清裁切和排版；
         // 上传那条**真路径**在「角色：头像和形象是两张图」场景里（走 ui/imageCrop.js）。
         charArt: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
           const nap = (ms) => new Promise(r => setTimeout(r, ms));
           const art = (hue, label) => 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400">' +
-            '<rect width="300" height="400" fill="hsl(' + hue + ',70%,90%)"/>' +
-            '<circle cx="150" cy="128" r="60" fill="hsl(' + hue + ',55%,68%)"/>' +
-            '<path d="M42 400c0-82 48-134 108-134s108 52 108 134z" fill="hsl(' + hue + ',55%,68%)"/>' +
-            '<text x="150" y="386" font-size="24" text-anchor="middle" fill="hsl(' + hue + ',50%,36%)">' + label + '</text>' +
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 450">' +
+            '<rect width="300" height="450" fill="hsl(' + hue + ',70%,90%)"/>' +
+            '<circle cx="150" cy="144" r="60" fill="hsl(' + hue + ',55%,68%)"/>' +
+            '<path d="M42 450c0-92 48-151 108-151s108 59 108 151z" fill="hsl(' + hue + ',55%,68%)"/>' +
+            '<text x="150" y="434" font-size="24" text-anchor="middle" fill="hsl(' + hue + ',50%,36%)">' + label + '</text>' +
             '</svg>');
 
           $('#btn-chars')?.click();
@@ -2469,11 +2578,11 @@ app.whenReady().then(async () => {
           const $ = (s) => document.querySelector(s);
           const nap = (ms) => new Promise(r => setTimeout(r, ms));
           const art = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-            '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400">' +
-            '<rect width="300" height="400" fill="hsl(335,70%,90%)"/>' +
-            '<circle cx="150" cy="128" r="60" fill="hsl(335,55%,68%)"/>' +
-            '<path d="M42 400c0-82 48-134 108-134s108 52 108 134z" fill="hsl(335,55%,68%)"/>' +
-            '<text x="150" y="386" font-size="24" text-anchor="middle" fill="hsl(335,50%,36%)">示例角色</text>' +
+            '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450">' +
+            '<rect width="300" height="450" fill="hsl(335,70%,90%)"/>' +
+            '<circle cx="150" cy="144" r="60" fill="hsl(335,55%,68%)"/>' +
+            '<path d="M42 450c0-92 48-151 108-151s108 59 108 151z" fill="hsl(335,55%,68%)"/>' +
+            '<text x="150" y="434" font-size="24" text-anchor="middle" fill="hsl(335,50%,36%)">示例角色</text>' +
             '</svg>');
           const mod = await import(new URL('js/ui/lightbox.js', document.baseURI).href);
           mod.openLightbox(art, { title: '示例角色' });
@@ -2523,7 +2632,7 @@ app.whenReady().then(async () => {
         // 角色编辑器：点左栏上传框会走真实的 shrinkAvatar → 落盘那条路
         // （images:pick 的桩给的是 1×1 PNG，裁完是一片纯色 —— 看不出裁切效果）。
         // 所以出图时直接往两个上传框里各塞一张 SVG 占位图，只为核对框子比例：
-        // 头像是 1:1 圆，形象是 3:4 竖版。
+        // 头像是 1:1 圆，形象是 2:3 竖版。
         charEditor: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
@@ -2551,7 +2660,7 @@ app.whenReady().then(async () => {
             box.appendChild(img);
           };
           fill('#char-avatar', 300, 300);    // 头像：1:1
-          fill('#char-portrait', 300, 400);  // 形象：3:4
+          fill('#char-portrait', 300, 450);  // 形象：2:3
           // 直接塞图绕过了 renderCharMedia，手动把两颗「清除」也露出来 ——
           // 截图要核对的正是它们的尺寸和间距
           $('#btn-clear-avatar')?.classList.remove('hidden');

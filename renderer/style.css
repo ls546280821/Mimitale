@@ -1688,6 +1688,35 @@ body {
 #chars-modal .modal-card { max-width: 820px; }
 #confirm-modal { z-index: 70; }
 
+/* ------------------------------ AI 生成角色 ------------------------------ */
+
+/* 它从角色编辑器 / 世界书编辑器里被打开，得压在两者之上；
+   确认框（70）仍然在它上面 —— 生成期间关掉要问一句。 */
+.ai-gen-modal { z-index: 65; }
+
+.ai-gen-card { max-width: 620px; }
+
+.ai-gen-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-gen-body textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+/* 状态行：生成时写「正在生成…」，出错时写原因，平时是提示。
+   固定一个最小高度，免得文字在出现 / 消失时把下面的按钮顶得上下跳。 */
+.ai-gen-status {
+  min-height: 18px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
 @keyframes modal-fade {
   from { opacity: 0; }
 }
@@ -2061,7 +2090,7 @@ body {
 }
 
 /* 角色卡比世界书卡大一档。
-   卡上那个圆头像其实是**人设图**的位置（3:4 竖版立绘，见下面的 .char-card-avatar），
+   卡上那个圆头像其实是**人设图**的位置（2:3 竖版立绘，见下面的 .char-card-avatar），
    168px 的窄卡里放不下像样的立绘 —— 世界书卡没有图，保持上面那档宽度。 */
 .char-grid {
   grid-template-columns: repeat(auto-fill, minmax(198px, 1fr));
@@ -2154,8 +2183,9 @@ body {
 #char-page-grid .char-card-avatar {
   width: 100%;
   height: auto;
-  /* 3:4 —— 和存下来的比例（以及编辑器里那个上传框）严格一致 */
-  aspect-ratio: 3 / 4;
+  /* 2:3 —— 和存下来的比例（1024×1536，以及编辑器里那个上传框）严格一致。
+     改比例要三处一起改：这里、.char-portrait，还有 characterEditor.js 的 PORTRAIT_RATIO。 */
+  aspect-ratio: 2 / 3;
   border-radius: var(--radius-sm);
   font-size: 52px;
 }
@@ -2994,7 +3024,7 @@ body {
   margin-bottom: 22px;
 }
 
-/* 上传列：头像（1:1 圆）和形象（3:4 竖版）并排，各自下面一行小标签 + 清除。
+/* 上传列：头像（1:1 圆）和形象（2:3 竖版）并排，各自下面一行小标签 + 清除。
    两个框的**形状就是存下来的形状** —— 裁剪时框住哪块，这里、列表卡上看到的就是哪块。 */
 .char-avatar-col {
   flex: 0 0 auto;
@@ -3042,11 +3072,11 @@ body {
   border-radius: 50%;
 }
 
-/* 形象：3:4 竖版 —— 和角色库列表卡上那块（#char-page-grid .char-card-avatar）
+/* 形象：2:3 竖版 —— 和角色库列表卡上那块（#char-page-grid .char-card-avatar）
    严格一致，上传时框出来的就是列表上看到的那块。 */
 .char-portrait {
   width: 108px;
-  height: 144px;
+  height: 162px;
   border-radius: 14px;
 }
 

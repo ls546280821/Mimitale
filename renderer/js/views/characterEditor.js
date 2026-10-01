@@ -39,10 +39,11 @@ import {
   newWorldbookCharId
 } from '../data/library.js';
 import { persistCharacters, persistConversations, persistLibrary } from '../data/persist.js';
-import { currentWorldbook, renderWorldbookChars } from './worldbook.js';
+import { currentWorldbook, renderWorldbookChars, focusWorldbook } from './worldbook.js';
 import { renderWorldbookPage } from './worldbookList.js';
 import { renderCharacterPage } from './characterList.js';
 import { renderCharAttrs, initCharAttrsUi } from './charAttributes.js';
+import { openAiGenModal } from './aiGen.js';
 import { attachAutoGrow, syncAutoGrowAll, autoGrow } from '../ui/auto-grow.js';
 import { openImageCrop } from '../ui/imageCrop.js';
 
@@ -237,7 +238,7 @@ let editingCharacterId = null; // 角色库里当前正在编辑的角色
 let charEditorScope = 'library';
 // 正在编辑的角色头像（dataURL，正方形）。用在消息气泡和状态卡上。
 let charDraftAvatar = '';
-// 正在编辑的角色形象（dataURL，3:4 竖版）。角色库列表上铺的就是它。
+// 正在编辑的角色形象（dataURL，2:3 竖版）。角色库列表上铺的就是它。
 // 三态，保存时必须照原样区分开：
 //   · undefined —— 这张卡没单独设过形象。老卡只有一张图（在 avatar 里），
 //     界面上先拿头像顶上，保存时**别写这个键**，省得白白多存一份几 MB 的图。
@@ -388,7 +389,7 @@ function showCharForm(show) {
 //
 //  两张图，各管一处：
 //    · 头像（1:1）—— 消息气泡、状态卡、在场角色栏上那个小圆图
-//    · 形象（3:4）—— 角色库列表上铺的那张竖版图，点开还能看大图
+//    · 形象（2:3）—— 角色库列表上铺的那张竖版图，点开还能看大图
 //  两个上传框都走 ui/imageCrop.js：选完图先框一块，框出来的那块直接就是存下来
 //  的图（裁剪组件按目标尺寸输出，这里不再二次缩放）。
 // ---------------------------------------------------------------------------
@@ -396,11 +397,14 @@ function showCharForm(show) {
 // 头像输出 384×384。小圆图最大也就显示 ~48px（2 倍屏 ≈ 96px），384 已经绰绰有余 ——
 // 头像没有「点开放大」的入口，再往上加只是白占体积。
 const AVATAR_SIZE = 384;
-// 形象输出 900×1200（3:4）。列表卡上只有 ~180px 宽，但**点开看大图会铺满窗口**，
-// 480 宽在那个尺寸下能看出糊。900 宽（约 90~250KB）是清晰度和体积的平衡点。
+// 形象输出 1024×1536（2:3 竖版）。列表卡上只有 ~180px 宽，但**点开看大图会铺满窗口**，
+// 再小就看出糊了。存的时候按 1.0 的 webp 压（肉眼看不出区别，体积只有 PNG 的 1/3）——
+// 这个文件每存一次角色就要整个重写一遍，体积是实打实的成本。
+// ⚠️ 2:3 才对应 1024×1536。3:4 在 1024 宽下是 1365 —— 除不尽，存出来永远差那一截。
+//    改比例要三处一起改：这里、.char-card-avatar、.char-portrait 的 CSS。
 // 另外裁剪组件会按原图实际像素封顶：原图不够大就不硬撑，不会凭空放大出一份糊图。
-const PORTRAIT_WIDTH = 900;
-const PORTRAIT_RATIO = 3 / 4;
+const PORTRAIT_WIDTH = 1024;
+const PORTRAIT_RATIO = 2 / 3;
 
 /** 形象当前该显示哪张图：自己设过就用自己那张，没设过就先拿头像顶上（老卡） */
 function draftPortraitImage() {
@@ -516,6 +520,11 @@ function fillCharForm(character) {
     return;
   }
 
+  // 进编辑器先清一次草稿残留：形象是「undefined = 沿用头像」的三态，
+  // 不清的话上一张卡的草稿会跟着漏进来。
+  charDraftAvatar = character.avatar || '';
+  charDraftPortrait = typeof character.portrait === 'string' ? character.portrait : undefined;
+
   el.c.name.value = character.name || '';
   el.c.tags.value = (character.tags || []).join(', ');
   el.c.desc.value = character.description || '';
@@ -543,9 +552,7 @@ function fillCharForm(character) {
   //    showCharForm(true) 之后（那时弹窗已经可见）。
   wireAutoGrow();
 
-  charDraftAvatar = character.avatar || '';
-  // 形象：老卡上没有这个键 → 留成 undefined，界面上先沿用头像那张
-  charDraftPortrait = typeof character.portrait === 'string' ? character.portrait : undefined;
+  // 两张图的草稿在 fillCharForm 里跟着一起重置了，这里只负责画出来
   renderCharMedia();
 
   // 开关的草稿要从这张卡的当前值起算（老数据没这个字段 = 开）
@@ -908,8 +915,12 @@ function newCharacter() {
 /**
  * 新建角色：只做一个「草稿」塞进编辑器给用户填。
  * 保存之前它不进角色库 / 世界书，也不写磁盘；关掉编辑器就当没建过。
+ *
+ * @param {object} [preset] AI 生成的角色字段（name / description / personality /
+ *                 tags / attributes）。填进来之后和用户手填的草稿没有区别 ——
+ *                 一样要点「保存角色」才会真正创建。
  */
-function startCharDraft() {
+function startCharDraft(preset) {
   // 上一个角色的表单里可能还有没保存的改动，先收进内存（和以前一样），
   // 再把上一份没保存完的草稿丢掉，免得留下一个永远不会被创建的幽灵角色。
   stashCharForm();
@@ -919,20 +930,22 @@ function startCharDraft() {
   const book = scope === 'worldbook' ? currentWorldbook() : null;
   if (scope === 'worldbook' && !book) return;
 
+  const p = preset && typeof preset === 'object' ? preset : {};
+
   const character = {
     id: scope === 'worldbook' ? newWorldbookCharId() : uid(),
-    name: '新角色',
+    name: p.name || '新角色',
     avatar: '',
-    description: '',
-    personality: '',
+    description: p.description || '',
+    personality: p.personality || '',
     scenario: '',
     firstMes: '',
     mesExample: '',
     systemPrompt: '',
     postHistoryInstructions: '',
     creatorNotes: '',
-    tags: [],
-    attributes: [],
+    tags: Array.isArray(p.tags) ? p.tags : [],
+    attributes: Array.isArray(p.attributes) ? p.attributes : [],
     // 年龄/性别/种族不再单独建字段：写进描述文字即可，这里不再预设默认值。
     source: 'manual',
     createdAt: now(),
@@ -1131,6 +1144,27 @@ export function startCharacterDraftInBook() {
   startCharDraft();
 }
 
+/**
+ * 用 AI 生成好的字段起草一个新角色，直接打开编辑器让用户过目。
+ *
+ * 作用域必须在这里钉死：`startCharDraft` 读的是模块内的 `charEditorScope`，
+ * 而世界书那条路还要额外把「哪本书」写进 editingWorldbookId —— 生成期间用户
+ * 可能已经切到别的书去了，只传 bookId 进来是不够的。
+ *
+ * @returns {boolean} 编辑器有没有真的打开（书不在了就是 false）
+ */
+export function startCharacterDraftFromAi(fields, scope, bookId) {
+  charEditorScope = scope === 'worldbook' ? 'worldbook' : 'library';
+
+  if (charEditorScope === 'worldbook') {
+    // 生成期间用户可能换过书，切回生成时依据的那一本，副本才落对地方
+    if (!focusWorldbook(bookId)) return false;
+  }
+
+  startCharDraft(fields);
+  return !!charDraft;
+}
+
 /** 离开世界书作用域（世界书编辑器关掉时收尾） */
 export function releaseEditorScope() {
   if (charEditorScope === 'worldbook') charEditorScope = 'library';
@@ -1152,6 +1186,15 @@ export function initCharacterEditor(injected) {
 
   el.btnCloseChars.addEventListener('click', closeCharsModal);
   el.btnNewChar.addEventListener('click', newCharacter);
+  // 角色列表页的「AI 生成」：作用域同样钉死在角色库，生成结果落到编辑器草稿。
+  // 这里直接调 aiGen 的入口 —— 生成弹窗怎么开是它自己的事，没必要经入口层转一手：
+  // 那种转手一旦漏传就是「点了没反应」，而且只有真点到这个按钮才会发现。
+  if (el.btnAiChar) {
+    el.btnAiChar.addEventListener('click', () => {
+      charEditorScope = 'library';
+      openAiGenModal({ scope: 'library' });
+    });
+  }
   el.btnSaveChar.addEventListener('click', saveCharacter);
   el.btnDelChar.addEventListener('click', deleteCharacter);
 

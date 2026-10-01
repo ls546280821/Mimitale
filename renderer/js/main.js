@@ -95,11 +95,13 @@ import {
   closeWorldbookPicker,
   isWorldbookPickerOpen,
   startCharacterDraftInBook,
+  startCharacterDraftFromAi,
   releaseEditorScope,
   stashCharacterForm,
   deleteCharacterById
 } from './views/characterEditor.js';
 import { initCharacterImport, pickImportFiles, warnImportErrors } from './views/characterImport.js';
+import { initAiGen, openAiGenModal } from './views/aiGen.js';
 import { renderAll } from './views/redraw.js';
 import { renderConvoList, renderModelSwitch, applyModelChoice } from './views/chatList.js';
 import { renderMessages } from './views/chatMessages.js';
@@ -482,6 +484,11 @@ async function init() {
   });
   // 角色编辑器自己绑弹窗里的按钮；它保存 / 删除之后要全量重绘，那是入口层的编排。
   initCharacterEditor({ rerender: () => renderAll() });
+  // AI 生成角色 / NPC：生成完把字段交给角色编辑器开一份新草稿。
+  // 走的是和「＋ 新建角色」完全同一条路 —— 看过、改过、点保存才真正创建。
+  initAiGen({
+    startDraft: (fields, scope, bookId) => startCharacterDraftFromAi(fields, scope, bookId)
+  });
   // 导入通道：导完打开第一个新角色（那是编辑器的事），导入前先收一回编辑器里填的内容。
   initCharacterImport({
     openEditor: (id) => openCharacterEditor(id, 'library'),
@@ -494,7 +501,9 @@ async function init() {
     stashDraft: () => stashWorldbookForm(),
     openInBook: (id) => openCharacterEditor(id, 'worldbook'),
     draftInBook: () => startCharacterDraftInBook(),
-    releaseScope: () => releaseEditorScope()
+    releaseScope: () => releaseEditorScope(),
+    // 「AI 生成 NPC」：带上这本书的 id，生成时拿它的条目和副本名单当上下文
+    aiDraftInBook: (bookId) => openAiGenModal({ scope: 'worldbook', bookId })
   });
   // 设置弹窗同样只绑事件。它保存后要重绘「右上角切换器」和消息列表，
   // 那两样属于入口层（前者读会话状态、后者是聊天区），所以注入进去。
