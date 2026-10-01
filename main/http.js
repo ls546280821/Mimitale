@@ -600,6 +600,16 @@ function bridgeDraw({ baseUrl, text, characterContext, preset, timeoutMs = 30000
   });
 }
 
+/** 本机桥接的出图进度查询：GET /draw/progress，返回 {status,value,max,prompt_id} */
+function bridgeDrawProgress(baseUrl, timeoutMs = 5000) {
+  return requestJson({
+    url: `${normalizeBaseUrl(baseUrl)}/draw/progress`,
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+    timeoutMs
+  });
+}
+
 /** 本机桥接的健康检查：GET /health，返回两个引擎是否在线 */
 function bridgeHealth(baseUrl, timeoutMs = 10000) {
   return requestJson({
@@ -620,6 +630,7 @@ module.exports = {
   bridgeHealthUrl,
   bridgeChat,
   bridgeDraw,
+  bridgeDrawProgress,
   bridgeHealth,
   downloadBinary,
   requestJson,

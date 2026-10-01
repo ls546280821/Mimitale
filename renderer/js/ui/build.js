@@ -108,17 +108,31 @@ export function renderListPage({ grid, empty, sub, subText, items, card }) {
 /**
  * 列表页的卡片外壳：头像 + 名字 + 一行小字 + 操作区。
  * 角色卡和世界书卡长得一样，只是内容不同；`extra` 用来塞角色卡右上角那个删除按钮。
+ *
+ * `onMediaClick` 给了就说明这张图能点开看大图（角色库的立绘）——
+ * 那时候图外面包一个 button，键盘也能按到。
  */
-export function card({ title, sub, subTitle, avatar, avatarText, avatarClass, actions, extra }) {
+export function card({ title, sub, subTitle, avatar, avatarText, avatarClass, actions, extra, onMediaClick, mediaTitle }) {
+  const media = avatar ? h('img', { src: avatar, alt: '' }) : avatarText;
+  const mediaBox = onMediaClick
+    ? h(
+        'button',
+        {
+          type: 'button',
+          class: ['char-card-avatar', 'clickable', avatarClass],
+          title: mediaTitle || title,
+          'aria-label': mediaTitle || title,
+          onclick: onMediaClick
+        },
+        media
+      )
+    : h('div', { class: ['char-card-avatar', avatarClass] }, media);
+
   return h(
     'div',
     { class: 'char-card', role: 'listitem', title },
     extra,
-    h(
-      'div',
-      { class: ['char-card-avatar', avatarClass] },
-      avatar ? h('img', { src: avatar, alt: '' }) : avatarText
-    ),
+    mediaBox,
     h('div', { class: 'char-card-name', text: title }),
     h('div', { class: 'char-card-sub', text: sub, title: subTitle || sub }),
     h('div', { class: 'char-card-actions' }, actions)

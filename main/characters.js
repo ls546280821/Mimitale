@@ -96,11 +96,19 @@ function normalizeCharacter(raw, source) {
   const str = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
 
   const avatar = typeof r.avatar === 'string' && r.avatar.startsWith('data:image/') ? r.avatar : '';
+  // 角色形象（3:4 立绘），和头像分开存：头像是消息气泡 / 状态卡上那个小圆图，
+  // 形象是角色库列表上那张竖版图、点开能看大图。
+  const portrait = typeof r.portrait === 'string' && r.portrait.startsWith('data:image/') ? r.portrait : '';
 
   return {
     id: typeof r.id === 'string' && r.id ? r.id : newCharacterId(),
     name: str(r.name, 120).trim() || '未命名角色',
     avatar: avatar.length <= MAX_AVATAR_CHARS ? avatar : '',
+    // ⚠️ 只在原来就有这个键时才写出来（哪怕是空串）。
+    //    「没有这个键」= 老卡，只有一张图，读的时候用头像顶上（见 library.js 的
+    //    characterPortrait）；「键在、值是空串」= 用户明确不要形象。
+    //    写成 portrait: '' 会把老卡全变成「没有形象」，列表就只剩首字色块了。
+    ...(typeof r.portrait === 'string' ? { portrait: portrait.length <= MAX_AVATAR_CHARS ? portrait : '' } : {}),
     description: str(r.description, 20000),
     personality: str(r.personality, 10000),
     scenario: str(r.scenario, 10000),

@@ -22,9 +22,11 @@ import { el } from '../core/dom.js';
 import { now, activeConvo } from '../core/util.js';
 import { showToast } from '../ui/toast.js';
 import { h, button, clear } from '../ui/build.js';
+import { openLightbox } from '../ui/lightbox.js';
 import { persistConversations } from '../data/persist.js';
 import { cleanAssistantText, convoFieldDisplayNames, panelGroupNames } from '../data/panel.js';
-import { messageImages, convoIsBridge, characterContextForConvo } from '../data/messages.js';
+import { messageImages, characterContextForConvo } from '../data/messages.js';
+import { providerById, isBridgeProvider } from '../data/providers.js';
 
 // 一张图最长边压到多少再发。视觉模型内部一般也就缩到这个量级，
 // 传原图只是白烧 token 和流量
@@ -167,14 +169,14 @@ export function buildMessageImages(message) {
 
   const wrap = h('div', { class: 'bubble-images' });
   for (const src of images) {
-    // 点开看大图：直接 window.open 会被 CSP 拦，交给主进程弹一个窗口
+    // 点开看大图：铺一层灯箱，能滚轮缩放、拖动平移
     wrap.appendChild(
       h('img', {
         class: 'bubble-image',
         src,
         alt: '图片',
         title: '点开看大图',
-        onclick: () => api.openImage(src).catch(() => showToast('打不开这张图', 'error'))
+        onclick: () => openLightbox(src)
       })
     );
   }
@@ -241,20 +243,46 @@ export async function illustrateMessage(index) {
     let dataUrl = null;
     let model = '';
 
-    if (convoIsBridge(convo)) {
-      // 本机桥接：走本地 ComfyUI 的 /draw，长相由角色卡（character_context）决定
-      const result = await api.drawBridgeImage({
-        text: prompt,
-        characterContext: characterContextForConvo(convo),
-        providerId: convo.providerId
-      });
-      if (!result || result.ok !== true) {
-        throw new Error((result && result.error) || '配图失败');
+    // 按「生图服务商」分流：本地桥接 → /draw（本地 ComfyUI）；否则 → 云生图
+    const imageProvider = providerById(settings.imageProviderId);
+    const useLocalDraw = isBridgeProvider(imageProvider);
+
+    if (useLocalDraw) {
+      // 本地桥接：走 /draw（本地 ComfyUI），出图要几分钟，加一个进度条
+      const progressEl = document.createElement('div');
+      progressEl.style.cssText = 'margin-top:8px;font-size:12px;color:#9ca3af;';
+      progressEl.textContent = '正在画… 准备中';
+      if (node) node.appendChild(progressEl);
+
+      const progressTimer = setInterval(async () => {
+        try {
+          const p = await api.drawBridgeProgress({ providerId: settings.imageProviderId });
+          if (p && p.ok === true && p.status === 'running' && Number(p.max) > 0) {
+            const value = Number(p.value || 0);
+            const max = Number(p.max || 1);
+            const pct = Math.round((value / max) * 100);
+            progressEl.textContent = `正在画… ${pct}%（第 ${value}/${max} 步）`;
+          }
+        } catch (e) { /* 进度查询失败就静默，不影响出图 */ }
+      }, 1500);
+
+      try {
+        const result = await api.drawBridgeImage({
+          text: prompt,
+          characterContext: characterContextForConvo(convo),
+          providerId: settings.imageProviderId
+        });
+        if (!result || result.ok !== true) {
+          throw new Error((result && result.error) || '配图失败');
+        }
+        if (!result.dataUrl) {
+          throw new Error((result && result.drawReason) || '没有生成出图片');
+        }
+        dataUrl = result.dataUrl;
+      } finally {
+        clearInterval(progressTimer);
+        if (progressEl && progressEl.parentNode) progressEl.remove();
       }
-      if (!result.dataUrl) {
-        throw new Error((result && result.drawReason) || '没有生成出图片');
-      }
-      dataUrl = result.dataUrl;
     } else {
       // 云生图：走独立生图服务商
       if (!settings.imageProviderId) {

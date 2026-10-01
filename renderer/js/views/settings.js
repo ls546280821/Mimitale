@@ -172,9 +172,8 @@ function fillSettingsForm(settings) {
   clear(el.s.imageProvider);
   el.s.imageProvider.appendChild(h('option', { value: '', text: '（不启用生图）' }));
   for (const provider of providers()) {
-    // 本机桥接的出图是绑在对话里的（/chat_with_image），没有独立的 /images/generations，
-    // 不能选进「生图」这一组，否则会 404
-    if (isBridgeProvider(provider)) continue;
+    // 本机桥接现在有独立的 /draw 接口（走本地 ComfyUI），可以选进生图；
+    // 配图时 renderer 会按「生图服务商是不是桥接」分流到 /draw 或 /images/generations
     el.s.imageProvider.appendChild(h('option', { value: provider.id, text: provider.name }));
   }
   el.s.imageProvider.value = providers().some((p) => p.id === settings.imageProviderId)
@@ -455,13 +454,6 @@ async function saveSettings(silent) {
  * 选错了接口会报 404 —— 这个坑很容易踩，所以单独列出来。
  */
 const MODEL_CATALOG = [
-  {
-    match: /bigmodel\.cn/i,
-    name: '智谱 GLM',
-    note: '智谱没有「模型列表」接口，请从下面挑一个填进去',
-    models: ['glm-5.3-flash', 'glm-5.3', 'glm-5.3-flashx', 'glm-5.2'],
-    imageModels: ['glm-image', 'cogview-4-250304', 'cogview-4', 'cogview-3-flash']
-  },
   {
     match: /dashscope\.aliyuncs\.com/i,
     name: '通义千问',

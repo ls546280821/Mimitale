@@ -2252,6 +2252,151 @@ await scenario('角色卡：字段往返不丢', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  场景：角色头像 / 形象 —— 两张图各管一处
+//    头像（1:1）→ 消息气泡、状态卡；形象（3:4）→ 角色库列表，点开看大图。
+//    上传走**真裁剪组件**（不是往框里直接塞图）：images:pick 的桩给一张
+//    1×1 PNG，裁剪浮层照常弹、照常按目标比例输出。
+// ---------------------------------------------------------------------------
+await scenario('角色：头像和形象是两张图', async () => {
+  const isImg = (v) => typeof v === 'string' && v.startsWith('data:image/');
+
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+
+  const NAME = '双图测试角色';
+  setValue('#c-name', NAME);
+
+  // --- 两个上传框各就各位 ---
+  check('编辑器里有两个上传框（头像 / 形象）', !!byId('char-avatar') && !!byId('char-portrait'));
+  check(
+    '两个框一开始都是「点击上传」',
+    !!byId('char-avatar').querySelector('.char-avatar-empty') &&
+      !!byId('char-portrait').querySelector('.char-avatar-empty')
+  );
+
+  // --- 传头像：点框 → 弹裁剪 → 「用这块」 ---
+  click('#char-avatar');
+  await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
+  check('裁剪标题是「裁剪头像」', byId('crop-layer').textContent.includes('裁剪头像'));
+  click('#crop-ok');
+  // dataURL 的解码是异步的，等到尺寸出来再断言，别读到 0
+  await waitFor('头像按 384 落进框里', () => {
+    const i = byId('char-avatar').querySelector('img');
+    return !!i && i.naturalWidth === 384;
+  });
+
+  const avImg = byId('char-avatar').querySelector('img');
+  check(
+    '头像按 1:1 裁（384×384）',
+    !!avImg && avImg.naturalWidth === 384 && avImg.naturalHeight === 384,
+    avImg ? `${avImg.naturalWidth}×${avImg.naturalHeight}` : '框里没图'
+  );
+
+  // 这张卡只有一张图 —— 形象那一栏先沿用头像，并标出「沿用」
+  check(
+    '还没单独设形象时，形象框先沿用头像并标记',
+    !!byId('char-portrait').querySelector('img') && byId('char-portrait').classList.contains('is-inherited')
+  );
+
+  // --- 传形象 ---
+  click('#char-portrait');
+  await waitFor('裁剪浮层又弹出来了', () => !!byId('crop-layer'));
+  check('裁剪标题是「裁剪角色形象」', byId('crop-layer').textContent.includes('裁剪角色形象'));
+  click('#crop-ok');
+  // 光等「框里有 img」不够 —— 还没单独设形象时，框里本来就沿用着头像那张。
+  // 等到尺寸变成 900 才说明新裁的那张真的换上了。
+  await waitFor('形象换成新裁的那张', () => {
+    const i = byId('char-portrait').querySelector('img');
+    return !!i && i.naturalWidth === 900;
+  });
+  check('设过形象之后不再标「沿用头像」', !byId('char-portrait').classList.contains('is-inherited'));
+
+  const ptImg = byId('char-portrait').querySelector('img');
+  check(
+    '形象按 3:4 裁（900×1200）',
+    !!ptImg && ptImg.naturalWidth === 900 && ptImg.naturalHeight === 1200,
+    ptImg ? `${ptImg.naturalWidth}×${ptImg.naturalHeight}` : '框里没图'
+  );
+
+  click('#btn-save-char');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
+  await sleep(200);
+
+  // --- 落盘：两张图是两个字段，都要留下 ---
+  const saved = (await savedCharacters()).find((c) => c.name === NAME);
+  check('角色存下来了', !!saved);
+  check('头像存进 avatar', isImg(saved && saved.avatar), String(saved && saved.avatar).slice(0, 24));
+  check('形象存进 portrait（另一个字段）', isImg(saved && saved.portrait), String(saved && saved.portrait).slice(0, 24));
+  check('两张图不是同一份', !!saved && saved.avatar !== saved.portrait);
+
+  // --- 列表上铺的是形象，点它能看大图 ---
+  const card = $$('#char-page-grid .char-card').find(
+    (c) => c.querySelector('.char-card-name') && c.querySelector('.char-card-name').textContent === NAME
+  );
+  check('列表里能找到这张卡', !!card);
+
+  const media = card && card.querySelector('.char-card-avatar');
+  check('列表卡上铺的是形象图', !!media && !!media.querySelector('img'));
+  check('列表卡上的形象能点（包在按钮里）', !!media && media.tagName === 'BUTTON');
+  click(media);
+  await sleep(300);
+
+  // --- 老卡兼容：只有一张图（没有 portrait 键）的卡 ---
+  // 用真实交互造：新建一张卡、只传头像、保存 —— 落盘后照样没有 portrait 键，
+  // 这就是老卡那种「只有一张图」的形态（不走 saveCharacters 硬塞：那样绕开了
+  // 渲染层，界面上根本看不到这张卡）。
+  const OLD = '只有一张图的老卡';
+  click('#btn-chars');
+  await waitFor('切回角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  setValue('#c-name', OLD);
+  click('#char-avatar');
+  await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
+  click('#crop-ok');
+  await waitFor('头像按 384 落进框里', () => { const i = byId('char-avatar').querySelector('img'); return !!i && i.naturalWidth === 384; });
+  click('#btn-save-char');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
+  await sleep(200);
+
+  const opened = (await savedCharacters()).find((c) => c.name === OLD);
+  check('只传过头像的卡，落盘后没有 portrait 键', !!opened && !('portrait' in opened));
+
+  const oldCard = $$('#char-page-grid .char-card').find(
+    (c) => c.querySelector('.char-card-name') && c.querySelector('.char-card-name').textContent === OLD
+  );
+  check('只有一张图的卡，列表上显示的还是它那张图', !!oldCard && !!oldCard.querySelector('.char-card-avatar img'));
+  if (!oldCard) return;
+
+  click(buttonByText(oldCard, '编辑'));
+  await waitFor('编辑器打开', () => shown('#chars-modal'));
+  check('老卡的形象框先沿用头像那张图', byId('char-portrait').classList.contains('is-inherited'));
+
+  click('#char-avatar');
+  await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
+  click('#crop-ok');
+  // 换头像之后形象栏要接过原来那张，于是不再标「沿用头像」。
+  // （不能等 img.src 变化：images:pick 的桩每次都给同一张 1×1 PNG，
+  //   两次裁出来的字节是一样的，src 根本不变。）
+  await waitFor('形象接过了旧头像', () => !byId('char-portrait').classList.contains('is-inherited'));
+  click('#btn-save-char');
+  // 改已有的角色不会自动关弹窗（留着接着改别的字段），这里等落盘再自己关
+  await sleep(400);
+  click('#btn-close-chars');
+  await sleep(150);
+
+  const fixed = (await savedCharacters()).find((c) => c.name === OLD);
+  check(
+    '老卡换头像时，原来那张图原封不动留成了形象',
+    !!fixed && !!opened && fixed.portrait === opened.avatar,
+    String(fixed && fixed.portrait).slice(0, 24)
+  );
+  check('老卡的头像还是有的', !!fixed && isImg(fixed.avatar));
+});
+
+// ---------------------------------------------------------------------------
 //  场景 14：角色属性 —— 粘贴文本批量生成
 // ---------------------------------------------------------------------------
 await scenario('角色属性：粘贴文本批量生成', async () => {
@@ -5199,6 +5344,129 @@ await scenario('规则段：段落之间不粘连', async () => {
     standard.trim().length > 0 && !/\{[a-zA-Z]+\}/.test(standard),
     JSON.stringify(standard)
   );
+});
+
+// ---------------------------------------------------------------------------
+//  看大图（lightbox）
+//
+//  这里只盖「逻辑」那一半：滚轮 / 按钮 / 双击 / 百分比 / Esc。
+//  「真实鼠标点按钮」那条在宿主侧（probeLightboxClick）—— 页面里 dispatchEvent
+//  复现不出指针捕获那套行为，而这正是这个浮层最容易踩的坑。
+// ---------------------------------------------------------------------------
+await scenario('看图：灯箱缩放与关闭', async () => {
+  const NAME = '灯箱测试角色';
+
+  // 走真实交互造这张卡（新建 → 传形象 → 保存）。
+  // 不能拿 saveCharacters 硬塞：那绕开了渲染层，列表刷新不出来，卡在页面上根本找不到。
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+  setValue('#c-name', NAME);
+
+  click('#char-portrait');
+  await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
+  click('#crop-ok');
+  await waitFor('形象按 900 落进框里', () => {
+    const i = byId('char-portrait').querySelector('img');
+    return !!i && i.naturalWidth === 900;
+  });
+
+  click('#btn-save-char');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
+  await sleep(200);
+
+  const cardEl = $$('#char-page-grid .char-card').find(
+    (c) => c.querySelector('.char-card-name') && c.querySelector('.char-card-name').textContent === NAME
+  );
+  check('有形象的卡，那块图是可点的', !!cardEl && !!cardEl.querySelector('.char-card-avatar.clickable'));
+  if (!cardEl) return;
+
+  click(cardEl.querySelector('.char-card-avatar.clickable'));
+  await waitFor('灯箱打开', () => !!byId('lightbox'));
+
+  const layer = byId('lightbox');
+  const lbImg = layer.querySelector('.lightbox-img');
+  check('灯箱里拿的正是这张形象', !!lbImg && !!lbImg.src && lbImg.src === cardEl.querySelector('.char-card-avatar img').src);
+
+  // 缩放全写在 transform 上，读它是最可靠的做法
+  const scaleOf = () => {
+    const m = /scale\(([\d.]+)\)/.exec(lbImg.style.transform || '');
+    return m ? Number(m[1]) : 1;
+  };
+
+  layer.dispatchEvent(
+    new WheelEvent('wheel', { deltaY: -120, clientX: 300, clientY: 200, bubbles: true, cancelable: true })
+  );
+  await sleep(60);
+  const afterWheelIn = scaleOf();
+  check('滚轮向上 = 放大', afterWheelIn > 1.05, lbImg.style.transform);
+
+  layer.dispatchEvent(
+    new WheelEvent('wheel', { deltaY: 120, clientX: 300, clientY: 200, bubbles: true, cancelable: true })
+  );
+  await sleep(60);
+  check('滚轮向下 = 缩回去', scaleOf() < afterWheelIn, lbImg.style.transform);
+
+  const beforeBtnIn = scaleOf();
+  click('#lightbox-in');
+  await sleep(60);
+  const afterBtnIn = scaleOf();
+  check('点「＋」放大', afterBtnIn > beforeBtnIn, `${beforeBtnIn} → ${afterBtnIn}`);
+  check('放大后百分比跟着变', /^\d+%$/.test((byId('lightbox-pct').textContent || '').trim()), byId('lightbox-pct').textContent);
+
+  click('#lightbox-out');
+  await sleep(60);
+  check('点「−」缩小', scaleOf() < afterBtnIn, lbImg.style.transform);
+
+  click('#lightbox-reset');
+  await sleep(60);
+  check('「适应」回到 1 倍', Math.abs(scaleOf() - 1) < 1e-6, lbImg.style.transform);
+
+  lbImg.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 300, clientY: 200 }));
+  await sleep(60);
+  check('双击图片放大', scaleOf() > 1.05, lbImg.style.transform);
+
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await sleep(80);
+  check('Esc 关掉灯箱', !byId('lightbox'));
+  check('Esc 没顺带把角色库页面也关掉', shown('#view-chars'));
+});
+
+// ---------------------------------------------------------------------------
+//  裁剪组件的输出尺寸
+//
+//  这里直接调 ui/imageCrop.js 的导出入口（编辑器点上传框走的也是它）——
+//  因为要喂一张**指定尺寸的小图**进去，而上传那条路的桩图尺寸是固定的。
+// ---------------------------------------------------------------------------
+await scenario('裁剪：原图不够大时不硬撑放大', async () => {
+  const mod = await import(new URL('js/ui/imageCrop.js', document.baseURI).href);
+
+  const small = (() => {
+    const cv = document.createElement('canvas');
+    cv.width = 200;
+    cv.height = 200;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#cfd9e8';
+    ctx.fillRect(0, 0, 200, 200);
+    return cv.toDataURL('image/png');
+  })();
+
+  const done = mod.openImageCrop({ dataUrl: small, aspect: 3 / 4, outWidth: 900, title: '裁剪角色形象' });
+  await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
+  click('#crop-ok');
+  const outUrl = await done;
+
+  const size = await new Promise((resolve) => {
+    const im = new Image();
+    im.onload = () => resolve({ w: im.naturalWidth, h: im.naturalHeight });
+    im.onerror = () => resolve({ w: 0, h: 0 });
+    im.src = outUrl;
+  });
+
+  // 200×200 的原图上，3:4 的框最多只能圈到 150×200 —— 输出就该是这么大。
+  // 硬撑到 900×1200 只会把同一份信息摊得更糊、文件还更大。
+  check('输出按原图能给的最大信息量走，不放大', size.w === 150 && size.h === 200, `${size.w}×${size.h}`);
 });
 
 return { results, notes, hoverProbe };

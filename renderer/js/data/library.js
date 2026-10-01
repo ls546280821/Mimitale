@@ -49,6 +49,20 @@ export function showsInPanel(character) {
   return !!(character && character.showInPanel === true);
 }
 
+/**
+ * 角色形象：角色库列表上那张 3:4 竖版图（点开能看大图）。
+ * 和头像（character.avatar）是两个字段 —— 头像是消息气泡 / 状态卡上的小圆图。
+ *
+ * 判定看**键在不在**，不是看值真假：
+ *   · 有这个键     → 用它（空串 = 用户就是要这块空着，别再拿头像顶上）
+ *   · 没有这个键   → 老卡，只有一张图，那张图同时当头像和形象用。
+ *     拿头像兜底，老卡进列表才不会变成一个孤零零的首字色块。
+ */
+export function characterPortrait(character) {
+  if (!character) return '';
+  return typeof character.portrait === 'string' ? character.portrait : character.avatar || '';
+}
+
 // --- 世界书 ---
 
 export function worldbooks() {

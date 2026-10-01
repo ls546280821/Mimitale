@@ -570,10 +570,20 @@
           <div id="char-form" class="char-form hidden">
             <div class="char-head-row">
               <div class="char-avatar-col">
-                <button id="char-avatar" class="char-avatar" type="button" title="点击更换头像" aria-label="更换头像">
-                  <span class="char-avatar-empty">点击上传</span>
-                </button>
-                <button id="btn-clear-avatar" class="btn btn-ghost btn-sm hidden" type="button">清除头像</button>
+                <div class="char-media-item">
+                  <button id="char-avatar" class="char-avatar" type="button" title="点击上传头像（正方形，用在消息气泡和状态卡上）" aria-label="上传头像">
+                    <span class="char-avatar-empty">点击上传</span>
+                  </button>
+                  <span class="char-media-label">头像</span>
+                  <button id="btn-clear-avatar" class="btn btn-ghost btn-sm hidden" type="button">清除</button>
+                </div>
+                <div class="char-media-item">
+                  <button id="char-portrait" class="char-portrait" type="button" title="点击上传角色形象（竖版立绘，显示在角色库列表上）" aria-label="上传角色形象">
+                    <span class="char-avatar-empty">点击上传</span>
+                  </button>
+                  <span class="char-media-label">形象</span>
+                  <button id="btn-clear-portrait" class="btn btn-ghost btn-sm hidden" type="button">清除</button>
+                </div>
               </div>
               <div class="char-head-fields">
                 <label class="field">

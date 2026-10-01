@@ -25,7 +25,6 @@ import { entityTone } from '../ui/avatarTone.js';
 import { characterForConvo, convoWorldbookIds, worldbookById } from '../data/library.js';
 import { convoPlayer, convoUserName, userName, speakerName } from '../data/cast.js';
 import { cleanAssistantText, convoFieldDisplayNames, panelGroupNames } from '../data/panel.js';
-import { convoIsBridge } from '../data/messages.js';
 import { scrollToBottom } from './stream.js';
 import { buildMessageImages, illustrateMessage } from './chatImages.js';
 import { suggestNextActions, pickOption, rerollOptions, closeOptions } from './suggestionsUi.js';
@@ -344,12 +343,8 @@ function messageNode(message, index, character, labels, ctx) {
       actions.appendChild(cont);
     }
 
-    // 配图：本机桥接会话（本地 ComfyUI）或配了生图服务商时才显示，
-    // 免得点了才知道没配
-    if (
-      String(message.content || '').trim() &&
-      (ctx.isBridge || (state.settings || {}).imageProviderId)
-    ) {
+    // 配图：配了生图服务商（云生图或本地桥接）才显示，免得点了才知道没配
+    if (String(message.content || '').trim() && (state.settings || {}).imageProviderId) {
       const draw = document.createElement('button');
       draw.className = 'mini-btn';
       draw.textContent = '配图';
@@ -464,8 +459,7 @@ export function renderMessages(options) {
     panelFields: convoFieldDisplayNames(convo),
     panelGroups: [...panelGroupNames(convo)],
     lastIndex: convo.messages.length - 1,
-    options: showOptions ? convo.options : null,
-    isBridge: convoIsBridge(convo)
+    options: showOptions ? convo.options : null
   };
 
   convo.messages.forEach((message, index) => {

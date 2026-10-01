@@ -44,6 +44,7 @@ import { renderWorldbookPage } from './worldbookList.js';
 import { renderCharacterPage } from './characterList.js';
 import { renderCharAttrs, initCharAttrsUi } from './charAttributes.js';
 import { attachAutoGrow, syncAutoGrowAll, autoGrow } from '../ui/auto-grow.js';
+import { openImageCrop } from '../ui/imageCrop.js';
 
 // ---------------------------------------------------------------------------
 //  长文本框：自动增高 + 拖拽高度记忆
@@ -234,7 +235,15 @@ let editingCharacterId = null; // 角色库里当前正在编辑的角色
 // 角色编辑器的作用域：'library' = 角色库；'worldbook' = 当前世界书里的角色副本。
 // 同一个编辑器两处复用 —— 从世界书里点「编辑」改的是书里那份副本，不动角色库。
 let charEditorScope = 'library';
-let charDraftAvatar = ''; // 正在编辑的角色头像（dataURL）
+// 正在编辑的角色头像（dataURL，正方形）。用在消息气泡和状态卡上。
+let charDraftAvatar = '';
+// 正在编辑的角色形象（dataURL，3:4 竖版）。角色库列表上铺的就是它。
+// 三态，保存时必须照原样区分开：
+//   · undefined —— 这张卡没单独设过形象。老卡只有一张图（在 avatar 里），
+//     界面上先拿头像顶上，保存时**别写这个键**，省得白白多存一份几 MB 的图。
+//   · ''        —— 用户明确清掉了形象（列表上就显示首字色块）。
+//   · dataURL   —— 有独立形象。
+let charDraftPortrait;
 // 正在编辑的角色「自带世界书」开关。跟头像一样是草稿：改动先留在这里，
 // 保存时才写回角色卡 —— 这样切换开关能立刻反映到界面上。
 let charDraftWbEnabled = true;
@@ -375,106 +384,126 @@ function showCharForm(show) {
 }
 
 // ---------------------------------------------------------------------------
-//  头像
+//  头像 / 形象
+//
+//  两张图，各管一处：
+//    · 头像（1:1）—— 消息气泡、状态卡、在场角色栏上那个小圆图
+//    · 形象（3:4）—— 角色库列表上铺的那张竖版图，点开还能看大图
+//  两个上传框都走 ui/imageCrop.js：选完图先框一块，框出来的那块直接就是存下来
+//  的图（裁剪组件按目标尺寸输出，这里不再二次缩放）。
 // ---------------------------------------------------------------------------
 
-function renderCharAvatar() {
-  el.charAvatar.innerHTML = '';
+// 头像输出 384×384。小圆图最大也就显示 ~48px（2 倍屏 ≈ 96px），384 已经绰绰有余 ——
+// 头像没有「点开放大」的入口，再往上加只是白占体积。
+const AVATAR_SIZE = 384;
+// 形象输出 900×1200（3:4）。列表卡上只有 ~180px 宽，但**点开看大图会铺满窗口**，
+// 480 宽在那个尺寸下能看出糊。900 宽（约 90~250KB）是清晰度和体积的平衡点。
+// 另外裁剪组件会按原图实际像素封顶：原图不够大就不硬撑，不会凭空放大出一份糊图。
+const PORTRAIT_WIDTH = 900;
+const PORTRAIT_RATIO = 3 / 4;
 
-  if (charDraftAvatar) {
+/** 形象当前该显示哪张图：自己设过就用自己那张，没设过就先拿头像顶上（老卡） */
+function draftPortraitImage() {
+  return charDraftPortrait === undefined ? charDraftAvatar : charDraftPortrait;
+}
+
+/** 把一个上传框画成「有图 / 空」两态 */
+function renderMediaBox(box, dataUrl, emptyText) {
+  box.innerHTML = '';
+  if (dataUrl) {
     const img = document.createElement('img');
-    img.src = charDraftAvatar;
+    img.src = dataUrl;
     img.alt = '';
-    el.charAvatar.appendChild(img);
+    box.appendChild(img);
   } else {
     const span = document.createElement('span');
     span.className = 'char-avatar-empty';
-    span.textContent = '点击上传';
-    el.charAvatar.appendChild(span);
+    span.textContent = emptyText;
+    box.appendChild(span);
   }
-
-  // 没有头像就没有可清除的东西
-  el.btnClearAvatar.classList.toggle('hidden', !charDraftAvatar);
 }
 
-/**
- * 头像（= 人设图）统一缩成 384×512（3:4 竖版）再存。
- * 直接存原图的话，一张手机照片就能把 characters.json 撑到几十 MB，
- * 而且每次保存设置都要重写整个文件。
- * 只用 canvas 的标准 API，不引入任何依赖。
- *
- * ⚠️ 3:4 不是随便挑的：列表页卡片上那块、编辑器里那个上传框，都是 3:4
- * （`.char-card-avatar` / `.char-avatar`）。**改这里必须同步改那两处 CSS** ——
- * 对不上的话立绘会被再裁一刀（存的是 1:1、框是 3:4 就会切掉左右两边）。
- * 老卡里的 1:1 头像是历史数据，`object-fit: cover` 会按中心裁掉左右，不改它。
- */
-function shrinkAvatar(dataUrl) {
-  return new Promise((resolve) => {
-    const img = new Image();
+function renderCharMedia() {
+  renderMediaBox(el.charAvatar, charDraftAvatar, '点击上传');
+  renderMediaBox(el.charPortrait, draftPortraitImage(), '点击上传');
 
-    img.onload = () => {
-      try {
-        const W = 384;
-        const H = 512;
-        const canvas = document.createElement('canvas');
-        canvas.width = W;
-        canvas.height = H;
+  // 没有图就没有可清除的东西
+  el.btnClearAvatar.classList.toggle('hidden', !charDraftAvatar);
+  el.btnClearPortrait.classList.toggle('hidden', !draftPortraitImage());
+  // 形象还是「沿用的头像」时标记一下 —— 否则用户会以为这张卡本来就有独立形象
+  el.charPortrait.classList.toggle('is-inherited', charDraftPortrait === undefined && !!charDraftAvatar);
+}
 
-        const ctx = canvas.getContext('2d');
-        // 从原图居中裁出一块 3:4 的矩形再缩放，避免变形：
-        // 横图（比 3:4 宽的）裁掉左右，竖图裁掉上下，比例全程不乱。
-        const ratio = W / H;
-        let cw = img.width;
-        let ch = img.height;
-        if (cw / ch > ratio) cw = ch * ratio;
-        else ch = cw / ratio;
-        const sx = (img.width - cw) / 2;
-        const sy = (img.height - ch) / 2;
-        ctx.drawImage(img, sx, sy, cw, ch, 0, 0, W, H);
-
-        // webp 体积小又支持透明；浏览器不支持时会自动退回 png
-        const out = canvas.toDataURL('image/webp', 0.9);
-        resolve(out.startsWith('data:image/') ? out : dataUrl);
-      } catch (err) {
-        // 压缩失败就用原图，不能因为优化把功能搞坏
-        resolve(dataUrl);
-      }
-    };
-
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
-  });
+/** 选一张本地图 → 裁剪 → 返回最终 dataURL；取消或出错返回 null */
+async function pickAndCrop({ aspect, outWidth, title, hint, pickTitle }) {
+  let result;
+  try {
+    result = await api.pickImage({ title: pickTitle });
+  } catch (err) {
+    showToast((err && err.message) || '选择图片失败', 'error');
+    return null;
+  }
+  if (!result || result.canceled) return null;
+  if (!result.dataUrl) {
+    showToast(result.error || '这张图片用不了', 'error');
+    return null;
+  }
+  return openImageCrop({ dataUrl: result.dataUrl, aspect, outWidth, title, hint });
 }
 
 async function pickAvatar() {
   // 用编辑器那套查找：正在新建的草稿不在角色库里，但一样要能传头像
   if (!editorCharacterById(editingCharacterId)) return;
 
-  let result;
-  try {
-    result = await api.pickImage();
-  } catch (err) {
-    showToast((err && err.message) || '选择图片失败', 'error');
-    return;
-  }
+  const cropped = await pickAndCrop({
+    aspect: 1,
+    outWidth: AVATAR_SIZE,
+    title: '裁剪头像',
+    hint: '消息气泡和状态卡上显示的就是这一块',
+    pickTitle: '选一张头像'
+  });
+  if (!cropped) return;
 
-  if (!result || result.canceled) return;
+  // 老卡只有一张图。换头像之前先把旧的留作形象 —— 不留的话，那张立绘就被新头像
+  // 顶掉了，形象那一栏从此变成一个 1:1 的小方图，在列表上被拉成竖版。
+  if (charDraftPortrait === undefined && charDraftAvatar) charDraftPortrait = charDraftAvatar;
 
-  if (!result.dataUrl) {
-    showToast(result.error || '这张图片用不了', 'error');
-    return;
-  }
-
-  charDraftAvatar = await shrinkAvatar(result.dataUrl);
-  renderCharAvatar();
+  charDraftAvatar = cropped;
+  renderCharMedia();
   showToast('头像已更换，记得点「保存角色」', 'ok');
+}
+
+async function pickPortrait() {
+  if (!editorCharacterById(editingCharacterId)) return;
+
+  const cropped = await pickAndCrop({
+    aspect: PORTRAIT_RATIO,
+    outWidth: PORTRAIT_WIDTH,
+    title: '裁剪角色形象',
+    hint: '竖版立绘，显示在角色库列表上',
+    pickTitle: '选一张角色形象'
+  });
+  if (!cropped) return;
+
+  charDraftPortrait = cropped;
+  renderCharMedia();
+  showToast('形象已更换，记得点「保存角色」', 'ok');
 }
 
 function clearAvatar() {
   if (!charDraftAvatar) return;
   charDraftAvatar = '';
-  renderCharAvatar();
+  renderCharMedia();
   showToast('头像已清除，记得点「保存角色」');
+}
+
+function clearPortrait() {
+  if (!draftPortraitImage()) return;
+  // 显式写成空串（而不是退回 undefined）：用户点了清除就是不要形象，
+  // 不能因为「头像还在」又把头像当成形象显示回来。
+  charDraftPortrait = '';
+  renderCharMedia();
+  showToast('形象已清除，记得点「保存角色」');
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +544,9 @@ function fillCharForm(character) {
   wireAutoGrow();
 
   charDraftAvatar = character.avatar || '';
-  renderCharAvatar();
+  // 形象：老卡上没有这个键 → 留成 undefined，界面上先沿用头像那张
+  charDraftPortrait = typeof character.portrait === 'string' ? character.portrait : undefined;
+  renderCharMedia();
 
   // 开关的草稿要从这张卡的当前值起算（老数据没这个字段 = 开）
   charDraftWbEnabled = character.worldbookEnabled !== false;
@@ -835,6 +866,11 @@ function stashCharForm() {
     })
     .slice(0, MAX_PANEL_FIELDS);
   character.avatar = charDraftAvatar;
+  // 形象是三态，必须原样区分（见 charDraftPortrait 的声明）：
+  //   undefined —— 老卡，从头到尾没碰过形象那一栏，别写这个键（写了就白存一份图）。
+  //   其余（空串 / dataURL）—— 用户的选择，照写。
+  if (charDraftPortrait === undefined) delete character.portrait;
+  else character.portrait = charDraftPortrait;
   // 剧情选项：开关关掉就写 null（不是 false/空对象）—— 一眼能看出「这个会话不开」。
   // 数量夹在 1~6，和注入时用的上限保持一致。
   if (el.c.optionsOn.checked) {
@@ -1119,9 +1155,11 @@ export function initCharacterEditor(injected) {
   el.btnSaveChar.addEventListener('click', saveCharacter);
   el.btnDelChar.addEventListener('click', deleteCharacter);
 
-  // 点头像换图 / 清除头像
+  // 点头像/形象换图，或者清除
   el.charAvatar.addEventListener('click', pickAvatar);
   el.btnClearAvatar.addEventListener('click', clearAvatar);
+  el.charPortrait.addEventListener('click', pickPortrait);
+  el.btnClearPortrait.addEventListener('click', clearPortrait);
 
   // 自带世界书的开关：先更新草稿，再按草稿刷新说明文字。
   // 注意不能直接读 editorCharacterById —— 那时角色卡上还是旧值（还没保存），

@@ -2125,6 +2125,23 @@ body {
 
 .char-card-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
+/* 角色库列表上那张形象能点开看大图 —— 那时媒体位外面包的是 button，
+   得把浏览器默认那套洗掉（padding / border / 灰底）。
+   ⚠️ 只能重置 background-color，**不能写 background 简写**：简写连同
+   background-image 一起清掉，JS 挂的 .g1~.g6 渐变就没了（上面那条说明就是这个坑）。 */
+.char-card-avatar.clickable {
+  padding: 0;
+  border: 0;
+  font-family: inherit;
+  background-color: transparent;
+  cursor: zoom-in;
+}
+
+.char-card-avatar.clickable:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 /* --- 角色库的卡：人设图占满整宽，名字 / 来源 / 按钮排在下面 -------------------
    世界书卡还是上面那套（「世」字块居中，卡窄一圈）—— 它没有立绘要放。
    账号头像是圆的，卡上的人设图是**竖版方角**：圆形会把一张立绘裁掉大半。 */
@@ -2428,6 +2445,111 @@ body {
   line-height: 1.55;
   color: var(--text-faint);
 }
+
+/* --------------------------------- 图片裁剪浮层 --------------------------------
+   选好图之后、存下来之前，框一下要哪一块（ui/imageCrop.js）。
+   挂在 body 上：要盖住角色编辑弹窗（z-index 60），但让确认框（70）还压得住它。
+
+   视口是一块 canvas，拖动 / 缩放都是重画 —— 屏幕上的画面和最后输出的像素
+   走同一套坐标，所见即所得；用 CSS transform 做的话会有对不齐的风险。 */
+
+.crop-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 66;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(12, 16, 24, 0.55);
+}
+
+.crop-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lg);
+}
+
+.crop-heading { display: flex; flex-direction: column; gap: 3px; }
+.crop-title { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.crop-hint { font-size: 11.5px; color: var(--text-faint); }
+
+/* 视口：图片永远铺满这块，不留空白边 —— 拖到边界就停住，不会拖出一个空角 */
+.crop-view {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-input);
+  cursor: grab;
+  /* 指针拖拽由自己处理，别让浏览器抢去当页面滚动 */
+  touch-action: none;
+  user-select: none;
+}
+
+.crop-view.dragging { cursor: grabbing; }
+.crop-canvas { display: block; }
+
+.crop-zoom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.crop-zoom-label { font-size: 11px; color: var(--text-faint); }
+
+/* 滑块：和设置页那套同款拇指，但轨道不走 --range-fill（裁剪这边不追进度比例） */
+.crop-zoom {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.crop-zoom::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--toggle-track);
+}
+
+.crop-zoom::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  /* 让 16px 的拇指在 6px 的轨道上居中：(6 - 16) / 2 */
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-elev);
+  box-shadow: 0 1px 3px rgba(23, 37, 66, 0.25);
+}
+
+.crop-zoom:focus-visible {
+  outline: none;
+  border-radius: 999px;
+  box-shadow: var(--focus-ring);
+}
+
+.crop-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.crop-foot .field-help { font-size: 11.5px; color: var(--text-faint); }
+.crop-foot-btns { display: flex; gap: 8px; }
+
+.crop-foot-btns .btn { flex: 0 0 auto; }
 
 /* ------------------------------ 角色「属性」编辑区 ------------------------------
    属性 = 每个角色那批状态字段的**模板**（有哪些字段、什么类型/范围/怎么变）。
@@ -2872,24 +2994,30 @@ body {
   margin-bottom: 22px;
 }
 
-/* 头像列：预览 + 下面的「清除头像」 */
+/* 上传列：头像（1:1 圆）和形象（3:4 竖版）并排，各自下面一行小标签 + 清除。
+   两个框的**形状就是存下来的形状** —— 裁剪时框住哪块，这里、列表卡上看到的就是哪块。 */
 .char-avatar-col {
   flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
 }
 
-/* 头像（人设图）本身是个按钮：点一下弹文件框。
-   尺寸和列表页卡片上那块**严格一致**（3:4，见 #char-page-grid .char-card-avatar）——
-   上传时看到的裁剪结果，和卡片上、和小头像里看到的是同一份。 */
-.char-avatar {
+.char-media-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.char-media-label { font-size: 11px; color: var(--text-faint); }
+
+/* 两个上传框共用的底子：点一下弹文件框，悬停时盖一层「换…」提示 */
+.char-avatar,
+.char-portrait {
   position: relative;
-  width: 132px;
-  height: 176px;
   padding: 0;
-  border-radius: 14px;
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -2902,12 +3030,28 @@ body {
   transition: border-color 0.15s;
 }
 
-.char-avatar:hover { border-color: var(--accent); }
-.char-avatar:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.char-avatar:hover,
+.char-portrait:hover { border-color: var(--accent); }
+.char-avatar:focus-visible,
+.char-portrait:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
-/* 悬停时盖一层「换头像」，让人知道这里可以点 */
-.char-avatar::after {
-  content: "换头像";
+/* 头像：正方形圆显示 —— 和消息气泡、状态卡里那个小圆图是同一块内容 */
+.char-avatar {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+}
+
+/* 形象：3:4 竖版 —— 和角色库列表卡上那块（#char-page-grid .char-card-avatar）
+   严格一致，上传时框出来的就是列表上看到的那块。 */
+.char-portrait {
+  width: 108px;
+  height: 144px;
+  border-radius: 14px;
+}
+
+.char-avatar::after,
+.char-portrait::after {
   position: absolute;
   inset: 0;
   display: flex;
@@ -2921,12 +3065,20 @@ body {
   pointer-events: none;
 }
 
-.char-avatar:hover::after { opacity: 1; }
+.char-avatar::after { content: "换头像"; }
+.char-portrait::after { content: "换形象"; }
 
-.char-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.char-avatar:hover::after,
+.char-portrait:hover::after { opacity: 1; }
+
+/* 形象还在「沿用头像那张图」时压淡一点，提示它不是单独设的 */
+.char-portrait.is-inherited { opacity: 0.7; }
+
+.char-avatar img,
+.char-portrait img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .char-avatar-empty { font-size: 12px; color: var(--text-faint); }
 
-/* 有头像时才显示「清除头像」 */
+/* 有图时才显示「清除」 */
 .char-avatar-col .btn-sm { padding: 4px 10px; font-size: 11px; }
 
 .char-head-fields {
@@ -4308,6 +4460,91 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 }
 
 .cwb-picker-meta { flex: 0 0 auto; font-size: 11px; color: var(--text-faint); }
+
+/* ============================================================================
+   看大图浮层（renderer/js/ui/lightbox.js）
+   ----------------------------------------------------------------------------
+   铺满一层深色底看图：滚轮 / 按钮缩放，按住拖动平移，双击切换。
+   遮罩固定用深色 —— 看图时深底不干扰画面，两种主题下都一样。
+   ========================================================================== */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: rgba(10, 13, 19, 0.92);
+  cursor: grab;
+  /* 拖动由自己处理，别让浏览器抢去当滚动；顺带禁掉选中和长按菜单 */
+  touch-action: none;
+  user-select: none;
+}
+
+.lightbox.dragging { cursor: grabbing; }
+
+.lightbox-img {
+  max-width: 92vw;
+  max-height: 84vh;
+  border-radius: 6px;
+  box-shadow: 0 16px 56px rgba(0, 0, 0, 0.55);
+  /* 解码完才显出来，免得先闪一下空白 */
+  opacity: 0;
+  transition: opacity 0.15s;
+  will-change: transform;
+}
+
+.lightbox.ready .lightbox-img { opacity: 1; }
+
+.lightbox-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: 92vw;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elev);
+  box-shadow: var(--shadow-lg);
+}
+
+.lightbox-title {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lightbox-zoom,
+.lightbox-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 加减号按钮：内容只有一个字符，给个最小宽度免得挤成一条 */
+.lightbox-zoom .btn { min-width: 30px; text-align: center; padding: 4px 6px; }
+.lightbox-actions .btn { padding: 4px 10px; font-size: 12px; }
+
+.lightbox-pct {
+  min-width: 46px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.lightbox-hint { font-size: 11px; color: var(--text-faint); }
 
 @media (prefers-reduced-motion: reduce) {
   .modal, .modal-card { animation: none; }

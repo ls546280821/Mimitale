@@ -40,14 +40,6 @@ const PROVIDER_PRESETS = [
     models: ['qwen-plus', 'qwen-turbo']
   },
   {
-    key: 'zhipu',
-    name: '智谱 GLM',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    // 智谱没有 OpenAI 那样的 GET /models 接口，「拉取可用模型」对它一定失败，
-    // 所以这里给的是可直接手填的常用模型名（当前主推 GLM-5.3 系列）。
-    models: ['glm-5.3-flash', 'glm-5.3', 'glm-5.2']
-  },
-  {
     key: 'kimi',
     name: 'Kimi（Moonshot）',
     baseUrl: 'https://api.moonshot.cn/v1',

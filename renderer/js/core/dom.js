@@ -144,6 +144,8 @@ export const el = {
   charForm: $('char-form'),
   charAvatar: $('char-avatar'),
   btnClearAvatar: $('btn-clear-avatar'),
+  charPortrait: $('char-portrait'),
+  btnClearPortrait: $('btn-clear-portrait'),
   charFootHint: $('char-foot-hint'),
   c: {
     name: $('c-name'),

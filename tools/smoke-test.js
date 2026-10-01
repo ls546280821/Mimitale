@@ -463,11 +463,22 @@ function registerStubs() {
   });
 
   // --- 图片 / 杂项 ---
-  // 返回一张真的 1×1 PNG：这样「选背景图」那条链路（解码 → 缩放 → 存 dataURL）
-  // 走的是真代码，而不是被 stub 掉
+  // 生图桩沿用这张 1×1 PNG（只验链路通不通，尺寸无所谓）
   const TINY_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-  ipcMain.handle('images:pick', () => ({ canceled: false, dataUrl: TINY_PNG }));
+  // 「选一张图」返回一张真的 1200×1600 图。裁剪那条链路会按**原图实际像素**决定
+  // 输出尺寸（原图不够大就不放大），拿 1×1 的图去测等于所有输出都是 1px，尺寸根本验不了。
+  // 用 SVG 而不是 PNG：同样是张能解码的真图，但尺寸写在属性里，改起来一行的事。
+  const PICK_IMAGE =
+    'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1600" viewBox="0 0 1200 1600">' +
+        '<rect width="1200" height="1600" fill="#dfe7f5"/>' +
+        '<rect width="600" height="1600" fill="#c3d2ea"/>' +
+        '<circle cx="600" cy="500" r="220" fill="#9db4d8"/>' +
+        '</svg>'
+    );
+  ipcMain.handle('images:pick', () => ({ canceled: false, dataUrl: PICK_IMAGE }));
 
   // 生图：记下请求参数（要验它用的是「生图」那组配置，不是聊天模型），
   // 返回一张真的 1×1 PNG，让渲染层真实的「解码 → 压缩 → 存进会话」链路跑一遍
@@ -847,6 +858,125 @@ async function probeHover(win, result) {
     pass: before === '0' && after === '1',
     detail: `移入前 opacity=${before}，移入后 opacity=${after}${note}`
   });
+}
+
+/**
+ * 看大图浮层：用**真实鼠标**依次点工具条按钮、点图片、点背景。
+ *
+ * 为什么非得走真实输入：浮层把 pointerdown 挂在整层上做拖动，顺手对整层调了
+ * setPointerCapture。指针一旦被夺走，浏览器算出来的 click 目标就变成「整层」而不是
+ * 按钮 —— 按钮的 click 收不到，还会被当成「点了背景」把浮层一并关掉。
+ * 这套行为只在真实指针下出现，页面里 dispatchEvent 复现不出来。
+ */
+async function probeLightboxClick(win, result) {
+  const run = (code) => win.webContents.executeJavaScript(code);
+  const read = () =>
+    run(`(() => {
+      const lb = document.getElementById('lightbox');
+      const img = lb && lb.querySelector('.lightbox-img');
+      return { open: !!lb, transform: (img && img.style.transform) || '' };
+    })()`);
+  const scaleOf = (t) => {
+    const m = /scale\(([\d.]+)\)/.exec(t || '');
+    return m ? Number(m[1]) : 0;
+  };
+
+  // 打开灯箱，顺手把「＋」按钮和图片的中心坐标量出来
+  const spots = await run(`(async () => {
+    const $$ = (s) => Array.from(document.querySelectorAll(s));
+    const $ = (s) => document.querySelector(s);
+    const nap = (ms) => new Promise((r) => setTimeout(r, ms));
+    const view = $('#view-chars');
+    if (!view || view.classList.contains('hidden')) {
+      const b = $('#btn-chars');
+      if (b) b.click();
+      await nap(400);
+    }
+    const card = $$('#char-page-grid .char-card').find((c) => c.querySelector('.char-card-avatar.clickable'));
+    if (!card) return null;
+    card.querySelector('.char-card-avatar.clickable').click();
+    for (let i = 0; i < 60 && !$('#lightbox'); i++) await nap(50);
+    const btn = $('#lightbox-in');
+    const img = $('#lightbox .lightbox-img');
+    if (!btn || !img) return null;
+    const mid = (n) => {
+      const r = n.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    };
+    return { btn: mid(btn), img: mid(img) };
+  })()`);
+
+  if (!spots) {
+    result.results.push({ name: '看大图：真实鼠标点击', pass: false, detail: '页面里没能打开灯箱' });
+    return;
+  }
+
+  const dbg = win.webContents.debugger;
+  let note = '';
+  let afterBtn = null;
+  let afterImg = null;
+  let afterBackdrop = null;
+
+  try {
+    dbg.attach('1.3');
+    const clickAt = async (x, y) => {
+      await dbg.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1
+      });
+      await sleep(40);
+      await dbg.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1
+      });
+      await sleep(180);
+    };
+
+    const before = await read();
+    await clickAt(spots.btn.x, spots.btn.y);
+    afterBtn = await read();
+
+    result.results.push({
+      name: '看大图：真实鼠标点「＋」能放大，且不会把浮层关掉',
+      pass: afterBtn.open && scaleOf(afterBtn.transform) > scaleOf(before.transform),
+      detail: `点前 scale=${scaleOf(before.transform)}，点后 scale=${scaleOf(afterBtn.transform)}，浮层${
+        afterBtn.open ? '还在' : '被关掉了'
+      }${note}`
+    });
+
+    // 点图片本身不该关：只有按在图片外那圈上才算「点背景」
+    await clickAt(spots.img.x, spots.img.y);
+    afterImg = await read();
+    result.results.push({
+      name: '看大图：真实鼠标点图片本身不会误关',
+      pass: afterImg.open,
+      detail: `点完浮层${afterImg.open ? '还在' : '被关掉了'}${note}`
+    });
+
+    // 回到 1 倍再点左上角空白 —— 这才是该关的时候
+    await run("document.getElementById('lightbox-reset')?.click(); true");
+    await sleep(80);
+    await clickAt(6, 6);
+    afterBackdrop = await read();
+    result.results.push({
+      name: '看大图：真实鼠标点背景能关掉',
+      pass: !afterBackdrop.open,
+      detail: `点完浮层${afterBackdrop.open ? '还开着' : '关掉了'}${note}`
+    });
+  } catch (err) {
+    note = '（CDP 出错：' + ((err && err.message) || err) + '）';
+    result.results.push({ name: '看大图：真实鼠标点击', pass: false, detail: note });
+  } finally {
+    try {
+      if (dbg.isAttached()) dbg.detach();
+    } catch (e) {
+      /* 忽略 */
+    }
+    // 别把浮层留在页面上，后面还有截图
+    try {
+      await run("document.getElementById('lightbox-close')?.click(); true");
+    } catch (e) {
+      /* 忽略 */
+    }
+  }
 }
 
 /**
@@ -1886,8 +2016,7 @@ function probeImageMessage(result) {
 }
 
 /**
- * 生图的验证。关键一条：**它用的是「生图」那一组配置，而不是聊天模型** ——
- * 用错了的话界面照样出图，但你的对话模型会被当成画图模型去打 /images/generations，
+ * 生图的验证。关键一条：**它用的是「生图」那一组配置，而不是聊天模型** —— * 用错了的话界面照样出图，但你的对话模型会被当成画图模型去打 /images/generations，
  * 只会得到一个莫名其妙的报错。
  */
 function probeImageGen(result) {
@@ -2215,6 +2344,7 @@ app.whenReady().then(async () => {
       probeAttrModeWording(result);
       probeSettingsWhitelist(result);
       await probeHover(win, result);
+      await probeLightboxClick(win, result);
     } catch (err) {
       crashed = '宿主侧验证失败：' + ((err && err.message) || err);
     }
@@ -2295,10 +2425,10 @@ app.whenReady().then(async () => {
         chars: `
           document.querySelector('#btn-chars')?.click();
           await new Promise(r => setTimeout(r, 500));`,
-        // 角色库：卡片上那块圆头像其实是**人设图**位（3:4 竖版）。
+        // 角色库：卡片上铺的是**角色形象**（3:4 竖版立绘），点开还能看大图。
         // 测试里的角色都没有图（上传那条路被 images:pick 的桩挡着），
-        // 所以这里给每张卡塞一个 3:4 的 SVG 占位立绘 —— 只为看清裁切和排版，
-        // 人设图那条**真路径**在 charEditor 场景里（点上传框会走 shrinkAvatar + 落盘）。
+        // 所以这里给每张卡塞一个 3:4 的 SVG 占位立绘 —— 只为看清裁切和排版；
+        // 上传那条**真路径**在「角色：头像和形象是两张图」场景里（走 ui/imageCrop.js）。
         charArt: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
@@ -2329,6 +2459,29 @@ app.whenReady().then(async () => {
           const del = $('#char-page-grid .char-card .char-card-del');
           if (del) del.style.opacity = '1';
           await nap(150);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 看大图浮层（ui/lightbox.js）：遮罩 + 底部工具条。
+        // 测试里的角色没有形象（上传那条路被 images:pick 的桩挡着），所以这里
+        // 直接调浮层模块递一张占位立绘进去 —— 出图只为核对工具条的排版和字号，
+        // 真实入口（点卡片上的形象）在「看图：灯箱缩放与关闭」和宿主侧的真实鼠标探针里。
+        lightbox: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          const art = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400" viewBox="0 0 300 400">' +
+            '<rect width="300" height="400" fill="hsl(335,70%,90%)"/>' +
+            '<circle cx="150" cy="128" r="60" fill="hsl(335,55%,68%)"/>' +
+            '<path d="M42 400c0-82 48-134 108-134s108 52 108 134z" fill="hsl(335,55%,68%)"/>' +
+            '<text x="150" y="386" font-size="24" text-anchor="middle" fill="hsl(335,50%,36%)">示例角色</text>' +
+            '</svg>');
+          const mod = await import(new URL('js/ui/lightbox.js', document.baseURI).href);
+          mod.openLightbox(art, { title: '示例角色' });
+          await nap(450);
+          // 放大两档：让工具条上的百分比不是 100%，一眼能看出缩放是活的
+          $('#lightbox-in')?.click();
+          $('#lightbox-in')?.click();
+          await nap(250);
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 世界书编辑器：列表页 → 第一本书的「编辑」。
         // 这个弹窗是「左栏书名 + 本书角色 + 开场白 + 条目列表 / 右栏条目表单」，
@@ -2368,8 +2521,9 @@ app.whenReady().then(async () => {
           const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
           await new Promise(r => setTimeout(r, 300));`,
         // 角色编辑器：点左栏上传框会走真实的 shrinkAvatar → 落盘那条路
-        // （images:pick 的桩给的是 1×1 PNG，缩完是一片纯色 —— 看不出裁切）。
-        // 所以出图时直接往上传框里塞一张 3:4 的 SVG 占位立绘，只为核对框子比例。
+        // （images:pick 的桩给的是 1×1 PNG，裁完是一片纯色 —— 看不出裁切效果）。
+        // 所以出图时直接往两个上传框里各塞一张 SVG 占位图，只为核对框子比例：
+        // 头像是 1:1 圆，形象是 3:4 竖版。
         charEditor: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
@@ -2381,19 +2535,27 @@ app.whenReady().then(async () => {
           if (btn) btn.click();
           await nap(600);
 
-          const face = $('#char-avatar');
-          if (face && !face.querySelector('img')) {
-            face.innerHTML = '';
+          const fill = (sel, w, h) => {
+            const box = $(sel);
+            if (!box || box.querySelector('img')) return;
+            box.innerHTML = '';
             const img = document.createElement('img');
             img.alt = '';
             img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-              '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 400">' +
-              '<rect width="300" height="400" fill="hsl(335,70%,90%)"/>' +
-              '<circle cx="150" cy="128" r="60" fill="hsl(335,55%,68%)"/>' +
-              '<path d="M42 400c0-82 48-134 108-134s108 52 108 134z" fill="hsl(335,55%,68%)"/>' +
+              '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + w + ' ' + h + '">' +
+              '<rect width="' + w + '" height="' + h + '" fill="hsl(335,70%,90%)"/>' +
+              '<circle cx="' + (w / 2) + '" cy="' + (h * 0.32) + '" r="' + (w * 0.2) + '" fill="hsl(335,55%,68%)"/>' +
+              '<path d="M' + (w * 0.14) + ' ' + h + 'c0-' + (h * 0.2) + ' ' + (w * 0.16) + '-' + (h * 0.33) + ' ' + (w * 0.36) + '-' + (h * 0.33) +
+              's' + (w * 0.36) + ' ' + (h * 0.13) + ' ' + (w * 0.36) + ' ' + (h * 0.33) + 'z" fill="hsl(335,55%,68%)"/>' +
               '</svg>');
-            face.appendChild(img);
-          }
+            box.appendChild(img);
+          };
+          fill('#char-avatar', 300, 300);    // 头像：1:1
+          fill('#char-portrait', 300, 400);  // 形象：3:4
+          // 直接塞图绕过了 renderCharMedia，手动把两颗「清除」也露出来 ——
+          // 截图要核对的正是它们的尺寸和间距
+          $('#btn-clear-avatar')?.classList.remove('hidden');
+          $('#btn-clear-portrait')?.classList.remove('hidden');
           await nap(200);
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 属性区的分组标签栏：新建一张卡，按真实交互铺出几个分组再截图 ——

@@ -18,7 +18,8 @@
 import { el } from '../core/dom.js';
 import { button, card, renderListPage } from '../ui/build.js';
 import { entityTone } from '../ui/avatarTone.js';
-import { characters } from '../data/library.js';
+import { openLightbox } from '../ui/lightbox.js';
+import { characters, characterPortrait } from '../data/library.js';
 
 let actions = { edit: () => {}, chat: () => {}, remove: () => {} };
 
@@ -40,7 +41,7 @@ export function renderCharacterPage() {
   });
 }
 
-/** 一张角色卡：头像 + 名字 + 来源 + 编辑/聊天，右上角悬停浮出删除 */
+/** 一张角色卡：角色形象 + 名字 + 来源 + 编辑/聊天，右上角悬停浮出删除 */
 function characterCard(c) {
   // 来源 + 分类标签挤在同一行：卡片高度不变，标签也不会把卡片撑得参差不齐。
   // 标签是「这张卡属于什么类型」（作品/风格/用途），只显示前几个，多了省略。
@@ -50,14 +51,21 @@ function characterCard(c) {
   }
   const subText = subBits.join(' · ');
 
+  // 卡上铺的是**角色形象**（3:4 立绘），不是头像 —— 头像那么小的圆图铺在这块
+  // 会糊成一片。老卡没单独设过形象，characterPortrait 会用头像顶上。
+  const portrait = characterPortrait(c);
+
   return card({
     title: c.name,
     sub: subText,
-    avatar: c.avatar,
+    avatar: portrait,
     avatarText: c.name.slice(0, 1),
     // 渐变圆 + 白字（设计稿的 .kface）：和侧栏 / 在场角色栏 / 消息区共用同一套色板，
     // 同一个角色在哪一屏都是同一个颜色。
     avatarClass: entityTone(c.id, c.name),
+    // 点形象看大图。没有图时那块是首字色块，点了也没东西可看，索性不接。
+    mediaTitle: `${c.name} · 点开看大图`,
+    onMediaClick: portrait ? () => openLightbox(portrait, { title: c.name }) : null,
     // 删除：静止时是透明的，鼠标移上来才浮出来 —— 跟左侧会话列表的 × 同一套。
     // 这样卡片平时还是干净的「编辑 / 聊天」两个按钮，不至于误点。
     extra: button({

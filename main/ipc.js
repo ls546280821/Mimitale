@@ -10,7 +10,7 @@
 //    main/window.js     窗口
 // ============================================================================
 
-const { app, BrowserWindow, ipcMain, shell, clipboard, dialog } = require('electron');
+const { app, ipcMain, shell, clipboard, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
@@ -46,6 +46,7 @@ const {
   streamChat,
   bridgeChat,
   bridgeDraw,
+  bridgeDrawProgress,
   bridgeHealth
 } = require('./http.js');
 const { getMainWindow, sendToRenderer } = require('./window.js');
@@ -76,9 +77,6 @@ const IMAGE_MIME = {
 const MAX_EMBED_PER_CALL = 32;
 // 一次请求最多多少条文本（查询 + 补索引共用）
 const MAX_EMBED_INPUTS = 64;
-
-// 「在窗口里打开图片」能接受的 dataURL 长度上限（≈13MB 的图，和头像那条同一量级）
-const MAX_VIEW_IMAGE_CHARS = 18000000;
 
 /** 调一次 /embeddings，返回向量数组（顺序和输入一一对应） */
 async function embedTexts(endpoint, texts) {
@@ -644,7 +642,7 @@ function registerIpc() {
     const provider = resolveProvider(settings, request.providerId);
     const endpoint = endpointFor(settings, request.providerId, request.model);
     if (!endpoint || !isBridgeProvider(provider)) {
-      return { ok: false, error: '当前会话不是本机桥接服务商，无法用本地模型配图。' };
+      return { ok: false, error: '生图服务商不是本机桥接，无法用本地模型配图。' };
     }
 
     const text = String(request.text || '').trim();
@@ -665,42 +663,20 @@ function registerIpc() {
   });
 
   /**
-   * 点开看大图。渲染层的 CSP 是 img-src 'self' data:，直接 window.open 会被拦，
-   * 所以在这里落一个临时文件、开一个只显示这张图的窗口，关掉时把文件删了。
+   * 本机桥接的出图进度查询：GET /draw/progress。
+   * 酒馆配图时轮询它，显示「采样到第几步」。
    */
-  ipcMain.handle('images:open', (_event, dataUrl) => {
-    const match = /^data:image\/(png|jpeg|jpg|webp|gif);base64,(.+)$/.exec(String(dataUrl || ''));
-    if (!match) return false;
-    // 体积上限：正则只管前缀和格式，不管长度 —— 不挡的话，传个超大的 dataURL
-    // 就能往系统临时目录写一个等大的文件。和头像那道上限取同一个量级。
-    if (match[2].length > MAX_VIEW_IMAGE_CHARS) return false;
-
-    const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
-    const file = path.join(app.getPath('temp'), `mimitale-view-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`);
-
+  ipcMain.handle('bridge:drawProgress', async (_event, payload) => {
+    const request = payload || {};
+    const settings = loadSettings();
+    const endpoint = endpointFor(settings, request.providerId, request.model);
+    if (!endpoint) return { ok: false, error: '还没有配置生图服务商。' };
     try {
-      fs.writeFileSync(file, Buffer.from(match[2], 'base64'));
+      const result = await bridgeDrawProgress(endpoint.baseUrl);
+      return { ok: true, ...result };
     } catch (err) {
-      return false;
+      return { ok: false, error: (err && err.message) || '查询进度失败' };
     }
-
-    const viewer = new BrowserWindow({
-      width: 960,
-      height: 720,
-      title: '图片',
-      autoHideMenuBar: true,
-      backgroundColor: '#1b1f27'
-    });
-    viewer.loadFile(file);
-    viewer.once('closed', () => {
-      try {
-        fs.unlinkSync(file);
-      } catch (err) {
-        /* 删不掉就算了，系统临时目录迟早会清 */
-      }
-    });
-
-    return true;
   });
 
   ipcMain.handle('util:openPath', async (_event, which) => {
