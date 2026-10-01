@@ -75,6 +75,7 @@ import {
   initPresetList,
   renderPresetPage
 } from './views/presetList.js';
+import { initPresetIo, exportPreset } from './views/presetIO.js';
 import {
   initPreset,
   openPresetEditor,
@@ -155,11 +156,13 @@ function registerRefreshListeners() {
   // 它自己不登记重绘 —— 列表页的重绘由上面的 refreshLibraryPage 按当前视图分发。
   initWorldbookList({ openEditor: editWorldbookFromPage, remove: deleteWorldbookById });
   // 预设列表页同理：「编辑」要打开预设编辑器（编辑器状态住在 views/preset.js），
-  // 「删除」要收掉那份没保存的草稿。两者都是跨模块编排，由入口层注入。
-  initPresetList({ openEditor: openPresetEditor, remove: deletePresetById });
+  // 「删除」要收掉那份没保存的草稿，「导出」是另一条通道。都是跨模块编排，由入口层注入。
+  initPresetList({ openEditor: openPresetEditor, remove: deletePresetById, exportOne: exportPreset });
   // 预设编辑器自己绑弹窗里的按钮；它保存 / 删除之后要全量重绘（预设页、
   // 会话视角弹窗都可能跟着变），那也是入口层的编排。
   initPreset({ rerender: () => renderAll() });
+  // 预设的导入 / 导出：按钮在预设页头部，导入完要重绘整页
+  initPresetIo({ rerender: () => renderAll() });
 }
 
 // ---------------------------------------------------------------------------

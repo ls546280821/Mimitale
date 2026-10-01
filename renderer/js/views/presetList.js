@@ -22,10 +22,12 @@ import { dialoguePresets } from '../data/library.js';
 /** 入口层注入的跨模块动作 */
 let openEditor = () => {};
 let removePreset = () => {};
+let exportOne = () => {};
 
 export function initPresetList(injected) {
   openEditor = (injected && injected.openEditor) || (() => {});
   removePreset = (injected && injected.remove) || (() => {});
+  exportOne = (injected && injected.exportOne) || (() => {});
 }
 
 export function renderPresetPage() {
@@ -74,6 +76,7 @@ function presetCard(preset) {
       }
     }),
     actions: [
+      button({ class: 'btn btn-ghost btn-sm', text: '导出', onClick: () => exportOne(preset.id) }),
       button({ class: 'btn btn-ghost btn-sm', text: '编辑', onClick: () => openEditor(preset.id) })
     ]
   });

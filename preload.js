@@ -60,7 +60,8 @@ contextBridge.exposeInMainWorld('mimitale', {
   getPresets: () => ipcRenderer.invoke('presets:get'),
   savePresets: (payload) => ipcRenderer.invoke('presets:save', payload),
   savePresetsNow: (payload) => ipcRenderer.send('presets:save-sync', payload),
-
+  // 导入预设文件（弹框 + 解析，不落盘）；导出走通用的 saveFile
+  importPresets: () => ipcRenderer.invoke('presets:import'),
   // --- 图片 ---
   pickImage: (options) => ipcRenderer.invoke('images:pick', options),
   generateImage: (payload) => ipcRenderer.invoke('images:generate', payload),

@@ -127,6 +127,8 @@ export const el = {
   presetPageGrid: $('preset-page-grid'),
   presetPageEmpty: $('preset-page-empty'),
   btnNewPreset: $('btn-new-preset'),
+  btnImportPreset: $('btn-import-preset'),
+  btnExportPresets: $('btn-export-presets'),
   // 进入世界前先创建玩家自己的角色
   playerModal: $('player-modal'),
   playerTitle: $('player-title'),

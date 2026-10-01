@@ -111,16 +111,7 @@
 
       <!-- ============ 在场角色：入口条（一行） + 浮动的状态卡 ============
            入口条跟着对话列**从上往下**排在消息区上面；卡片是**悬浮**在正文上的，
-           点入口条上的头像打开，可拖动，位置按 owner 各记各的。
-
-           2026-09-30 定稿（星宝）：曾经改成「固定 300px 右栏」——
-           固定确实不挡正文，但代价是对话区永久少 300px，而且状态是「边聊边
-           瞄一眼」的东西，钉在栏里不如浮在眼前。所以回到悬浮。
-           当初被否掉的两个毛病这次各自解决：
-             · 「开两张互相压」→ 开新卡时**自动并排铺开**（stateCard.js 的
-               layoutSideBySide），不再只错开 26px 叠着；
-             · 「盖住正文」→ 卡片能拖走（拖过之后位置记住），而且收起态只有一行。
-           「同时看多张」照样成立：铺开之后每张都完整可见。 -->
+           点入口条上的头像打开，可拖动，位置按 owner 各记各的。-->
       <section id="panel-box" class="panel-box hidden" aria-label="在场角色（状态卡入口）">
         <span class="panel-title">在场角色 <b id="panel-cast-count">0</b></span>
         <div id="panel-cast" class="panel-cast" aria-label="本局角色状态卡入口"></div>
@@ -225,6 +216,8 @@
             <p id="preset-page-sub" class="page-sub"></p>
           </div>
           <div class="page-actions">
+            <button id="btn-import-preset" class="btn btn-ghost btn-sm" type="button">导入</button>
+            <button id="btn-export-presets" class="btn btn-ghost btn-sm" type="button">导出全部</button>
             <button id="btn-new-preset" class="btn btn-primary btn-sm" type="button">＋ 新建预设</button>
           </div>
         </header>
@@ -1050,7 +1043,6 @@
           <label class="field">
             <span class="field-label">标签</span>
             <input id="pr-tags" type="text" spellcheck="false" placeholder="逗号分隔，可留空" aria-label="预设标签" />
-            <span class="field-help">只是给列表看的分类，不影响提示词</span>
           </label>
         </div>
 

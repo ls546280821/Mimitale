@@ -5951,4 +5951,73 @@ await scenario('预设：绑好后发一轮，正文进提示词', async () => {
   await waitFor('这一轮回复渲染出来了', () => $$('#messages .msg').length >= 2, 8000);
 });
 
+// ---------------------------------------------------------------------------
+//  预设：导入 / 导出
+//
+//  导入的「文件」由宿主侧的 smoke:preset-import-queue 塞进来（测试没有真文件框）。
+//  这里验的是渲染层那一半：导进来的要重发 id、要进库、要落盘、要有提示；
+//  导出则把 util:saveFile 收到的内容交给宿主侧断言（probePresetExport）。
+// ---------------------------------------------------------------------------
+await scenario('预设：导入文件', async () => {
+  click('#btn-presets');
+  await waitFor('预设页出来了', () => shown('#view-presets'));
+  await waitFor('列表有种子预设', () => $$('#preset-page-grid .char-card').length >= 2);
+
+  const before = $$('#preset-page-grid .char-card').length;
+
+  // 「文件里的东西」由宿主侧事先塞好（测试没有真文件框），这里只管点导入。
+  // 第一批要拿到的是「导入的预设甲 / 乙」（见 smoke-test.js 的 seedPresetImportQueue）。
+  click('#btn-import-preset');
+  await waitFor('导入后列表变长了', () => $$('#preset-page-grid .char-card').length >= before + 2, 5000);
+
+  const names = $$('#preset-page-grid .char-card-name').map((n) => n.textContent.trim());
+  check('导入的预设进了列表', names.includes('导入的预设甲') && names.includes('导入的预设乙'), names.join(' / '));
+
+  // 落盘 + 归一化：正文该来自 metadata.systemPromptContent，说明该是 description
+  const saved = (await window.mimitale.getPresets()).presets || [];
+  const a = saved.find((p) => p.name === '导入的预设甲');
+  check('导入的预设落盘了', !!a, JSON.stringify(saved.map((p) => p.name)));
+  check('导入时正文取自 metadata.systemPromptContent', a && a.content === '导入的正文甲。', a && a.content);
+  check('导入时 description 当说明、不混进正文', a && a.note === '这是说明，不该混进正文', a && a.note);
+  check('导入的预设拿到了新 id', a && typeof a.id === 'string' && a.id.startsWith('pr'), a && a.id);
+
+  // ⚠️ id 必须重发：直接沿用文件里的 id，两条同 id 的会互相顶掉
+  const ids = saved.map((p) => p.id);
+  check('导入后所有预设 id 互不重复', new Set(ids).size === ids.length, JSON.stringify(ids));
+});
+
+await scenario('预设：导入时出错要把好的收下', async () => {
+  const before = $$('#preset-page-grid .char-card').length;
+
+  // 第二批：一个能读到的 + 一条错误（见 seedPresetImportQueue）
+  click('#btn-import-preset');
+  await waitFor('导入的预设进了列表', () =>
+    $$('#preset-page-grid .char-card-name').some((n) => n.textContent.trim() === '导入的预设丙')
+  , 5000);
+  check('有错误时照样把好的导入进来', $$('#preset-page-grid .char-card').length >= before + 1);
+});
+
+await scenario('预设：导出单条与全部', async () => {
+  click('#btn-presets');
+  await waitFor('预设页出来了', () => shown('#view-presets'));
+
+  // 单条：卡片上的「导出」按钮
+  const cardEl = await waitFor('找到「带条目的预设」卡', () =>
+    $$('#preset-page-grid .char-card').find((c) => {
+      const t = c.querySelector('.char-card-name');
+      return t && t.textContent.trim() === '带条目的预设';
+    })
+  );
+  check('预设卡片上有「导出」按钮', !!buttonByText(cardEl, '导出'));
+  click(buttonByText(cardEl, '导出'));
+  await sleep(200);
+
+  // 全部：页面右上角
+  click('#btn-export-presets');
+  await sleep(200);
+
+  // 具体内容由宿主侧看 util:saveFile 收到的 payload（probePresetExport）
+  check('导出没有卡住界面', shown('#view-presets'));
+});
+
 return { results, notes, hoverProbe };

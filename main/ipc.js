@@ -57,6 +57,9 @@ const { getMainWindow, sendToRenderer } = require('./window.js');
 const { matchWorldbookEntries, formatWorldbookSection } = require('./worldbook-match.js');
 const { parseImportFile } = require('./card-import.js');
 const { importFiles, MAX_IMPORT_BYTES } = require('./import-files.js');
+// 预设导入时要过一遍**落盘用的**那个归一化器 —— 导进来的东西当场就是内部形状，
+// 界面不用再认一遍「别人分享的格式」。
+const { normalizePreset } = require('./presets.js');
 // 角色卡要能导出成「酒馆 PNG 卡」—— 卡数据 base64 后塞进 PNG 的 tEXt 块。
 const { pngWithTextChunk } = require('./png.js');
 // 记忆检索的向量与排序，纯函数，同样为了可测而独立成模块。
@@ -243,6 +246,77 @@ function registerIpc() {
 
   ipcMain.on('presets:save-sync', (_event, payload) => {
     savePresets(payload, { immediate: true });
+  });
+
+  /**
+   * 导入预设：弹文件框、读 JSON、过归一化后返回，**不落盘**。
+   * 收不收、收哪几条由界面决定 —— 用户取消时盘上一点都不会变。
+   *
+   * 一个文件里可能是**一条**预设，也可能是**一整个数组**（导出的就是这种）。
+   * 两种都认，所以先探形状再归一化。归一化器是落盘时用的同一份，
+   * 这样「别人分享的预设」在导进来的时候就已经被整理成内部形状了。
+   */
+  ipcMain.handle('presets:import', async () => {
+    const result = await dialog.showOpenDialog(getMainWindow(), {
+      title: '选择预设文件',
+      buttonLabel: '导入',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: '预设文件（JSON）', extensions: ['json'] },
+        { name: '所有文件', extensions: ['*'] }
+      ]
+    });
+
+    if (result.canceled || !result.filePaths.length) {
+      return { canceled: true, presets: [], errors: [] };
+    }
+
+    const out = [];
+    const errors = [];
+
+    for (const file of result.filePaths) {
+      try {
+        const stat = fs.statSync(file);
+        // 和角色卡导入同一个上限（12MB）—— 预设是纯文本，正常远小于这个数
+        if (stat.size > MAX_IMPORT_BYTES) {
+          errors.push(`${path.basename(file)}：文件太大了（${Math.round(stat.size / 1024 / 1024)}MB）`);
+          continue;
+        }
+
+        const text = fs.readFileSync(file, 'utf8');
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          errors.push(`${path.basename(file)}：不是合法的 JSON`);
+          continue;
+        }
+
+        // 三种常见形态：单条对象 / 数组 / { presets: [...] }
+        let items = [];
+        if (Array.isArray(data)) items = data;
+        else if (data && Array.isArray(data.presets)) items = data.presets;
+        else if (data && typeof data === 'object') items = [data];
+
+        if (!items.length) {
+          errors.push(`${path.basename(file)}：里面没有预设`);
+          continue;
+        }
+
+        for (const item of items) {
+          // ⚠️ 导入时**不带 id**：id 是对内唯一的，撞了会把已有的预设顶掉。
+          //    由界面那边重新发一批（和角色卡导入同一套做法）。
+          const preset = normalizePreset(item);
+          if (!preset) continue;
+          preset.id = undefined;
+          out.push(preset);
+        }
+      } catch (err) {
+        errors.push(`${path.basename(file)}：${(err && err.message) || '读取失败'}`);
+      }
+    }
+
+    return { canceled: false, presets: out, errors };
   });
 
   /**

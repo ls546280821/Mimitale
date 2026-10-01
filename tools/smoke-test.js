@@ -328,6 +328,27 @@ if (SHOT_ONLY) seedForShots();
 
 const calls = []; // 记录渲染层请求过的写操作，方便排查
 let chatPayloads = []; // 每次发给模型的完整消息（按顺序留着，供宿主侧断言用）
+// 预设导入的「待发文件」队列：预先塞几批，点一次导入消费一批。
+// 真实现里这来自用户选的文件，测试没有文件框，所以改成预先摆好。
+// 顺序要对上 smoke-renderer.js 里那两个导入场景的先后。
+let presetImportQueue = [
+  {
+    presets: [
+      {
+        name: '导入的预设甲',
+        description: '这是说明，不该混进正文',
+        metadata: { systemPromptContent: '导入的正文甲。' },
+        tags: ['导入']
+      },
+      { name: '导入的预设乙', content: '导入的正文乙。' }
+    ],
+    errors: []
+  },
+  {
+    presets: [{ name: '导入的预设丙', content: '丙的正文。' }],
+    errors: ['坏文件.json：不是合法的 JSON']
+  }
+];
 let lastExport = null; // 最后一次「导出」交给主进程的东西
 const exportedPayloads = []; // 按顺序留所有导出，宿主侧断言用
 const imageRequests = []; // 生图请求参数
@@ -538,6 +559,20 @@ function registerStubs() {
     if (payload && Array.isArray(payload.presets)) {
       store.presets = clone(payload.presets.map((p) => normalizePreset(p)));
     }
+  });
+
+  // 导入：不弹真文件框，改由测试预先塞好一批「文件里读出来的东西」。
+  // ⚠️ 这里也要过 normalizePreset —— 真实现就是这么干的（main/ipc.js 的
+  //    presets:import），不过一遍就等于放过了「导入别人分享的格式」这条链路。
+  ipcMain.handle('presets:import', () => {
+    remember('presets:import');
+    if (!presetImportQueue.length) return { canceled: true, presets: [], errors: [] };
+    const queued = presetImportQueue.shift();
+    return clone({
+      canceled: false,
+      presets: (queued.presets || []).map((p) => normalizePreset(p)),
+      errors: queued.errors || []
+    });
   });
 
   // --- 图片 / 杂项 ---
@@ -1565,6 +1600,76 @@ function probeExports(result) {
     name: '导出 → 导入：卡里自带的世界书真的能读回来（真往返）',
     pass: roundOk,
     detail: roundOk ? '' : roundDetail
+  });
+
+  // --- 预设导出 ---
+  // 单条导出写的是**对象本身**，全部导出才是 { presets: [...] } ——
+  // 这两种形状自己的导入都认，所以「导出去的文件能原样导回来」是真成立的。
+  // 另外要认准「不带 id」：带了 id，导回来的那条会在库里跟原来那条打架。
+  const oneExport = exportedPayloads.find((p) => {
+    if (!p.text || String(p.fileName || '') !== '带条目的预设.json') return false;
+    try {
+      const parsed = JSON.parse(p.text);
+      return !!parsed && !Array.isArray(parsed) && !parsed.presets && typeof parsed.name === 'string';
+    } catch (err) {
+      return false;
+    }
+  });
+  const allExport = exportedPayloads.find((p) => {
+    if (!p.text || String(p.fileName || '') !== 'presets.json') return false;
+    try {
+      const parsed = JSON.parse(p.text);
+      return !!parsed && Array.isArray(parsed.presets);
+    } catch (err) {
+      return false;
+    }
+  });
+
+  let oneOk = false;
+  let oneDetail = '没有单条预设的导出记录';
+  if (oneExport) {
+    try {
+      const p = JSON.parse(oneExport.text);
+      oneOk =
+        p.name === '带条目的预设' &&
+        typeof p.content === 'string' &&
+        p.content.length > 0 &&
+        Array.isArray(p.entries) &&
+        p.entries.length > 0 &&
+        !('id' in p) &&
+        !('createdAt' in p) &&
+        !('updatedAt' in p);
+      oneDetail = `name=${p.name} entries=${(p.entries || []).length} 字段=${Object.keys(p).join(',')}`;
+    } catch (err) {
+      oneDetail = 'JSON 解析失败：' + ((err && err.message) || err);
+    }
+  }
+  result.results.push({
+    name: '导出：单条预设写的是对象本身，且不带运行期字段',
+    pass: oneOk,
+    detail: oneOk ? '' : oneDetail
+  });
+
+  let allOk = false;
+  let allDetail = '没有「导出全部」的记录';
+  if (allExport) {
+    try {
+      const { presets } = JSON.parse(allExport.text);
+      const one = presets.find((p) => p.name === '带条目的预设');
+      allOk =
+        presets.length >= 2 &&
+        !!one &&
+        presets.every((p) => p && typeof p.name === 'string' && !('id' in p)) &&
+        String(allExport.fileName).endsWith('.json');
+      allDetail = `条数=${presets.length} 名单=${presets.map((p) => p.name).join(' / ')}`;
+    } catch (err) {
+      allDetail = 'JSON 解析失败：' + ((err && err.message) || err);
+    }
+  }
+  result.results.push({
+    name: '导出：全部预设写的是 { presets: [...] }，每条都不带 id',
+    pass: allOk,
+    detail: allOk ? '' : allDetail
   });
 }
 
