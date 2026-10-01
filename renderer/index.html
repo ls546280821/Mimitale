@@ -41,6 +41,7 @@
       <div class="sidebar-foot">
         <button id="btn-chars" class="btn btn-ghost btn-block" data-icon="users" aria-label="打开角色库">角色库</button>
         <button id="btn-worldbooks" class="btn btn-ghost btn-block" data-icon="book" aria-label="打开世界书">世界书</button>
+        <button id="btn-presets" class="btn btn-ghost btn-block" data-icon="sliders" aria-label="打开预设">预设</button>
         <button id="btn-settings" class="btn btn-ghost btn-block" data-icon="settings" aria-label="打开设置">设置</button>
         <button id="btn-folder" class="btn btn-ghost btn-block" data-icon="folder" aria-label="打开数据文件夹">数据文件夹</button>
       </div>
@@ -211,6 +212,30 @@
             <p class="page-empty-hint">
               点右上角「导入世界书」选一个酒馆的 lorebook JSON，<br />
               或者点「＋ 新建世界书」自己写一个世界。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 视图四：预设列表页 -->
+      <section id="view-presets" class="view hidden" aria-label="预设">
+        <header class="page-head">
+          <div class="page-heading">
+            <h1 class="page-title">预设</h1>
+            <p id="preset-page-sub" class="page-sub"></p>
+          </div>
+          <div class="page-actions">
+            <button id="btn-new-preset" class="btn btn-primary btn-sm" type="button">＋ 新建预设</button>
+          </div>
+        </header>
+
+        <div class="page-body">
+          <div id="preset-page-grid" class="char-grid" role="list"></div>
+          <div id="preset-page-empty" class="page-empty hidden">
+            <div class="page-empty-title">还没有预设</div>
+            <p class="page-empty-hint">
+              预设是叠在对话上的一层指令：写一段「回复要遵循什么规则」，<br />
+              再在会话的「视角」里选上它，这一场对话就按它来。
             </p>
           </div>
         </div>
@@ -999,6 +1024,105 @@
     </div>
   </div>
 
+  <!-- ================= 预设编辑器 =================
+       只编辑一个预设：名字 + 说明 + 正文 +（可选）采样参数。
+       正文是每次发消息都会拼进系统提示词的那段文本。 -->
+  <div id="preset-modal" class="modal hidden">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="preset-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="preset-title">编辑预设</h2>
+          <p id="preset-sub" class="modal-sub">叠在对话上的一层指令</p>
+        </div>
+        <button id="btn-close-preset" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭预设编辑器">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <div class="field-grid">
+          <label class="field">
+            <span class="field-label">名称</span>
+            <input id="pr-name" type="text" spellcheck="false" placeholder="例如：沉稳叙事" aria-label="预设名称" />
+          </label>
+          <label class="field">
+            <span class="field-label">标签</span>
+            <input id="pr-tags" type="text" spellcheck="false" placeholder="逗号分隔，可留空" aria-label="预设标签" />
+            <span class="field-help">只是给列表看的分类，不影响提示词</span>
+          </label>
+        </div>
+
+        <label class="field field-stack">
+          <span class="field-label">说明</span>
+          <input id="pr-note" type="text" spellcheck="false" placeholder="一句话说明这个预设是干什么的" aria-label="预设说明" />
+          <span class="field-help">只显示在列表上，不会发给模型</span>
+        </label>
+
+        <label class="field field-stack">
+          <span class="field-label">指令正文</span>
+          <textarea id="pr-content" rows="6" spellcheck="false"
+            placeholder="写「回复要遵循什么规则」，例如：&#10;每轮至少推进一个具体事件，不要停在原地互相观望。&#10;对话占篇幅的一半以内，其余留给动作和环境。"></textarea>
+          <span class="field-help">
+            这一段会作为「【预设 · 名称】」整块加进系统提示词，紧跟扮演规则之后。<br />
+            可以用 <code>{{char}}</code> / <code>{{user}}</code>，发送时会替换成角色名和你的名字。
+          </span>
+        </label>
+
+        <label class="check">
+          <input id="pr-enabled" type="checkbox" />
+          <span class="check-text">
+            <span class="check-title">启用</span>
+            <span class="check-desc">关掉之后不出现在会话的预设列表里，数据仍然保留</span>
+          </span>
+        </label>
+
+        <label class="check">
+          <input id="pr-global" type="checkbox" />
+          <span class="check-text">
+            <span class="check-title">可全局（没手动配过的对话自动带上）</span>
+            <span class="check-desc">
+              勾上之后，任何<b>还没自己配过预设</b>的对话都会自动加上它，不用一场场手动勾。<br />
+              在某个对话里手动勾过预设的，那一场就按它自己勾的来（想覆盖就在这里取消勾选）。<br />
+              多条都能同时勾 —— 它们会依次叠加。
+            </span>
+          </span>
+        </label>
+
+        <details class="preset-sampling">
+          <summary>采样参数（可选）</summary>
+          <p class="field-help">
+            留空就用「设置」里的全局值。填了的话，绑了这个预设的会话按这里的来。
+          </p>
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">温度</span>
+              <input id="pr-temperature" type="number" min="0" max="2" step="0.1" placeholder="全局" aria-label="预设温度" />
+            </label>
+            <label class="field">
+              <span class="field-label">回复上限</span>
+              <input id="pr-maxtokens" type="number" min="64" max="32000" step="64" placeholder="全局" aria-label="预设回复上限" />
+            </label>
+          </div>
+          <label class="field">
+            <span class="field-label">top_p</span>
+            <input id="pr-topp" type="number" min="0" max="1" step="0.05" placeholder="全局" aria-label="预设 top_p" />
+          </label>
+        </details>
+      </div>
+
+      <footer class="modal-foot">
+        <span id="pr-foot-hint" class="foot-hint">预设只保存在你自己电脑上</span>
+        <div class="foot-actions">
+          <button id="btn-del-preset" class="btn btn-ghost" type="button">删除</button>
+          <button id="btn-save-preset" class="btn btn-primary" type="button">保存</button>
+          <button id="btn-close-preset-2" class="btn btn-ghost" type="button">关闭</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
   <!-- ================= 视角设置弹窗 ================= -->
   <div id="perspective-modal" class="modal hidden">
     <div class="modal-card perspective-card" role="dialog" aria-modal="true" aria-labelledby="perspective-title">
@@ -1040,6 +1164,16 @@
             AI 可能把游戏赢完、NPC 的反应也全写完，你只剩看的份。
           </span>
         </label>
+
+        <div class="field field-stack">
+          <span class="field-label">预设</span>
+          <div id="p-preset-list" class="preset-pick" role="group" aria-label="预设"></div>
+          <span class="field-help">
+            预设是叠在对话上的一层指令（行为框架）—— 这场想用什么写法，就勾哪几条，<br />
+            <b>可以同时勾多条</b>，规则会依次加进每轮的提示词，从下一条回复开始生效。<br />
+            勾了「可全局」的预设会自动出现在这里；手动动过之后，这场就按你勾的来。
+          </span>
+        </div>
 
         <label class="check">
           <input id="p-gm" type="checkbox" />

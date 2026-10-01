@@ -56,6 +56,11 @@ contextBridge.exposeInMainWorld('mimitale', {
   saveWorldbooksNow: (payload) => ipcRenderer.send('worldbooks:save-sync', payload),
   previewWorldbook: (payload) => ipcRenderer.invoke('worldbooks:preview', payload),
 
+  // --- 预设（叠在对话上的一层指令） ---
+  getPresets: () => ipcRenderer.invoke('presets:get'),
+  savePresets: (payload) => ipcRenderer.invoke('presets:save', payload),
+  savePresetsNow: (payload) => ipcRenderer.send('presets:save-sync', payload),
+
   // --- 图片 ---
   pickImage: (options) => ipcRenderer.invoke('images:pick', options),
   generateImage: (payload) => ipcRenderer.invoke('images:generate', payload),

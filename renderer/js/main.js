@@ -48,10 +48,10 @@ import { applyFieldIcons } from './ui/icons.js';
 import { initMoreMenu } from './ui/menu.js';
 import { initModelMenu } from './ui/modelMenu.js';
 
-import { persistCharacters, persistLibrary, markWorldbooksLoaded } from './data/persist.js';
+import { persistCharacters, persistLibrary, persistPresets, markWorldbooksLoaded, markPresetsLoaded } from './data/persist.js';
 import { currentEndpoint, isBridgeProvider } from './data/providers.js';
 import { convoUserName, speakerName } from './data/cast.js';
-import { characters, worldbooks } from './data/library.js';
+import { characters, worldbooks, dialoguePresets } from './data/library.js';
 import {
   normalizePanelDefs,
   cleanAssistantText,
@@ -71,6 +71,17 @@ import { initMemoryUi, closeMemoryModal } from './views/memoryUi.js';
 import { initPanelUi } from './views/panelUi.js';
 import { initStateCards } from './views/stateCard.js';
 import { initWorldbookList, renderWorldbookPage } from './views/worldbookList.js';
+import {
+  initPresetList,
+  renderPresetPage
+} from './views/presetList.js';
+import {
+  initPreset,
+  openPresetEditor,
+  newPreset,
+  deletePresetById,
+  closePresetEditor
+} from './views/preset.js';
 import { initSettings, setEditingProvider, openSettings, closeSettings } from './views/settings.js';
 import { initAppearance, applyChatAppearance, closeAppearanceModal } from './views/appearance.js';
 import { streamPainter, initStreamFollow } from './views/stream.js';
@@ -143,6 +154,12 @@ function registerRefreshListeners() {
   // 卡片右上角那个删除 × 同理：它要一起解绑会话、收掉编辑器里的草稿。
   // 它自己不登记重绘 —— 列表页的重绘由上面的 refreshLibraryPage 按当前视图分发。
   initWorldbookList({ openEditor: editWorldbookFromPage, remove: deleteWorldbookById });
+  // 预设列表页同理：「编辑」要打开预设编辑器（编辑器状态住在 views/preset.js），
+  // 「删除」要收掉那份没保存的草稿。两者都是跨模块编排，由入口层注入。
+  initPresetList({ openEditor: openPresetEditor, remove: deletePresetById });
+  // 预设编辑器自己绑弹窗里的按钮；它保存 / 删除之后要全量重绘（预设页、
+  // 会话视角弹窗都可能跟着变），那也是入口层的编排。
+  initPreset({ rerender: () => renderAll() });
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +235,8 @@ function bindEvents() {
 
   el.btnExportChar.addEventListener('click', exportCharacter);
   el.btnExportConvo.addEventListener('click', exportConversation);
+  // 预设页右上角「＋ 新建预设」：打开空草稿（真正建出来要等点保存）
+  if (el.btnNewPreset) el.btnNewPreset.addEventListener('click', newPreset);
   // 状态卡入口条不用在这里绑事件 —— 头像的点击由 views/panelUi.js 铺的时候就地挂上。
 
   // 记忆管理：弹窗本体（开关 / 摘要增删改 / 存档点）在 views/memoryUi.js 里绑定。
@@ -317,6 +336,10 @@ function bindEvents() {
     // 剩下这三个以前漏在链外 —— 只开着它们的时候按 Esc 毫无反应，和别的弹窗行为不一致
     if (!el.wb.modal.classList.contains('hidden')) {
       closeWorldbooksModal();
+      return;
+    }
+    if (!el.pr.modal.classList.contains('hidden')) {
+      closePresetEditor();
       return;
     }
     if (!el.memoryModal.classList.contains('hidden')) {
@@ -540,6 +563,16 @@ async function init() {
     showToast('世界书没能读出来，本次不会写回它（重启试试）', 'error');
   }
 
+  // 预设同理：读失败要记住，否则之后存一次预设就把文件写空了
+  try {
+    const storedPresets = await api.getPresets();
+    state.dialoguePresets = Array.isArray(storedPresets && storedPresets.presets) ? storedPresets.presets : [];
+    markPresetsLoaded();
+  } catch (err) {
+    console.error('读取预设失败', err);
+    showToast('预设没能读出来，本次不会写回它（重启试试）', 'error');
+  }
+
   const stored = await api.getConversations();
   state.conversations = Array.isArray(stored.conversations) ? stored.conversations : [];
   state.activeId = stored.activeId || null;
@@ -558,6 +591,20 @@ async function init() {
     // 选项是程序写进去的，读盘时只要保证形状对（不是数组就当没有）
     if (!Array.isArray(convo.options)) convo.options = [];
     if (convo.optionsSpec && typeof convo.optionsSpec !== 'object') convo.optionsSpec = null;
+    // 预设绑定：三种形状都要留得住
+    //   · 数组         → 手动配过（可能是空数组 = 显式「一条都不要」）
+    //   · 非空字符串   → 老数据（单值），迁成一条
+    //   · 其它/缺失    → null = 没配过，自动跟随全局预设
+    if (Array.isArray(convo.dialoguePresetIds)) {
+      convo.dialoguePresetIds = convo.dialoguePresetIds.filter(
+        (id) => typeof id === 'string' && id.trim()
+      );
+    } else if (typeof convo.dialoguePresetId === 'string' && convo.dialoguePresetId.trim()) {
+      convo.dialoguePresetIds = [convo.dialoguePresetId];
+    } else {
+      convo.dialoguePresetIds = null;
+    }
+    delete convo.dialoguePresetId;
   }
 
   if (!state.conversations.length) {

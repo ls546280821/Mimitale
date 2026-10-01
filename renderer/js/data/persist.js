@@ -12,7 +12,7 @@
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { showToast } from '../ui/toast.js';
-import { characters, worldbooks } from './library.js';
+import { characters, worldbooks, dialoguePresets } from './library.js';
 
 let saveTimer = null;
 
@@ -43,6 +43,47 @@ let worldbooksLoaded = false;
 /** 启动时读到世界书后调用（读失败就别调，见上） */
 export function markWorldbooksLoaded() {
   worldbooksLoaded = true;
+}
+
+/**
+ * 预设是否成功从磁盘读进来了。
+ *
+ * 和 worldbooksLoaded 同一个道理：读失败时**必须记住**，
+ * 否则之后随便存一次角色/世界书，就会把 presets.json 覆盖成空文件。
+ */
+let presetsLoaded = false;
+
+/** 启动时读到预设后调用（读失败就别调，见上） */
+export function markPresetsLoaded() {
+  presetsLoaded = true;
+}
+
+/**
+ * 把当前预设写回磁盘（单独一个文件，不受角色 / 世界书影响）。
+ * immediate = true 时立刻写，不等下一帧。
+ */
+export function persistPresets(immediate) {
+  // 没读进来就什么都别写：写下去等于把文件清空
+  if (!presetsLoaded) {
+    showToast('预设上次没能读出来，先别改它 —— 重启应用再试', 'error');
+    return Promise.resolve(false);
+  }
+
+  const payload = { presets: dialoguePresets() };
+
+  if (immediate) {
+    api.savePresetsNow(payload);
+    return Promise.resolve(true);
+  }
+
+  return api
+    .savePresets(payload)
+    .then(() => true)
+    .catch((err) => {
+      console.error('保存预设失败', err);
+      showToast('预设没能保存到磁盘，请检查磁盘空间', 'error');
+      return false;
+    });
 }
 
 /**

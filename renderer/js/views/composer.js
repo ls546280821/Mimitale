@@ -21,7 +21,7 @@ import { showToast } from '../ui/toast.js';
 import { h, button, clear } from '../ui/build.js';
 import { persistConversations } from '../data/persist.js';
 import { ensureConvoEndpoint, isBridgeProvider } from '../data/providers.js';
-import { buildApiMessages, characterContextForConvo } from '../data/messages.js';
+import { buildApiMessages, characterContextForConvo, dialoguePresetSampling } from '../data/messages.js';
 import { matchWorldbookSection } from '../data/cast.js';
 import { recallSection } from '../data/rag.js';
 import {
@@ -219,7 +219,6 @@ async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSect
 
   const messages = buildApiMessages(convo, worldbookSection, ragSection);
   messages.push({ role: 'user', content: nudge || CONTINUE_NUDGE });
-
   const before = String(last.content || '');
 
   try {
@@ -228,7 +227,8 @@ async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSect
       providerId: endpoint.provider.id,
       model: endpoint.model,
       messages,
-      characterContext: characterContextForConvo(convo)
+      characterContext: characterContextForConvo(convo),
+      sampling: dialoguePresetSampling(convo)
     });
 
     if (!response || response.ok !== true) {
@@ -464,7 +464,8 @@ async function requestCompletion(convo, options) {
       providerId: endpoint.provider.id,
       model: endpoint.model,
       messages: buildApiMessages(convo, worldbookSection, ragSection),
-      characterContext: characterContextForConvo(convo)
+      characterContext: characterContextForConvo(convo),
+      sampling: dialoguePresetSampling(convo)
     });
 
     if (!response || response.ok !== true) {
@@ -526,7 +527,8 @@ async function requestCompletion(convo, options) {
         providerId: endpoint.provider.id,
         model: endpoint.model,
         messages: retryMessages,
-        characterContext: characterContextForConvo(convo)
+        characterContext: characterContextForConvo(convo),
+        sampling: dialoguePresetSampling(convo)
       });
 
       if (retry && retry.ok === true) {

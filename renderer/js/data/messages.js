@@ -20,7 +20,11 @@
 
 import { CONFIG } from '../core/config.js';
 import { state } from '../core/state.js';
-import { characterForConvo } from './library.js';
+import {
+  characterForConvo,
+  effectiveDialoguePresets,
+  WORLDBOOK_SCAN_DEPTH
+} from './library.js';
 import { cleanAssistantText, convoFieldDisplayNames, formatPanelForPrompt, panelGroupNames, PANEL_PROMPT_REMINDER } from './panel.js';
 import { formatSummaryForPrompt, summarizedCount } from './memory.js';
 import { gmRuleText, isGmMode, narrationInstruction, roleplayRuleText } from './narration.js';
@@ -152,6 +156,70 @@ export function convoIsBridge(convo) {
 }
 
 /**
+ * 预设（叠在对话上的一层指令）拼成的注入段。
+ *
+ * 它是**独立的整块**，不掺进扮演规则里 —— 这样「关掉预设」就是逐字回到
+ * 默认规则，不用担心合并出残余。预设本身不承载任何逻辑，只是一段文本。
+ *
+ * 一个会话**可以挂多条**（比如「禁比喻」+「固定称呼」），按挂的顺序依次拼上，
+ * 每条各自成块（`【预设 · 名称】`）。没手动配过的会话带上所有「可全局」的预设。
+ *
+ * 条目有两种：带关键词的只在近期历史里命中才带上；没关键词的（constant）每轮都带。
+ * 关键词扫描范围跟世界书一致（往回看几条消息），但只扫真实对话，不递归。
+ */
+export function dialoguePresetSection(convo, recentMessages) {
+  const presets = effectiveDialoguePresets(convo);
+  if (!presets.length) return '';
+
+  // 命中判定只看「最近这几条」的正文；和世界书的扫描深度保持同一个量级。
+  // 多条预设共用同一份扫描文本，不必每条各扫一遍。
+  const haystack = (Array.isArray(recentMessages) ? recentMessages : [])
+    .slice(-WORLDBOOK_SCAN_DEPTH)
+    .map((m) => String((m && m.content) || ''))
+    .join('\n')
+    .toLowerCase();
+
+  const sections = [];
+  for (const preset of presets) {
+    const blocks = [];
+    // 正文（顶层 content）：常驻
+    if (String(preset.content || '').trim()) blocks.push(String(preset.content).trim());
+
+    const entries = Array.isArray(preset.entries) ? preset.entries : [];
+    for (const entry of entries) {
+      if (entry.enabled === false) continue;
+      const text = String(entry.content || '').trim();
+      if (!text) continue;
+      const keys = Array.isArray(entry.keys) ? entry.keys : [];
+      // 没关键词就是常驻（normalizePresetEntry 已把这种情况标成 constant）
+      if (!keys.length || entry.constant === true) {
+        blocks.push(text);
+        continue;
+      }
+      const hit = keys.some((k) => haystack.includes(String(k).toLowerCase()));
+      if (hit) blocks.push(text);
+    }
+
+    const text = blocks.join('\n\n').trim();
+    if (text) sections.push(`【预设 · ${preset.name}】\n${text}`);
+  }
+
+  return sections.join('\n\n');
+}
+
+/** 会话实际生效的预设上的采样参数（多条时取**第一条设过值**的项，没设过的项不覆盖） */
+export function dialoguePresetSampling(convo) {
+  const presets = effectiveDialoguePresets(convo);
+  const out = {};
+  for (const preset of presets) {
+    if (out.temperature === undefined && Number.isFinite(preset.temperature)) out.temperature = preset.temperature;
+    if (out.maxTokens === undefined && Number.isFinite(preset.maxTokens)) out.maxTokens = preset.maxTokens;
+    if (out.topP === undefined && Number.isFinite(preset.topP)) out.topP = preset.topP;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+/**
  * 组装真正发给模型的消息数组。
  * 参数里的两段（世界书命中 / 语义检索）是调用方异步取好的 —— 这里保持同步，
  * 方便两边共用同一份拼接逻辑（发送、继续、重新生成都走它）。
@@ -214,6 +282,13 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // 两种规则里都带上了「推进节奏」—— 否则模型会一口气把整场戏演完，玩家只剩看的份。
   const ruleText = gmMode ? gmRuleText(charName, me, convo) : roleplayRuleText(charName, me, convo);
   if (character || gmMode) parts.push(ruleText);
+
+  // 预设：对话层面额外叠上去的一层行为框架，紧跟扮演规则之后。
+  // ⚠️ 刻意放在上面那个 if 外面 —— 通用助手（既没绑卡、也不是 GM）一样能用预设，
+  //   而那种场景恰恰最需要它。它是一整块独立文本，不并进 ruleText，
+  //   这样「不绑预设」就是逐字回到默认规则。
+  const presetText = dialoguePresetSection(convo, history);
+  if (presetText) parts.push(presetText);
 
   // 玩家角色：从世界书列表页「游玩」进来的会话才有这段。
   // 只有名字的话上面那句规则已经交代了，所以这里只在写了设定时才注入。

@@ -56,7 +56,21 @@ const ICONS = {
     '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
   // 顶栏：对话窗口外观 —— 调色盘
   palette:
-    '<circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2.5-2.5c0-.7-.3-1.3-.7-1.8-.4-.4-.7-1-.7-1.7a2.5 2.5 0 0 1 2.5-2.5H17a5 5 0 0 0 5-5c0-3.6-4.5-6-10-6Z"/>'
+    '<circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2a10 10 0 0 0 0 20 2.5 2.5 0 0 0 2.5-2.5c0-.7-.3-1.3-.7-1.8-.4-.4-.7-1-.7-1.7a2.5 2.5 0 0 1 2.5-2.5H17a5 5 0 0 0 5-5c0-3.6-4.5-6-10-6Z"/>',
+
+  // --- 看图浮层（ui/lightbox.js）------
+  // 缩小 / 放大：一个圆的中间横杠 / 加号
+  'zoom-out': '<circle cx="11" cy="11" r="7"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  'zoom-in':
+    '<circle cx="11" cy="11" r="7"/><line x1="8" y1="11" x2="14" y2="11"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  // 「适应窗口」：四角向中间收（往框里收 = 缩到装得下）
+  'zoom-fit':
+    '<path d="M3 8V6a3 3 0 0 1 3-3h2"/><path d="M16 3h2a3 3 0 0 1 3 3v2"/><path d="M21 16v2a3 3 0 0 1-3 3h-2"/><path d="M8 21H6a3 3 0 0 1-3-3v-2"/><path d="M9 15 5 19"/><path d="M15 9l4-4"/>',
+  // 「实际大小」：1:1，一个实心方点 + 周围四个角（代表原始像素）
+  'zoom-actual':
+    '<rect x="9" y="9" width="6" height="6" rx="1"/><path d="M3 8V6a3 3 0 0 1 3-3h2"/><path d="M16 3h2a3 3 0 0 1 3 3v2"/><path d="M21 16v2a3 3 0 0 1-3 3h-2"/><path d="M8 21H6a3 3 0 0 1-3-3v-2"/>',
+  // 关闭：一个叉
+  close: '<line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/>'
 };
 
 /**
@@ -76,6 +90,20 @@ function iconSvg(name) {
     body +
     '</svg>'
   );
+}
+
+/**
+ * 取一段图标的 SVG 字符串（`.field-icon` 那个 class 带尺寸/颜色，由 CSS 管）。
+ * 走 data-icon 的静态标签用不上它；动态建按钮、要往里面塞图标的用这个。
+ *
+ * @param {string} name ICONS 里的键
+ * @param {string} [cls] 额外的 class（默认给 `.field-icon` 的尺寸/颜色，一般不用改）
+ * @returns {string} 找不到时返回空串
+ */
+export function iconHtml(name, cls = 'field-icon') {
+  const svg = iconSvg(name);
+  if (!svg) return '';
+  return cls && cls !== 'field-icon' ? svg.replace('class="field-icon"', `class="${cls}"`) : svg;
 }
 
 /**

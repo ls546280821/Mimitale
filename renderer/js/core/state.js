@@ -12,7 +12,11 @@
 
 export const state = {
   settings: null,
+  // ⚠️ presets 是「服务商一键填充」那套内置模板（DeepSeek / OpenAI…），别拿来存对话预设。
+  // 对话层面的预设走下面的 dialoguePresets。
   presets: [],
+  // 用户自建的「预设」：叠在对话上的一层指令，会话通过 convo.dialoguePresetIds 绑定（可多条）。
+  dialoguePresets: [],
   conversations: [],
   characters: [],
   worldbooks: [],

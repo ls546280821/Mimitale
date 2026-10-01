@@ -23,6 +23,8 @@ const {
   loadWorldbooks,
   saveWorldbooks,
   worldbookEntriesByIds,
+  loadPresets,
+  savePresets,
   loadVectors,
   saveVectors
 } = require('./store.js');
@@ -231,6 +233,18 @@ function registerIpc() {
     saveWorldbooks(payload, { immediate: true });
   });
 
+  // --- 预设 ---
+  // 对话层面叠上去的一层指令。和角色库、世界书同级：各自一个文件，
+  // 靠「会话绑定了哪几条」决定生效（convo.dialoguePresetIds，可多条）。
+
+  ipcMain.handle('presets:get', () => loadPresets());
+
+  ipcMain.handle('presets:save', (_event, payload) => savePresets(payload));
+
+  ipcMain.on('presets:save-sync', (_event, payload) => {
+    savePresets(payload, { immediate: true });
+  });
+
   /**
    * 世界书预览：按当前会话的近期消息跑一遍匹配，返回命中的条目。
    * 作用域是「会话绑定的 + 角色绑定的」两批合起来 —— 会话级在前，
@@ -386,6 +400,15 @@ function registerIpc() {
 
     if (!endpoint) {
       return { ok: false, requestId, error: '还没有配置模型服务，请点左下角「设置」添加。' };
+    }
+
+    // 预设（会话级）里填过的采样参数覆盖全局设置。没填的项保持原样 ——
+    // 渲染层只把「确实设过」的那几项传上来，所以这里是白名单式的逐项覆盖。
+    const sampling = request.sampling && typeof request.sampling === 'object' ? request.sampling : null;
+    if (sampling) {
+      if (Number.isFinite(sampling.temperature)) endpoint.temperature = sampling.temperature;
+      if (Number.isFinite(sampling.maxTokens)) endpoint.maxTokens = Math.round(sampling.maxTokens);
+      if (Number.isFinite(sampling.topP)) endpoint.topP = sampling.topP;
     }
 
     // 本机桥接服务免 Key；其余 OpenAI 兼容服务商照旧要求

@@ -5579,9 +5579,51 @@ await scenario('看图：灯箱缩放与关闭', async () => {
   await sleep(60);
   check('点「−」缩小', scaleOf() < afterBtnIn, lbImg.style.transform);
 
+  // 「适应窗口 / 实际大小」是同一个按钮，按当前状态在两个档位间切。
+  // 一开始是适应窗口（scale = 1），按钮该显示「切到实际大小」那一档。
+  check(
+    '按钮初始是「切到实际大小」（图标 zoom-actual）',
+    byId('lightbox-reset').classList.contains('is-actual'),
+    byId('lightbox-reset').className
+  );
   click('#lightbox-reset');
   await sleep(60);
-  check('「适应」回到 1 倍', Math.abs(scaleOf() - 1) < 1e-6, lbImg.style.transform);
+  const actualScale = scaleOf();
+  const pctAtActual = (byId('lightbox-pct').textContent || '').trim();
+  check('切到实际大小后百分比是 100%', pctAtActual === '100%', pctAtActual);
+  check(
+    '切到实际大小后按钮变成「切到适应」（图标 zoom-fit）',
+    byId('lightbox-reset').classList.contains('is-fit'),
+    byId('lightbox-reset').className
+  );
+  check(
+    '实际大小那一档 scale 和「适应」不同（原图与视口尺寸不等）',
+    Math.abs(actualScale - 1) > 1e-6,
+    `适应时 1，实际大小 ${actualScale}`
+  );
+
+  // 再点一下：回适应窗口
+  click('#lightbox-reset');
+  await sleep(60);
+  check('再点回适应窗口（scale = 1）', Math.abs(scaleOf() - 1) < 1e-6, lbImg.style.transform);
+  check('回到适应后百分比不再是 100%', (byId('lightbox-pct').textContent || '').trim() !== '100%' || actualScale === 1);
+  check(
+    '按钮又变回「切到实际大小」',
+    byId('lightbox-reset').classList.contains('is-actual'),
+    byId('lightbox-reset').className
+  );
+
+  // 按钮上不该再有文字（全是图标）
+  check(
+    '工具条按钮没有文字（只有图标）',
+    ['#lightbox-in', '#lightbox-out', '#lightbox-reset', '#lightbox-close'].every((sel) => {
+      const b = byId(sel.slice(1));
+      return !!b && !!b.querySelector('svg') && !(b.textContent || '').trim();
+    }),
+    ['#lightbox-in', '#lightbox-out', '#lightbox-reset', '#lightbox-close']
+      .map((s) => `${s}「${(byId(s.slice(1)).textContent || '').trim()}」`)
+      .join(' ')
+  );
 
   lbImg.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 300, clientY: 200 }));
   await sleep(60);
@@ -5635,6 +5677,278 @@ await scenario('裁剪：原图不够大时不硬撑放大', async () => {
     outUrl.startsWith('data:image/webp'),
     outUrl.slice(0, 30)
   );
+});
+
+// ---------------------------------------------------------------------------
+//  预设：列表页 / 编辑器 / 绑定到会话
+//
+//  预设是「叠在对话上的一层指令」，和角色库、世界书同级：
+//    · 列表页在侧栏「预设」里，新建/编辑/删除都走它；
+//    · 编辑器和世界书编辑器同一套手感 —— 保存后才生效，没保存就关要问一句；
+//    · 会话的「视角」弹窗里选一个预设绑上去，聊天时它才进系统提示词。
+//  这里全程只点真实按钮、读真实 DOM、走 window.mimitale 这个桥。
+// ---------------------------------------------------------------------------
+await scenario('预设：列表页渲染与新建', async () => {
+  click('#btn-presets');
+  await waitFor('预设页出来了', () => shown('#view-presets'));
+
+  // 两条种子预设都该在列表里
+  await waitFor('列表里有种子预设', () => $$('#preset-page-grid .char-card').length >= 2);
+  const names = $$('#preset-page-grid .char-card-name').map((n) => n.textContent.trim());
+  check('列表里能看到「冒烟测试预设」', names.includes('冒烟测试预设'), names.join(' / '));
+  check('列表里能看到「带条目的预设」', names.includes('带条目的预设'), names.join(' / '));
+
+  // 「冒烟测试预设」的说明来自 description（导入形态），列表副标题该显示它而不是正文
+  const card = $$('#preset-page-grid .char-card').find((c) => {
+    const t = c.querySelector('.char-card-name');
+    return t && t.textContent.trim() === '冒烟测试预设';
+  });
+  check(
+    '列表副标题显示说明（description），不是发给模型的正文',
+    card && /测试用的说明/.test(card.textContent),
+    card ? card.textContent.trim().slice(0, 60) : '没找到卡片'
+  );
+
+  // 新建：点「＋ 新建预设」
+  click('#btn-new-preset');
+  await waitFor('新建弹窗打开了', () => shown('#preset-modal'));
+  check('新建时标题是「新建预设」', byId('preset-title').textContent.trim() === '新建预设');
+  check('新建时没有可删的东西 → 删除按钮藏起来', byId('btn-del-preset').classList.contains('hidden'));
+
+  // 名字和正文都空着，点保存要被拦下来
+  click('#btn-save-preset');
+  await sleep(60);
+  check('没填名字时保存被拦下（弹窗还开着）', shown('#preset-modal'));
+
+  setValue('#pr-name', '严格推进');
+  click('#btn-save-preset');
+  await sleep(60);
+  check('没填正文时保存也被拦下', shown('#preset-modal'));
+
+  // 补齐正文再保存
+  setValue('#pr-content', '每一轮都要推进一个具体事件。');
+  setValue('#pr-note', '这个说明只给人看');
+  setValue('#pr-tags', '叙事, 节奏');
+  click('#btn-save-preset');
+  await waitFor('保存后弹窗关上', () => !shown('#preset-modal'));
+
+  await waitFor('列表里出现新建的预设', () =>
+    $$('#preset-page-grid .char-card-name').some((n) => n.textContent.trim() === '严格推进')
+  );
+
+  // 落盘验证：走桥读回来，看主进程归一化之后还剩什么
+  const saved = (await window.mimitale.getPresets()).presets || [];
+  const made = saved.find((p) => p.name === '严格推进');
+  check('新建的预设落盘了', !!made, JSON.stringify(saved.map((p) => p.name)));
+  check('正文按原样存下来', made && made.content === '每一轮都要推进一个具体事件。', made && made.content);
+  check('说明存成 note', made && made.note === '这个说明只给人看', made && made.note);
+  check('标签按逗号拆开', made && Array.isArray(made.tags) && made.tags.join('|') === '叙事|节奏', made && JSON.stringify(made.tags));
+  check('新建的预设默认启用', made && made.enabled !== false);
+  check('新建的预设拿到了 id', made && typeof made.id === 'string' && made.id.startsWith('pr'), made && made.id);
+});
+
+// 导入形态：正文只在 metadata.systemPromptContent 里，description 是给人看的说明。
+// 这是别人分享预设时最常见的形态，归一层要能认出来。
+await scenario('预设：导入形态的正文来源', async () => {
+  const saved = (await window.mimitale.getPresets()).presets || [];
+  const imported = saved.find((p) => p.id === 'pr-test');
+  check('导入来的预设还在', !!imported);
+  check(
+    '正文取自 metadata.systemPromptContent',
+    imported && imported.content === '每一轮都要推进一个具体事件，不要停在原地。',
+    imported && imported.content
+  );
+  check(
+    'description 只当说明，不混进正文',
+    imported && /测试用的说明/.test(imported.note || '') && !/测试用的说明/.test(imported.content || ''),
+    imported && imported.note
+  );
+});
+
+await scenario('预设：编辑已有预设并落盘', async () => {
+  click('#btn-presets');
+  await waitFor('预设页出来了', () => shown('#view-presets'));
+
+  // 点开「带条目的预设」的编辑
+  const card = await waitFor('找到「带条目的预设」卡', () =>
+    $$('#preset-page-grid .char-card').find((c) => {
+      const t = c.querySelector('.char-card-name');
+      return t && t.textContent.trim() === '带条目的预设';
+    })
+  );
+  click(buttonByText(card, '编辑'));
+  await waitFor('编辑弹窗打开了', () => shown('#preset-modal'));
+  check('编辑时标题是「编辑预设」', byId('preset-title').textContent.trim() === '编辑预设');
+  check('编辑时删除按钮可见（有东西可删）', !byId('btn-del-preset').classList.contains('hidden'));
+  check('表单填的是这条预设的正文', byId('pr-content').value.includes('最前面的总则'));
+
+  // 改一下正文，看看「有未保存的改动」亮不亮
+  setValue('#pr-content', '最前面的总则。（改过了）');
+  check('改了之后底部亮出「有未保存的改动」', byId('pr-foot-hint').classList.contains('pr-dirty'));
+
+  // 关掉要被问一句 —— 点「取消」，弹窗留着
+  click('#btn-close-preset');
+  await waitFor('弹出「放弃改动」确认框', () => shown('#confirm-modal'));
+  click('#confirm-cancel');
+  await sleep(80);
+  check('点「取消」之后编辑弹窗还开着', shown('#preset-modal'));
+  check('「有未保存的改动」还亮着（没被清掉）', byId('pr-foot-hint').classList.contains('pr-dirty'));
+
+  // 这次真保存
+  click('#btn-save-preset');
+  await waitFor('保存后弹窗关上', () => !shown('#preset-modal'));
+
+  const saved = (await window.mimitale.getPresets()).presets || [];
+  const edited = saved.find((p) => p.id === 'pr-entries');
+  check('改动落盘了', edited && edited.content.includes('改过了'), edited && edited.content);
+
+  // 条目要活下来：归一化白名单漏一个字段就会被静默丢掉
+  check('条目数没丢', edited && Array.isArray(edited.entries) && edited.entries.length === 2, edited && JSON.stringify(edited.entries));
+  const keyEntry = edited && (edited.entries || []).find((e) => e.id === 'pe-key');
+  check('关键词条目还认得「暗号」', keyEntry && (keyEntry.keys || []).includes('暗号'), keyEntry && JSON.stringify(keyEntry.keys));
+  check('关键词条目没被当成常驻', keyEntry && keyEntry.constant !== true);
+  const constEntry = edited && (edited.entries || []).find((e) => e.id === 'pe-const');
+  check('无关键词的条目被当常驻', constEntry && constEntry.constant === true);
+});
+
+await scenario('预设：绑定到会话的「视角」弹窗', async () => {
+  // 种子数据里没有会话，先用角色库起一场对话
+  click('#btn-chars');
+  await waitFor('角色库出来了', () => shown('#view-chars'));
+  const charCard = await waitFor('角色库里有卡可开聊', () => $$('#char-page-grid .char-card')[0]);
+  check('角色库里有卡可开聊', !!charCard);
+
+  const chatBtn = buttonByText(charCard, '聊天');
+  check('角色卡上有「聊天」按钮', !!chatBtn);
+  if (chatBtn) click(chatBtn);
+  await waitFor('切回对话视图', () => shown('#view-chat'));
+
+  // 打开「视角」弹窗
+  click('#btn-perspective');
+  await waitFor('视角弹窗打开了', () => shown('#perspective-modal'));
+
+  // —— 预设是多选列表，不是下拉 ——
+  const rows = () => $$('#p-preset-list .preset-pick-row');
+  const names = () => $$('#p-preset-list .preset-pick-name').map((n) => n.textContent.trim());
+  await waitFor('预设列表铺出来了', () => rows().length >= 3);
+
+  check(
+    '列表里列出了所有启用的预设',
+    ['冒烟测试预设', '带条目的预设', '全局通用预设'].every((n) => names().includes(n)),
+    names().join(' / ')
+  );
+
+  // 「可全局」的徽标只挂在勾了 global 的那条上
+  const globalRow = () =>
+    rows().find((r) => {
+      const n = r.querySelector('.preset-pick-name');
+      return n && n.textContent.trim() === '全局通用预设';
+    });
+  check(
+    '勾了「可全局」的预设带徽标',
+    globalRow() && !!globalRow().querySelector('.preset-pick-badge')
+  );
+  const plainRow = () =>
+    rows().find((r) => {
+      const n = r.querySelector('.preset-pick-name');
+      return n && n.textContent.trim() === '带条目的预设';
+    });
+  check(
+    '没勾「可全局」的预设不带徽标',
+    plainRow() && !plainRow().querySelector('.preset-pick-badge')
+  );
+
+  // 会话是刚建的 —— 没手动配过，应该自动跟随全局预设（只勾上那一条）
+  const boxState = () =>
+    Object.fromEntries(
+      rows().map((r) => [
+        r.querySelector('.preset-pick-name').textContent.trim(),
+        r.querySelector('.preset-pick-box').checked
+      ])
+    );
+  let st = boxState();
+  check('没配过的会话自动勾上「可全局」的预设', st['全局通用预设'] === true, JSON.stringify(st));
+  check('没配过的会话不勾其它预设', st['带条目的预设'] === false, JSON.stringify(st));
+
+  const stateNote = () => byId('p-preset-list').querySelector('.preset-pick-state');
+  await waitFor('列表下有状态说明', () => stateNote());
+  check('自动跟随全局时状态说明写「跟随全局」', /跟随全局/.test(stateNote().textContent), stateNote().textContent.trim());
+
+  // 轮询落盘（视角弹窗是「改动即时生效」的异步链，固定 sleep 会偶尔跑输）
+  const activeConvo = async () => {
+    const cs = await window.mimitale.getConversations();
+    return (cs.conversations || []).find((c) => c.id === cs.activeId);
+  };
+  const settleIds = async (want, label) => {
+    const t0 = Date.now();
+    for (;;) {
+      const a = await activeConvo();
+      const got = a ? a.dialoguePresetIds : undefined;
+      if (JSON.stringify(got) === JSON.stringify(want)) return a;
+      if (Date.now() - t0 > 3000) return null;
+      await sleep(25);
+    }
+  };
+
+  // —— 勾第二条：从「跟随全局」转成「手动配过」——
+  const boxFor = (name) =>
+    rows()
+      .find((r) => r.querySelector('.preset-pick-name').textContent.trim() === name)
+      .querySelector('.preset-pick-box');
+  boxFor('带条目的预设').checked = true;
+  boxFor('带条目的预设').dispatchEvent(new Event('change', { bubbles: true }));
+
+  // 全局那条还勾着（用户没取消），加上新勾的这条 → 两条。
+  // 顺序按列表里的行序来（DOM 顺序），不是按勾选先后。
+  let bound = await settleIds(['pr-entries', 'pr-global'], '勾第二条');
+  check(
+    '勾上第二条之后会话记下两条 id',
+    !!bound,
+    bound ? JSON.stringify(bound.dialoguePresetIds) : `等 3 秒也没等到落盘；当前=${JSON.stringify((await activeConvo())?.dialoguePresetIds)}`
+  );
+  st = boxState();
+  check('手动配过之后两条都勾着', st['全局通用预设'] && st['带条目的预设'], JSON.stringify(st));
+  check('手动配过之后状态说明变成「这一场单独配置」', /单独配置/.test(stateNote().textContent), stateNote().textContent.trim());
+
+  // —— 全不勾：显式「一条都不要」，存成空数组（不是 null）——
+  boxFor('全局通用预设').checked = false;
+  boxFor('全局通用预设').dispatchEvent(new Event('change', { bubbles: true }));
+  boxFor('带条目的预设').checked = false;
+  boxFor('带条目的预设').dispatchEvent(new Event('change', { bubbles: true }));
+  const cleared = await settleIds([], '全不勾');
+  check('全不勾时存成空数组（不是 null）', !!cleared, cleared ? JSON.stringify(cleared.dialoguePresetIds) : '等 3 秒也没等到落盘');
+  check('全不勾等于「这一场一条都不用」', !!cleared && Array.isArray(cleared.dialoguePresetIds) && cleared.dialoguePresetIds.length === 0);
+  check('全不勾之后状态说明挑明「一条都不用」', /一条都不用/.test(stateNote().textContent), stateNote().textContent.trim());
+
+  // —— 关键的一条：手动配成「全不选」之后，全局预设**不该**再自动回来 ——
+  // 关掉弹窗再打开，状态要从盘上重读，这时候最容易把「没配过」和「配成全不选」搞混
+  click('#btn-close-perspective');
+  await sleep(60);
+  click('#btn-perspective');
+  await waitFor('视角弹窗重新打开', () => shown('#perspective-modal'));
+  await waitFor('列表重新铺出来了', () => rows().length >= 3);
+  st = boxState();
+  check('重开之后仍然是「一条都不勾」', !st['全局通用预设'] && !st['带条目的预设'], JSON.stringify(st));
+  check('重开之后仍标「这一场单独配置」（没回落全局）', /单独配置/.test(stateNote().textContent), stateNote().textContent.trim());
+
+  // —— 只勾「带条目的预设」一条，留给后面的「注入」场景用 ——
+  boxFor('带条目的预设').checked = true;
+  boxFor('带条目的预设').dispatchEvent(new Event('change', { bubbles: true }));
+  await settleIds(['pr-entries'], '只勾一条');
+  click('#btn-close-perspective');
+  await sleep(60);
+  check('关掉视角弹窗', !shown('#perspective-modal'));
+});
+
+// 注入：绑了预设之后，它的正文要真的进到发给模型的消息里。
+// 这是整个功能的落点 —— 前面存的、选的都对，最后没拼进提示词就等于没有。
+// 具体断言在宿主侧（tools/smoke-test.js 的 probePresets）：那边能读到
+// chat:send 记下来的真实 messages，页面里读不到。
+await scenario('预设：绑好后发一轮，正文进提示词', async () => {
+  setValue('#input', '准备好了吗');
+  click('#btn-send');
+  // 等这一轮回复落成消息（真实流式通道跑完）
+  await waitFor('这一轮回复渲染出来了', () => $$('#messages .msg').length >= 2, 8000);
 });
 
 return { results, notes, hoverProbe };

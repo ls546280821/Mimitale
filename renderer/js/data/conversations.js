@@ -13,7 +13,7 @@
 
 import { state } from '../core/state.js';
 import { uid, now } from '../core/util.js';
-import { convoWorldbookIds } from './library.js';
+import { convoWorldbookIds, convoDialoguePresetIds } from './library.js';
 import { convoPanel, convoPanelDefs, convoPanelFields } from './panel.js';
 import { DEFAULT_NARRATION_MODE, DEFAULT_PACE_MODE } from './narration.js';
 import { persistConversations } from './persist.js';
@@ -37,6 +37,12 @@ export function createConvo(activate) {
     // 另有「角色自带的世界书」——那条路走 character.worldbookIds，
     // 两者由 effectiveWorldbookIds 决定用谁：会话绑了就只用会话的。
     worldbookIds: [],
+    // 会话绑的「预设」（叠在对话上的一层指令）—— **可以挂多条**，正文依次拼进提示词。
+    //   · null（默认）= 没手动配过 → 自动带上所有勾了「可全局」的预设
+    //   · []          = 手动配成「一条都不用」→ 真的不注入，不回落全局
+    //   · ['pr…']     = 手动选了这几条
+    // 被删掉 / 停用的 id 在 effectiveDialoguePresets 里静默跳过。
+    dialoguePresetIds: null,
     // 状态面板：fields 是出现过的字段顺序，panel 是当前值。
     // panelDefs 是字段的类型/范围/变化规则（可选，老会话没有这个键也照常工作）。
     // panelManual 记「哪些字段是玩家手动改过的」—— AI 每轮会重发状态栏，
@@ -74,9 +80,14 @@ export function branchSkeleton(convo, cut) {
     title: `${convo.title || '新对话'}（分支）`,
     createdAt: now(),
     updatedAt: now(),
-    // 戏本身的东西照搬：绑的角色、世界书、玩家、状态面板、视角设置
+    // 戏本身的东西照搬：绑的角色、世界书、预设、玩家、状态面板、视角设置
     characterId: convo.characterId || null,
     worldbookIds: [...convoWorldbookIds(convo)],
+    // 分叉出来的新会话算「已配过」：照搬原会话的选择（含 null=跟随全局）
+    dialoguePresetIds: (() => {
+      const ids = convoDialoguePresetIds(convo);
+      return ids === null ? null : [...ids];
+    })(),
     gmMode: convo.gmMode === true,
     player: convo.player ? { ...convo.player } : null,
     panelFields: [...convoPanelFields(convo)],

@@ -3784,13 +3784,156 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 }
 
 /* 底部「有未保存的改动」：保存前一直亮着，保存完自己消失 */
-.wb-dirty {
+.wb-dirty,
+.pr-dirty {
   font-size: 11.5px;
   color: var(--accent);
   background: var(--accent-soft);
   padding: 3px 9px;
   border-radius: 999px;
   white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   预设编辑器（#preset-modal）
+   主体是一列字段：名称/标签 → 说明 → 指令正文 → 启用 → 采样参数（折叠）。
+   正文比普通输入框长得多的那种，给个够写几行的起始高度，用户自己还能往下拉。
+   -------------------------------------------------------------------------- */
+#preset-modal .modal-card { width: min(720px, 94vw); }
+
+/* 正文写「回复要遵循什么规则」，通常比说明长，给个能写几行的起始高度；
+   ⚠️ 高度由 HTML 的 rows 定（不是这里的 min-height），调小是为了让下面的「启用」
+   和「采样参数」也进画面 —— 顶出可视区的话，不滚一下根本不知道还能设采样参数。 */
+#preset-modal #pr-content { min-height: 130px; resize: vertical; }
+
+/* 「采样参数」折叠区：默认收起，展开后是一小组数字输入 */.preset-sampling {
+  margin-top: 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--bg-side);
+  padding: 0 14px;
+}
+
+.preset-sampling > summary {
+  cursor: pointer;
+  padding: 11px 0;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text);
+  user-select: none;
+  list-style: none;
+}
+
+.preset-sampling > summary::-webkit-details-marker { display: none; }
+
+/* 展开箭头：收起时指右、展开时指下 */
+.preset-sampling > summary::before {
+  content: '▸';
+  display: inline-block;
+  width: 14px;
+  color: var(--text-faint);
+  transition: transform 0.15s ease;
+}
+
+.preset-sampling[open] > summary::before { transform: rotate(90deg); }
+
+.preset-sampling > .field-help { margin: 0 0 12px; }
+
+/* 折叠区里的内容是最后一块，别再把 20px 的尾距带出来 */
+.preset-sampling > .field-grid { margin-bottom: 12px; }
+.preset-sampling > .field:last-child { margin-bottom: 14px; }
+
+/* --------------------------------------------------------------------------
+   视角弹窗里的「预设」勾选列表（#p-preset-list.preset-pick）
+   一场对话可以同时挂多条预设，所以不是单选下拉，而是一列带勾选框的行。
+   下面是状态说明 + 偶尔出现的「有条目被跳过」提示。
+   -------------------------------------------------------------------------- */
+.preset-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* 预设多起来时别把弹窗撑破，超出就自己滚。
+     ⚠️ 只设 max-height、不设 height —— 条目少的时候盒子要贴着内容收，
+     不然底下会空出一大块，看着像坏了。 */
+  max-height: 210px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--bg-input);
+}
+
+/* 一行 = 一个勾选框 + 名字（+ 可选徽标）。整行都可点，热区比单点方框大得多 */
+.preset-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.preset-pick-row:hover { background: var(--accent-soft); }
+
+.preset-pick-box {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.preset-pick-text {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;   /* 让长名字能触发下面 name 的省略号 */
+}
+
+.preset-pick-name {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 「可全局」徽标：提醒这条在没手动配过的会话里会自动带上 */
+.preset-pick-badge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 550;
+  color: var(--accent);
+  background: var(--accent-soft-strong);
+}
+
+/* 状态说明：「跟随全局」还是「这一场单独配置」—— 用户得知道自己处在哪一档 */
+.preset-pick-state {
+  padding: 5px 9px 1px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+/* 手动配过之后语气要重一点（这和「跟随全局」是两种不同的状态） */
+.preset-pick-state.is-manual { color: var(--accent); }
+
+/* 绑着但已被删/停用的条目：只是提示，不是错误，用警示黄而不是红 */
+.preset-pick-gone {
+  padding: 5px 9px 1px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.preset-pick-empty {
+  margin: 0;
+  padding: 10px 9px;
+  font-size: 12.5px;
+  color: var(--text-faint);
 }
 
 /* 窗口窄时，世界书编辑器从「左右两栏」退成上下 */
@@ -4562,9 +4705,21 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   gap: 4px;
 }
 
-/* 加减号按钮：内容只有一个字符，给个最小宽度免得挤成一条 */
-.lightbox-zoom .btn { min-width: 30px; text-align: center; padding: 4px 6px; }
-.lightbox-actions .btn { padding: 4px 10px; font-size: 12px; }
+/* 工具条上的按钮全是图标 —— 尺寸压到 28px，比页面上的 .icon-btn 小一档，
+   免得一条胶囊里挤得慌。图标本身的粗细由 stroke-width 控制（见 ui/icons.js）。 */
+.lightbox-bar .btn.icon-btn {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--text-faint);
+}
+.lightbox-bar .btn.icon-btn svg { width: 17px; height: 17px; }
+.lightbox-bar .btn.icon-btn:hover { background: var(--bg-side); color: var(--text); }
+
+/* 「适应 / 实际大小」那个切换按钮：两个状态给一样的样式 —— 它本身就是个开关，
+   高亮哪一档反而会让人以为另一档不能用。这里只留一个 hover 反馈。 */
 
 .lightbox-pct {
   min-width: 46px;

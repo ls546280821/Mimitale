@@ -96,6 +96,65 @@ export function convoWorldbookIds(convo) {
   return convo && Array.isArray(convo.worldbookIds) ? convo.worldbookIds : [];
 }
 
+// --- 预设 ---
+
+/**
+ * 用户自建的「预设」：叠在对话上的一层指令。
+ *
+ * 注意别和 state.presets 搞混 —— 那是「添加服务商」时一键填充的内置模板
+ * （DeepSeek / OpenAI / Kimi…），完全是另一回事。
+ */
+export function dialoguePresets() {
+  return Array.isArray(state.dialoguePresets) ? state.dialoguePresets : [];
+}
+
+export function dialoguePresetById(id) {
+  if (!id) return null;
+  return dialoguePresets().find((p) => p.id === id) || null;
+}
+
+/** 会话绑定的预设 id 列表（**没手动配过** = null；显式全不选 = 空数组，容错老数据） */
+export function convoDialoguePresetIds(convo) {
+  const raw = convo && convo.dialoguePresetIds;
+  // 老数据是单值字符串（dialoguePresetId），这里一并兜住，读到就当「配过一条」
+  if (!Array.isArray(raw)) {
+    const legacy = convo && convo.dialoguePresetId;
+    if (typeof legacy === 'string' && legacy.trim()) return [legacy];
+    return null;
+  }
+  return raw.filter((id) => typeof id === 'string' && id.trim());
+}
+
+/**
+ * 会话实际生效的预设（**可能有多条**，按列表顺序拼进提示词）。
+ *
+ * 规则：
+ *   · 会话**手动配过**（`dialoguePresetIds` 是数组）→ 就用它配的那几条；
+ *     显式配成空数组 = 这一场就是不用，不回落全局。
+ *   · 会话**没配过**（null）→ 自动带上所有勾了「可全局」的预设。
+ * 被删掉 / 停用的 id 静默跳过 —— 提示词那边当它不存在，不去打扰用户。
+ */
+export function effectiveDialoguePresets(convo) {
+  const picked = convoDialoguePresetIds(convo);
+  const ids = picked === null ? globalDialoguePresets().map((p) => p.id) : picked;
+  const out = [];
+  for (const id of ids) {
+    const preset = dialoguePresetById(id);
+    if (preset && preset.enabled !== false) out.push(preset);
+  }
+  return out;
+}
+
+/** 勾了「可全局」的预设（新对话默认带上的那几条） */
+export function globalDialoguePresets() {
+  return dialoguePresets().filter((p) => p.enabled !== false && p.global === true);
+}
+
+/** 能给会话选用的预设（关掉的仍然保留数据，只是不出现在列表里） */
+export function selectableDialoguePresets() {
+  return dialoguePresets().filter((p) => p.enabled !== false);
+}
+
 /** 扫一遍近期消息拼注入块时，往回看几条消息 */
 export const WORLDBOOK_SCAN_DEPTH = 6;
 

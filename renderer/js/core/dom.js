@@ -32,6 +32,7 @@ export const el = {
   btnFolder: $('btn-folder'),
   btnChars: $('btn-chars'),
   btnWorldbooks: $('btn-worldbooks'),
+  btnPresets: $('btn-presets'),
   btnTheme: $('btn-theme'),
   btnAccent: $('btn-accent'),
   modal: $('settings-modal'),
@@ -86,6 +87,7 @@ export const el = {
   pNarration: $('p-narration'),
   pPace: $('p-pace'),
   pGm: $('p-gm'),
+  pPresetList: $('p-preset-list'),
   // 记忆
   btnMemory: $('btn-memory'),
   memoryCount: $('memory-count'),
@@ -110,16 +112,21 @@ export const el = {
   charsModal: $('chars-modal'),
   charsTitle: $('chars-title'),
   charsSub: $('chars-sub'),
-  // 主区域的三个视图：聊天 / 角色列表页 / 世界书列表页
+  // 主区域的四个视图：聊天 / 角色列表页 / 世界书列表页 / 预设列表页
   viewChat: $('view-chat'),
   viewChars: $('view-chars'),
   viewWorldbooks: $('view-worldbooks'),
+  viewPresets: $('view-presets'),
   charsPageSub: $('chars-page-sub'),
   charPageGrid: $('char-page-grid'),
   charPageEmpty: $('char-page-empty'),
   wbPageSub: $('wb-page-sub'),
   wbPageGrid: $('wb-page-grid'),
   wbPageEmpty: $('wb-page-empty'),
+  presetPageSub: $('preset-page-sub'),
+  presetPageGrid: $('preset-page-grid'),
+  presetPageEmpty: $('preset-page-empty'),
+  btnNewPreset: $('btn-new-preset'),
   // 进入世界前先创建玩家自己的角色
   playerModal: $('player-modal'),
   playerTitle: $('player-title'),
@@ -215,6 +222,26 @@ export const el = {
     baseUrl: $('p-baseurl'),
     apiKey: $('p-apikey'),
     models: $('p-models')
+  },
+  // 预设编辑器
+  pr: {
+    modal: $('preset-modal'),
+    title: $('preset-title'),
+    sub: $('preset-sub'),
+    name: $('pr-name'),
+    tags: $('pr-tags'),
+    note: $('pr-note'),
+    content: $('pr-content'),
+    enabled: $('pr-enabled'),
+    global: $('pr-global'),
+    temperature: $('pr-temperature'),
+    maxTokens: $('pr-maxtokens'),
+    topP: $('pr-topp'),
+    footHint: $('pr-foot-hint'),
+    btnClose: $('btn-close-preset'),
+    btnClose2: $('btn-close-preset-2'),
+    btnSave: $('btn-save-preset'),
+    btnDel: $('btn-del-preset')
   },
   // 世界书
   wb: {

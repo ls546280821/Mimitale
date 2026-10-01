@@ -14,6 +14,7 @@ const fs = require('node:fs');
 
 const { normalizeCharacter } = require('./characters.js');
 const { createWorldbookNormalizer } = require('./worldbook-store.js');
+const { normalizePreset, MAX_PRESETS } = require('./presets.js');
 
 function userDataFile(name) {
   return path.join(app.getPath('userData'), name);
@@ -278,6 +279,51 @@ function worldbookEntriesByIds(ids) {
 }
 
 // ---------------------------------------------------------------------------
+//  预设（Preset）
+//  数据存在 userData\presets.json。预设是「叠在对话上的一层指令」——
+//  只由「会话绑定了哪一个」决定生效，和角色卡、世界书互不影响。
+// ---------------------------------------------------------------------------
+
+function presetsFile() {
+  return userDataFile('presets.json');
+}
+
+/** 给一个没有 id 的预设补 id（界面新建时不一定带） */
+function newPresetId() {
+  return `pr${Date.now().toString(36)}${Math.floor(Math.random() * 9000 + 1000)}`;
+}
+
+function loadPresets() {
+  const data = loadJsonWithFallback(presetsFile());
+  if (!data || !Array.isArray(data.presets)) return { presets: [] };
+  const list = data.presets.slice(-MAX_PRESETS);
+  return { presets: list.map((p) => normalizePreset(p)) };
+}
+
+function savePresets(payload, options) {
+  const opts = options || {};
+  const list = payload && Array.isArray(payload.presets) ? payload.presets : [];
+  // ⚠️ 归一化 + 补 id 一起做：normalizePreset 不认识没有 id 的对象，
+  //    漏掉这一步会让界面新建的预设每次存盘都换一个 id（绑定关系当场断掉）。
+  const data = {
+    presets: list
+      .slice(-MAX_PRESETS)
+      .map((p) => {
+        const preset = normalizePreset(p);
+        if (!preset.id) preset.id = newPresetId();
+        return preset;
+      })
+  };
+
+  if (opts.immediate) {
+    writeJsonNow(presetsFile(), data);
+  } else {
+    writeJson(presetsFile(), data);
+  }
+  return data;
+}
+
+// ---------------------------------------------------------------------------
 //  语义检索（RAG）的向量仓库
 //
 //  存在 userData\vectors.json：{ version, items: { "<model>::<key>": "<base64 float32>" } }
@@ -323,6 +369,9 @@ module.exports = {
   loadWorldbooks,
   saveWorldbooks,
   worldbookEntriesByIds,
+  newPresetId,
+  loadPresets,
+  savePresets,
   loadVectors,
   saveVectors
 };

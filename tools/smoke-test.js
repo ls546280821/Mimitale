@@ -45,6 +45,10 @@ const { importFiles } = require('../main/import-files.js');
 const { parseImportFile } = require('../main/card-import.js');
 // 世界书落盘归一化：和 main.js 的 worldbooks:save 跑的是同一份
 const { createWorldbookNormalizer } = require('../main/worldbook-store.js');
+// 预设落盘归一化：和 main.js 的 presets:save 跑的是同一份。
+// 「描述是给人看的、正文是给模型看的」这条规则只在归一层，假后端只 clone
+// 的话，「导入来的预设正文住在 metadata.systemPromptContent」就测不出来了。
+const { normalizePreset } = require('../main/presets.js');
 // 面板字段的类型/范围/变化规则/分组：主进程和渲染层共用的那一份
 const {
   clampFieldValue,
@@ -206,7 +210,58 @@ function makeStore() {
       }
     ],
     conversations: [],
-    activeId: null
+    activeId: null,
+    // 预设：叠在对话上的一层指令。第一条故意用「别人分享的导入形态」
+    // （正文在 metadata.systemPromptContent、description 是使用说明），
+    // 第二条带条目（一条常驻、一条靠关键词命中），用来验两种正文来源都认得。
+    // 第三条挂了 global:true —— 「没手动配过的会话自动带上它」。
+    presets: [
+      {
+        id: 'pr-test',
+        name: '冒烟测试预设',
+        description: '测试用的说明，不会发给模型。',
+        metadata: {
+          isImported: true,
+          systemPromptContent: '每一轮都要推进一个具体事件，不要停在原地。'
+        },
+        tags: ['测试'],
+        lorebookCount: 0,
+        entryCount: 0
+      },
+      {
+        id: 'pr-entries',
+        name: '带条目的预设',
+        description: '',
+        content: '最前面的总则。',
+        tags: [],
+        entries: [
+          {
+            id: 'pe-const',
+            title: '常驻条目',
+            keys: [],
+            content: '这条每轮都带上。',
+            constant: true,
+            enabled: true
+          },
+          {
+            id: 'pe-key',
+            title: '关键词条目',
+            keys: ['暗号'],
+            content: '说到「暗号」才带上这条。',
+            constant: false,
+            enabled: true
+          }
+        ]
+      },
+      {
+        id: 'pr-global',
+        name: '全局通用预设',
+        description: '',
+        content: '这场对话默认带上这一条。',
+        global: true,
+        tags: []
+      }
+    ]
   };
 }
 
@@ -460,6 +515,29 @@ function registerStubs() {
       })),
       section: formatWorldbookSection(matched.hits)
     };
+  });
+
+  // --- 预设 ---
+  // 和世界书一样，过一遍**真正的**落盘归一化（main/presets.js）。白名单漏字段、
+  // 「正文只认 content / metadata.systemPromptContent 而不回落到 description」
+  // 这类规则都在归一层，假后端只 clone 就会漏测。
+  //
+  // get 也要归一化 —— 真实现是 main/store.js 的 loadPresets() 读盘时过一遍。
+  // 只让 save 归一化的话，「别人分享的导入形态」（正文住 metadata.systemPromptContent、
+  // description 只是说明）在界面上会明文不认，测试却全绿。
+  ipcMain.handle('presets:get', () => clone({ presets: store.presets.map((p) => normalizePreset(p)) }));
+  ipcMain.handle('presets:save', (_event, payload) => {
+    remember('presets:save', payload);
+    if (payload && Array.isArray(payload.presets)) {
+      store.presets = clone(payload.presets.map((p) => normalizePreset(p)));
+    }
+    return { ok: true };
+  });
+  ipcMain.on('presets:save-sync', (_event, payload) => {
+    remember('presets:save-sync', payload);
+    if (payload && Array.isArray(payload.presets)) {
+      store.presets = clone(payload.presets.map((p) => normalizePreset(p)));
+    }
   });
 
   // --- 图片 / 杂项 ---
@@ -959,7 +1037,7 @@ async function probeLightboxClick(win, result) {
       const r = n.getBoundingClientRect();
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
     };
-    return { btn: mid(btn), img: mid(img) };
+    return { btn: mid(btn), img: mid(img), fit: mid($('#lightbox-reset')) };
   })()`);
 
   if (!spots) {
@@ -1006,6 +1084,29 @@ async function probeLightboxClick(win, result) {
       pass: afterImg.open,
       detail: `点完浮层${afterImg.open ? '还在' : '被关掉了'}${note}`
     });
+
+    // 「适应 / 实际大小」那个切换按钮也得用真实鼠标点一遍 —— 它和「＋」同处一条
+    // 工具条，被指针捕获吞掉的毛病是一样的。
+    const readFit = () =>
+      run(`(() => {
+        const b = document.getElementById('lightbox-reset');
+        return b ? { cls: b.className, label: b.getAttribute('aria-label') || '' } : null;
+      })()`);
+    const fitBefore = await readFit();
+    await clickAt(spots.fit.x, spots.fit.y);
+    const fitAfter = await readFit();
+    const imgAfterFit = await read();
+    const toggled = !!fitBefore && !!fitAfter && fitBefore.cls !== fitAfter.cls;
+    result.results.push({
+      name: '看大图：真实鼠标点「适应/实际大小」能切档，且不会把浮层关掉',
+      pass: imgAfterFit.open && toggled,
+      detail:
+        `切前 ${fitBefore && fitBefore.label}（${fitBefore && fitBefore.cls}）→ ` +
+        `切后 ${fitAfter && fitAfter.label}（${fitAfter && fitAfter.cls}），浮层${imgAfterFit.open ? '还在' : '被关掉了'}${note}`
+    });
+    // 切回适应，好让后面「点背景关闭」那步从 1 倍开始
+    await clickAt(spots.fit.x, spots.fit.y);
+    await sleep(80);
 
     // 回到 1 倍再点左上角空白 —— 这才是该关的时候
     await run("document.getElementById('lightbox-reset')?.click(); true");
@@ -1201,6 +1302,105 @@ function probeInjection(result) {
     name: '进入世界：身份四件套被注入给模型',
     pass: identityOk,
     detail: identityOk ? '' : `翻了 ${blobs.length} 次请求都没找齐姓名/年龄/种族`
+  });
+}
+
+/**
+ * 预设验证。
+ *
+ * 「预设 = 叠在对话上的一层指令」，存下来、选上都不算数，**最后有没有拼进
+ * 发给模型的消息**才是这个功能的落点 —— 而 chat:send 记下的真实 messages
+ * 只有宿主侧看得到（页面里没有这条数据），所以这几条断言的宿主侧版本在这里。
+ *
+ * 前两条（正文来源）验证归一层认得「别人分享的导入形态」：正文住在
+ * metadata.systemPromptContent 里，description 只是给人看的说明。smoke-renderer
+ * 那边读的是经假后端归一化之后落盘的样子，这里读的是它拼进提示词的样子。
+ */
+function probePresets(result) {
+  if (!result) return;
+
+  const blobs = chatPayloads.map((msgs) => msgs.map((m) => String((m && m.content) || '')).join('\n'));
+
+  // 绑了预设的那一轮：整块应该在，正文 + 常驻条目都在
+  const presetBlob = blobs.find((b) => b.includes('【预设 · 带条目的预设】'));
+  result.results.push({
+    name: '预设：绑定的预设正文被拼进了提示词',
+    pass: !!presetBlob && presetBlob.includes('最前面的总则。（改过了）'),
+    detail: presetBlob ? '没找到正文' : `翻了 ${blobs.length} 次请求都没有【预设 · 带条目的预设】`
+  });
+
+  // 每条预设各自成一块（`【预设 · 名称】`），名字要出现在块头 ——
+  // 多条一起挂的时候，光看正文分不清哪句是谁说的。
+  const hasHeading = !!presetBlob && /【预设 · 带条目的预设】/.test(presetBlob);
+  result.results.push({
+    name: '预设：每条预设各自成一个带名字的块',
+    pass: hasHeading,
+    detail: hasHeading ? '' : '找不到【预设 · 带条目的预设】这个块头'
+  });
+
+  // 无关键词的条目 = 常驻，每轮都该带上
+  const constOk = !!presetBlob && presetBlob.includes('这条每轮都带上。');
+  result.results.push({
+    name: '预设：常驻条目每轮都进提示词',
+    pass: constOk,
+    detail: constOk ? '' : '常驻条目的正文没进提示词'
+  });
+
+  // 有关键词但这一轮没提到的条目不该带上（否则整份预设每轮全烧一遍 token）
+  const keySkipped = !!presetBlob && !presetBlob.includes('说到「暗号」才带上这条。');
+  result.results.push({
+    name: '预设：没命中的关键词条目不进提示词',
+    pass: keySkipped,
+    detail: keySkipped ? '' : '没提到的关键词条目还是被带上了'
+  });
+
+  // 说明（description / note）是给人看的，绝不能混进正文发给模型 ——
+  // 这是「描述与正文分离」这条设计的底线。
+  const noteLeaked = blobs.some(
+    (b) => b.includes('【预设 ·') && (b.includes('测试用的说明') || b.includes('这个说明只给人看'))
+  );
+  result.results.push({
+    name: '预设：说明不会被发给模型',
+    pass: !noteLeaked,
+    detail: noteLeaked ? '预设的说明混进了提示词' : ''
+  });
+
+  // 导入形态的预设（正文只在 metadata.systemPromptContent）也要能用；
+  // 它这一轮没被绑上（绑的是「带条目的预设」），所以不该出现 —— 反过来说，
+  // 一旦它出现了就说明绑定逻辑没生效，全场都收到了所有预设。
+  const unboundLeaked = blobs.some((b) => b.includes('每一轮都要推进一个具体事件，不要停在原地。'));
+  result.results.push({
+    name: '预设：没绑的预设不会被带上',
+    pass: !unboundLeaked,
+    detail: unboundLeaked ? '没绑定到会话的预设也被拼进了提示词' : ''
+  });
+
+  // ⭐ 多选的核心断言：会话说的是「手动配成只勾一条」，
+  // 那么**勾了「可全局」的那条不能偷偷跟着进来** ——
+  // 「没配过就跟随全局」和「配过了就按配的来」是两回事，搞混的话
+  // 用户永远关不掉某条全局预设，这正是这套设计要解决的问题。
+  //
+  // ⚠️ 只看**最后一次**发送，不能扫全部 payload —— 这一轮之前还有几十次
+  // 发送发生在别的会话上，那些会话「没配过」时带上全局预设是**对的**。
+  // 扫全场会把正确行为当 bug。
+  const lastBlob = blobs.length ? blobs[blobs.length - 1] : '';
+  const globalLeaked =
+    lastBlob.includes('【预设 · 全局通用预设】') || lastBlob.includes('这场对话默认带上这一条。');
+  result.results.push({
+    name: '预设：手动配过的会话不受「可全局」预设影响',
+    pass: !globalLeaked,
+    detail: globalLeaked ? '会话只勾了一条，可全局的预设还是被带上了' : ''
+  });
+
+  // 采样参数：预设没设过就不该覆盖全局。这里只在「没设过」的方向断言
+  // ——设过的那条要真调 API 才看得出，冒烟里验的是「不设 = 不干预」。
+  const fakeEndpointSampling = chatPayloads.some((msgs) =>
+    msgs.some((m) => m && m.role === 'system' && /temperature|top_p|采样/.test(String(m.content || '')))
+  );
+  result.results.push({
+    name: '预设：采样参数走请求参数，不往消息里塞',
+    pass: !fakeEndpointSampling,
+    detail: fakeEndpointSampling ? '采样参数被当成文本塞进了消息' : ''
   });
 }
 
@@ -2440,6 +2640,7 @@ app.whenReady().then(async () => {
   if (!crashed && result) {
     try {
       probeInjection(result);
+      probePresets(result);
       probeExports(result);
       probeImport(result);
       probeWorldbookStore(result);
@@ -2624,6 +2825,59 @@ app.whenReady().then(async () => {
           if (del) del.style.opacity = '1';
           await nap(250);
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 预设列表页（卡片 + 右上角删除 ×）与预设编辑器（字段一列、采样参数折叠区）
+        presets: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-presets')?.click();
+          await nap(500);
+          const card = $$('#preset-page-grid .char-card')[0];
+          const del = card && card.querySelector('.char-card-del');
+          if (del) del.style.opacity = '1';
+          await nap(250);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        presetEditor: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-presets')?.click();
+          await nap(500);
+          const card = $$('#preset-page-grid .char-card')[0];
+          const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (btn) btn.click();
+          await nap(650);
+          // 把采样参数那块展开：折叠着的话这块样式永远没人看过
+          const det = $('#preset-modal details.preset-sampling');
+          if (det) det.open = true;
+          await nap(200);
+          // 在正文框上派一次 input（内容一个字没改）—— 让底部那颗「有未保存的改动」也进画面
+          $('#pr-content')?.dispatchEvent(new Event('input', { bubbles: true }));
+          await nap(200);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 视角弹窗里的预设勾选列表（多选 + 「可全局」徽标 + 底部状态说明）。
+        // 这一块是纯排版（行高、勾选框对齐、徽标位置、列表的滚动边界），
+        // 断言只能验「勾没勾」，看不出「挤不挤」。
+        presetPick: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-perspective')?.click();
+          await nap(600);
+          // 弹窗没开（比如种子数据里没有会话）就自己造一场，别出一张空白图
+          if (!$('#perspective-modal') || $('#perspective-modal').classList.contains('hidden')) {
+            const first = $$('#char-page-grid .char-card')[0]
+              || (() => { $('#btn-chars')?.click(); return null; })();
+            await nap(400);
+            const card = $$('#char-page-grid .char-card')[0];
+            const chat = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '聊天');
+            if (chat) chat.click();
+            await nap(600);
+            $('#btn-perspective')?.click();
+            await nap(500);
+          }
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
+          await nap(150);`,
         // 剧情选项：整条测试跑完正好停在场景 21 的会话里（最新回复带选项），
         // 这里只需要确认在聊天视图、把 toast 收掉，就能截到「气泡下面的选项块」。
         msgOptions: `
