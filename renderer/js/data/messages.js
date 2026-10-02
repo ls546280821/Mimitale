@@ -27,7 +27,13 @@ import {
 } from './library.js';
 import { cleanAssistantText, convoFieldDisplayNames, formatPanelForPrompt, panelGroupNames, PANEL_PROMPT_REMINDER } from './panel.js';
 import { formatSummaryForPrompt, summarizedCount } from './memory.js';
-import { gmRuleText, isGmMode, narrationInstruction, roleplayRuleText } from './narration.js';
+import {
+  gmRuleText,
+  isGmMode,
+  narrationInstruction,
+  playerOwnershipReminder,
+  roleplayRuleText
+} from './narration.js';
 import { optionsInstruction } from './suggestions.js';
 import { convoPlayer, convoUserName, userName, worldbookCast, playerProfileForPrompt, panelEntities } from './cast.js';
 import { providerById, isBridgeProvider } from './providers.js';
@@ -295,7 +301,16 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   const player = convoPlayer(convo);
   const playerProfileText = playerProfileForPrompt(convo);
   if (player && playerProfileText) {
-    parts.push(`【玩家角色：${player.name || me}】\n${playerProfileText}`);
+    // 抬头里点明口径：这份设定是**玩家自己的角色**，不是给 GM 演的 NPC。
+    // 玩家从角色库挑一张卡当自己时，注入的是那张卡的第三人称设定；
+    // 紧接着就是【这个世界的人】名单，两者容易被模型混成一类，
+    // 于是主角被当成 NPC 描写、替 TA 写起了动作。
+    parts.push(
+      `【玩家角色：${player.name || me}】\n` +
+        `（这是玩家本人操作的主角，由玩家自己驱动 —— 一律用第二人称「你」称呼 TA，` +
+        `TA 的动作、台词、心理、感受和决定都不要代写。）\n` +
+        playerProfileText
+    );
   }
 
   // 这个世界有哪些 NPC：不列出来 GM 就只能现编
@@ -402,6 +417,12 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // 角色口吻的提醒最容易把注意力拉回「写正文」，模型就把状态表整段丢了。
   // 实测（真实 API）：同一输入，面板段只在中同时约 1/4 的回合漏写状态表；
   // 末尾补这一句之后命中率明显上去。没有面板字段时不注入。
+  // ---- 7b. 世界模式：主角不可代写 ----
+  // 世界书里常有**同名角色**的第三人称设定（条目 + GM 名单副本），它们排在
+  // 【主持规则】之后，离生成位置更近，会把模型拉回「主角也是 NPC、顺手替 TA 写了」。
+  // 所以在这里再压一句 —— 但要让位给下面的状态表提醒，保持它是最后一条。
+  if (gmMode) messages.push({ role: 'system', content: playerOwnershipReminder(me) });
+
   if (panelText) messages.push({ role: 'system', content: PANEL_PROMPT_REMINDER });
 
   return messages;
