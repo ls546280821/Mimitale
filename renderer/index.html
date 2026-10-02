@@ -587,23 +587,45 @@
           </div>
 
           <div id="char-form" class="char-form hidden">
-            <div class="char-head-row">
+            <!-- 图片区：头像、形象、表情图都收在这里，和下面的文字字段分开。
+                 三种图的形状就是存下来的形状（裁剪框住哪块这里就显示哪块）。
+                 可折叠：标题点一下收起/展开，表单长的时候能先腾出空间写文字。 -->
+            <details class="char-media-section" open>
+              <summary class="char-section-label" data-icon="image">图片</summary>
+
               <div class="char-avatar-col">
                 <div class="char-media-item">
-                  <button id="char-avatar" class="char-avatar" type="button" title="点击上传头像（正方形，用在消息气泡和状态卡上）" aria-label="上传头像">
+                  <button id="char-avatar" class="char-avatar art-edge" type="button" title="点击上传头像（正方形，用在消息气泡和状态卡上）" aria-label="上传头像">
                     <span class="char-avatar-empty">点击上传</span>
                   </button>
                   <span class="char-media-label">头像</span>
                   <button id="btn-clear-avatar" class="btn btn-ghost btn-sm hidden" type="button">清除</button>
                 </div>
                 <div class="char-media-item">
-                  <button id="char-portrait" class="char-portrait" type="button" title="点击上传角色形象（竖版立绘，显示在角色库列表上）" aria-label="上传角色形象">
+                  <button id="char-portrait" class="char-portrait art-edge" type="button" title="点击上传角色形象（竖版立绘，显示在角色库列表上）" aria-label="上传角色形象">
                     <span class="char-avatar-empty">点击上传</span>
                   </button>
                   <span class="char-media-label">形象</span>
                   <button id="btn-clear-portrait" class="btn btn-ghost btn-sm hidden" type="button">清除</button>
                 </div>
               </div>
+
+              <!-- 表情图：一张卡可以带多张。名称本身就是默认触发词，回复正文里写到
+                   名称、触发词，或者带 <emo>键</emo> 标签时，状态卡上就换成这张图。 -->
+              <div class="char-expr">
+                <div class="char-expr-head">
+                  <span class="field-label" data-icon="smile">表情图</span>
+                  <span class="field-help">回复写到名称、触发词或 &lt;emo&gt;键&lt;/emo&gt; 时换成这张；都没写就用标了 ★ 的默认脸</span>
+                  <button id="btn-batch-expr" class="btn btn-ghost btn-sm" type="button"
+                    title="选一个文件夹，按文件名里的情绪词自动命名（shy 和 害羞 都认），从顶部对齐裁成正方形">批量导入</button>
+                  <button id="btn-add-expr" class="btn btn-ghost btn-sm" type="button">＋ 添加表情</button>
+                </div>
+                <div id="char-expr-list" class="char-expr-list"></div>
+              </div>
+            </details>
+
+            <!-- 文字区：角色名 / 标签 / 五个长文本 / 属性，全部是纯文本。 -->
+            <div class="char-text-section">
               <div class="char-head-fields">
                 <label class="field">
                   <span class="field-label">角色名</span>
@@ -614,7 +636,6 @@
                   <input id="c-tags" type="text" spellcheck="false" placeholder="分类用，例如：原神, 治愈" aria-label="标签" />
                 </label>
               </div>
-            </div>
 
             <!-- 年龄/性别/种族不再单独填：这些是角色的固定设定，写进「角色描述」
                  文字里即可（描述里本就该交代清楚「十八岁」「魅魔混血」这类信息）。
@@ -796,6 +817,7 @@
                 </span>
               </div>
             </div>
+            </div><!-- /char-text-section -->
 
             <!-- 角色自带的世界书：导入带 character_book 的角色卡时会自动绑上，
                  也可以在这里手动绑定。开关关掉后，这张角色无论单独聊天、

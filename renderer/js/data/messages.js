@@ -29,7 +29,7 @@ import { cleanAssistantText, convoFieldDisplayNames, formatPanelForPrompt, panel
 import { formatSummaryForPrompt, summarizedCount } from './memory.js';
 import { gmRuleText, isGmMode, narrationInstruction, roleplayRuleText } from './narration.js';
 import { optionsInstruction } from './suggestions.js';
-import { convoPlayer, convoUserName, userName, worldbookCast, playerProfileForPrompt } from './cast.js';
+import { convoPlayer, convoUserName, userName, worldbookCast, playerProfileForPrompt, panelEntities } from './cast.js';
 import { providerById, isBridgeProvider } from './providers.js';
 
 /**
@@ -384,6 +384,10 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   const optionsText = optionsInstruction(convo);
   if (optionsText) messages.push({ role: 'system', content: optionsText });
 
+  // ---- 5c. 表情标签：只在有人配了「带情绪键的表情图」时才注入 ----
+  const emoText = expressionInstruction(convo);
+  if (emoText) messages.push({ role: 'system', content: emoText });
+
   // ---- 6. 对话后指令 ----
   if (character && String(character.postHistoryInstructions || '').trim()) {
     messages.push({
@@ -401,4 +405,37 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   if (panelText) messages.push({ role: 'system', content: PANEL_PROMPT_REMINDER });
 
   return messages;
+}
+
+/**
+ * 【表情】说明 —— 只在这个会话里有人配了「带情绪键的表情图」时才注入。
+ *
+ * 为什么不只给规则、还要把键列出来：光说「用 <emo>键</emo> 指定表情」，
+ * 模型只能自己编英文词，键对不上等于没写。所以把现有的键连中文名一起列出来，
+ * 它照着挑一个就行。
+ *
+ * 一张卡都没配（或者配的表情没填 key）时返回空串 —— 那些会话完全不受这条影响。
+ */
+function expressionInstruction(convo) {
+  const rows = [];
+  for (const entity of panelEntities(convo)) {
+    const all = entity.card && Array.isArray(entity.card.expressions) ? entity.card.expressions : [];
+    const list = all.filter((e) => e && e.key && e.image);
+    if (!list.length) continue;
+    rows.push(`- ${entity.name}：${list.map((e) => `${e.key}（${e.name}）`).join('、')}`);
+  }
+  if (!rows.length) return '';
+
+  const lines = [
+    '【表情】',
+    '每轮回复的**最后一行**都单独带一个表情标签，格式：<emo>键</emo>（例如 <emo>shy</emo>），' +
+      '挑一个最贴近这一轮情绪的。应用据此切换状态卡上的立绘。'
+  ];
+  if (rows.length > 1) {
+    lines.push('场上不止一个人，写成「角色名 <emo>键</emo>」，标清楚是谁的表情。');
+  }
+  lines.push('可选键：', ...rows);
+  lines.push('这个标签是给应用读的，不要写进正文的对白和描写里；键要照抄上面的拼写，别自己造词。');
+
+  return lines.join('\n');
 }

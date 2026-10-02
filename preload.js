@@ -64,6 +64,9 @@ contextBridge.exposeInMainWorld('mimitale', {
   importPresets: () => ipcRenderer.invoke('presets:import'),
   // --- 图片 ---
   pickImage: (options) => ipcRenderer.invoke('images:pick', options),
+  // 批量导入用：一次选多张（或选文件夹）拿到路径，再逐张读内容
+  pickImages: (options) => ipcRenderer.invoke('images:pick-many', options),
+  readImage: (filePath) => ipcRenderer.invoke('images:read', filePath),
   generateImage: (payload) => ipcRenderer.invoke('images:generate', payload),
   drawBridgeImage: (payload) => ipcRenderer.invoke('bridge:draw', payload),
   drawBridgeProgress: (payload) => ipcRenderer.invoke('bridge:drawProgress', payload),

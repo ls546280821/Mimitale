@@ -146,7 +146,8 @@ const SCENE_OWNER = 'scene';
  * 状态卡入口条要显示的人：我（玩家，永远第一）+ 要显示状态的角色卡。
  * 单角色聊天绑的卡永远显示；世界书副本只有 showInPanel === true 才显示
  * （属性照旧种进面板，只是不显示）。AI 现编的 NPC 没有卡，不列。
- * 返回 [{ owner, kind, name, avatar }]，owner 直接喂给 openStateCard。
+ * 返回 [{ owner, kind, name, avatar, card }]，owner 直接喂给 openStateCard。
+ * card 是这张卡本身（找不到就是 null），给状态卡取形象图 / 表情图用。
  */
 export function panelEntities(convo) {
   if (!convo) return [];
@@ -160,7 +161,8 @@ export function panelEntities(convo) {
     owner: 'player',
     kind: 'player',
     name: convoUserName(convo),
-    avatar: (playerCard && playerCard.avatar) || ''
+    avatar: (playerCard && playerCard.avatar) || '',
+    card: playerCard || null
   });
   seen.add('player');
 
@@ -184,7 +186,8 @@ export function panelEntities(convo) {
       owner,
       kind: 'character',
       name: (card && card.name) || owner,
-      avatar: (card && card.avatar) || ''
+      avatar: (card && card.avatar) || '',
+      card: card || null
     });
   }
 

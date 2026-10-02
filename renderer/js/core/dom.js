@@ -156,6 +156,9 @@ export const el = {
   btnClearAvatar: $('btn-clear-avatar'),
   charPortrait: $('char-portrait'),
   btnClearPortrait: $('btn-clear-portrait'),
+  charExprList: $('char-expr-list'),
+  btnAddExpr: $('btn-add-expr'),
+  btnBatchExpr: $('btn-batch-expr'),
   charFootHint: $('char-foot-hint'),
   c: {
     name: $('c-name'),

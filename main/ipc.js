@@ -409,6 +409,10 @@ function registerIpc() {
     return { canceled: false, ...imported };
   });
 
+  // 最近一次批量选图选中的路径。images:read 只认这一批 ——
+  // 不让渲染层借这条通道去读盘上任意文件。
+  let pickedImagePaths = new Set();
+
   /**
    * 选一张本地图片当头像。
    * 页面被 CSP 挡着读不了文件，所以由主进程弹系统文件框、读文件、
@@ -446,6 +450,85 @@ function registerIpc() {
       return { canceled: false, dataUrl: `data:${mime};base64,${buffer.toString('base64')}`, error: '' };
     } catch (err) {
       return { canceled: false, dataUrl: '', error: `读取失败：${(err && err.message) || '未知错误'}` };
+    }
+  });
+
+  /**
+   * 一次选多张图（或者整个文件夹），只回路径、不回内容 ——
+   * 一套情绪差分动辄二十几张，一次把内容全塞回来会顶爆 IPC。
+   * 界面拿到路径后逐张走 images:read 读，读完一张压一张。
+   */
+  ipcMain.handle('images:pick-many', async (_event, options) => {
+    const opts = options || {};
+    const useDirectory = opts.directory === true;
+    const result = await dialog.showOpenDialog(getMainWindow(), {
+      title: opts.title || (useDirectory ? '选择图片文件夹' : '选择图片（可多选）'),
+      buttonLabel: '导入',
+      properties: useDirectory ? ['openDirectory'] : ['openFile', 'multiSelections'],
+      ...(useDirectory
+        ? {}
+        : {
+            filters: [
+              { name: '图片', extensions: Object.keys(IMAGE_MIME).map((e) => e.slice(1)) }
+            ]
+          })
+    });
+
+    if (result.canceled || !result.filePaths.length) return { canceled: true, files: [] };
+
+    let paths = [];
+    if (useDirectory) {
+      for (const dir of result.filePaths) {
+        let names = [];
+        try {
+          names = fs.readdirSync(dir);
+        } catch (err) {
+          continue;
+        }
+        // 按文件名自然序（A1 < A2 < A10），差分的顺序才不会乱
+        for (const name of names.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))) {
+          const full = path.join(dir, name);
+          if (!IMAGE_MIME[path.extname(name).toLowerCase()]) continue;
+          let isFile = false;
+          try {
+            isFile = fs.statSync(full).isFile();
+          } catch (err) {
+            isFile = false;
+          }
+          if (isFile) paths.push(full);
+        }
+      }
+    } else {
+      paths = result.filePaths.slice();
+    }
+
+    // 记下来：images:read 只认这批路径，防止渲染层拿着这个通道读任意文件
+    pickedImagePaths = new Set(paths);
+    return { canceled: false, files: paths.map((p) => ({ path: p, name: path.basename(p) })) };
+  });
+
+  /** 读一张刚选进来的图，转成 dataURL（页面被 CSP 挡着，读不了本地文件） */
+  ipcMain.handle('images:read', async (_event, filePath) => {
+    const target = String(filePath || '');
+    if (!pickedImagePaths.has(target)) {
+      return { dataUrl: '', error: '这张图不在本次选中的文件里，请重新选择' };
+    }
+
+    const ext = path.extname(target).toLowerCase();
+    const mime = IMAGE_MIME[ext];
+    if (!mime) return { dataUrl: '', error: `不支持的图片格式：${ext || '未知'}` };
+
+    try {
+      const buffer = fs.readFileSync(target);
+      if (buffer.length > MAX_IMPORT_BYTES) {
+        return {
+          dataUrl: '',
+          error: `图片太大（${(buffer.length / 1048576).toFixed(1)}MB，上限 ${MAX_IMPORT_BYTES / 1048576}MB）`
+        };
+      }
+      return { dataUrl: `data:${mime};base64,${buffer.toString('base64')}`, error: '' };
+    } catch (err) {
+      return { dataUrl: '', error: `读取失败：${(err && err.message) || '未知错误'}` };
     }
   });
 

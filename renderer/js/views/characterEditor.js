@@ -29,7 +29,9 @@ import { el } from '../core/dom.js';
 import { uid, now } from '../core/util.js';
 import { showToast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/confirm.js';
+import { h, button, clear } from '../ui/build.js';
 import { MAX_PANEL_FIELDS } from '../data/panel.js';
+import { MAX_EXPRESSIONS } from '../data/expressions.js';
 import {
   characters,
   characterAttrs,
@@ -45,7 +47,7 @@ import { renderCharacterPage } from './characterList.js';
 import { renderCharAttrs, initCharAttrsUi } from './charAttributes.js';
 import { openAiGenModal } from './aiGen.js';
 import { attachAutoGrow, syncAutoGrowAll, autoGrow } from '../ui/auto-grow.js';
-import { openImageCrop } from '../ui/imageCrop.js';
+import { openImageCrop, cropTopToDataUrl } from '../ui/imageCrop.js';
 
 // ---------------------------------------------------------------------------
 //  长文本框：自动增高 + 拖拽高度记忆
@@ -245,6 +247,9 @@ let charDraftAvatar = '';
 //   · ''        —— 用户明确清掉了形象（列表上就显示首字色块）。
 //   · dataURL   —— 有独立形象。
 let charDraftPortrait;
+// 正在编辑的表情图草稿：[{ name, keywords, image }]。和形象一样是深拷贝 ——
+// 编辑期间改了不算数，点「保存角色」才写回卡上（见 draftExpressionsOf）。
+let charExpressions = [];
 // 正在编辑的角色「自带世界书」开关。跟头像一样是草稿：改动先留在这里，
 // 保存时才写回角色卡 —— 这样切换开关能立刻反映到界面上。
 let charDraftWbEnabled = true;
@@ -511,6 +516,441 @@ function clearPortrait() {
 }
 
 // ---------------------------------------------------------------------------
+//  表情图
+//
+//  一张卡可以带几张表情图，按回复正文里的关键词自动切（匹配在 data/expressions.js）。
+//  这里只负责编这张表：名称（同时是默认触发词）+ 额外触发词 + 一张图。
+//  和头像 / 形象一样走草稿（charExpressions），点「保存角色」才写回卡上。
+// ---------------------------------------------------------------------------
+
+// 表情图输出 640×640（1:1）。状态卡上那张图铺满是 320px 宽，2 倍屏正好 640 ——
+// 再大就只是把同一份信息摊得更糊、文件更大（一套差分二十几张，体积是实打实的成本：
+// 640 比 720 省掉四分之一，22 张差 0.4M 字符）。
+// ⚠️ 改比例要同时改 style.css 的 .sc-photo（两处不一致图就会被拉扁）。
+const EXPRESSION_WIDTH = 640;
+const EXPRESSION_RATIO = 1;
+
+/**
+ * 情绪词典：文件名里的英文键 → 中文名。
+ *
+ * 批量导入时从文件名认情绪（`Lucia_A3_shy_transparent.png` → shy → 害羞），
+ * 认出来的词同时当**情绪键**存进 expression.key（<emo>shy</emo> 就是按它对）。
+ * 词典之外的词不硬猜，退回用文件名当名字，让人自己改。
+ */
+const EMOTION_LABELS = {
+  neutral: '平静',
+  smile: '微笑',
+  happy: '开心',
+  shy: '害羞',
+  blush: '脸红',
+  embarrassed: '尴尬',
+  confused: '困惑',
+  surprised: '惊讶',
+  shocked: '震惊',
+  scared: '害怕',
+  panicked: '慌张',
+  sad: '难过',
+  cry: '哭泣',
+  teary: '委屈',
+  angry: '生气',
+  annoyed: '烦躁',
+  disgusted: '嫌弃',
+  helpless: '无奈',
+  serious: '认真',
+  determined: '坚定',
+  proud: '得意',
+  smug: '骄傲',
+  blank: '发呆',
+  dazed: '涣散',
+  trance: '迷离',
+  sleepy: '犯困',
+  tipsy: '微醺',
+  hopeful: '期待',
+  excited: '兴奋',
+  aching: '心疼',
+  curious: '好奇',
+  worried: '担心',
+  relaxed: '放松',
+  calm: '平静',
+  love: '爱慕',
+  wink: '眨眼'
+};
+
+/**
+ * 中文情绪词 → 情绪键：给中文文件名的图用（`露西娅_害羞_透明.png`）。
+ *
+ * 上面那张表里的中文名会自动反查进来（害羞 → shy），这里只补常见同义词。
+ * 只收两个字以上的词 —— 单字太容易在无关文件名里误伤。
+ */
+const EMOTION_CN_ALIASES = {
+  冷静: 'calm',
+  镇定: 'calm',
+  平和: 'calm',
+  浅笑: 'smile',
+  高兴: 'happy',
+  快乐: 'happy',
+  愉快: 'happy',
+  喜悦: 'happy',
+  羞怯: 'shy',
+  羞涩: 'shy',
+  腼腆: 'shy',
+  娇羞: 'shy',
+  潮红: 'blush',
+  绯红: 'blush',
+  窘迫: 'embarrassed',
+  难为情: 'embarrassed',
+  疑惑: 'confused',
+  不解: 'confused',
+  迷惑: 'confused',
+  吃惊: 'surprised',
+  诧异: 'surprised',
+  惊奇: 'surprised',
+  骇然: 'shocked',
+  恐惧: 'scared',
+  畏惧: 'scared',
+  慌乱: 'panicked',
+  惊惶: 'panicked',
+  伤心: 'sad',
+  悲伤: 'sad',
+  低落: 'sad',
+  失落: 'sad',
+  流泪: 'cry',
+  痛哭: 'cry',
+  落泪: 'cry',
+  含泪: 'teary',
+  泛泪: 'teary',
+  眼红: 'teary',
+  愤怒: 'angry',
+  恼怒: 'angry',
+  气愤: 'angry',
+  不耐烦: 'annoyed',
+  厌烦: 'annoyed',
+  厌恶: 'disgusted',
+  鄙夷: 'disgusted',
+  无语: 'helpless',
+  苦笑: 'helpless',
+  严肃: 'serious',
+  正经: 'serious',
+  坚毅: 'determined',
+  决然: 'determined',
+  自豪: 'proud',
+  自满: 'smug',
+  放空: 'blank',
+  呆滞: 'blank',
+  恍惚: 'dazed',
+  茫然: 'dazed',
+  失神: 'trance',
+  出神: 'trance',
+  困倦: 'sleepy',
+  瞌睡: 'sleepy',
+  醉意: 'tipsy',
+  微醉: 'tipsy',
+  期盼: 'hopeful',
+  盼望: 'hopeful',
+  激动: 'excited',
+  雀跃: 'excited',
+  心痛: 'aching',
+  心酸: 'aching',
+  担忧: 'worried',
+  忧虑: 'worried',
+  焦虑: 'worried',
+  松弛: 'relaxed',
+  惬意: 'relaxed',
+  喜欢: 'love',
+  心动: 'love',
+  迷恋: 'love'
+};
+
+/** 中文词 → 情绪键的查表。正名先注册（'平静' 归 neutral），别名补空位，别名词不许指向没见过的键 */
+const EMOTION_CN_LOOKUP = (() => {
+  const map = new Map();
+  const put = (word, key) => {
+    if (word.length < 2 || map.has(word) || !EMOTION_LABELS[key]) return;
+    map.set(word, key);
+  };
+  for (const [key, name] of Object.entries(EMOTION_LABELS)) put(name, key);
+  for (const [word, key] of Object.entries(EMOTION_CN_ALIASES)) put(word, key);
+  return map;
+})();
+
+/**
+ * 文件名里的「情绪键」。
+ *
+ * 英文按非字母数字切段逐段比词典，取最长的一段（'blush' 比 'sh' 靠谱）；
+ * 中文没空格可切，直接在整串里找词典里的中文词，同样取最长的。
+ * 两种都认不出返回 null —— 调用方会退回「拿文件名当名字」。
+ */
+function emotionFromFileName(fileName) {
+  const base = String(fileName || '').replace(/\.[^.]+$/, '').toLowerCase();
+
+  let best = '';
+  for (const token of base.split(/[^a-z0-9]+/).filter(Boolean)) {
+    if (!EMOTION_LABELS[token]) continue;
+    if (token.length > best.length) best = token;
+  }
+  if (best) return { key: best, name: EMOTION_LABELS[best] };
+
+  let bestCn = '';
+  let cnKey = '';
+  for (const [word, key] of EMOTION_CN_LOOKUP) {
+    if (word.length > bestCn.length && base.includes(word)) {
+      bestCn = word;
+      cnKey = key;
+    }
+  }
+  return cnKey ? { key: cnKey, name: EMOTION_LABELS[cnKey] } : null;
+}
+
+/** 文件名去掉扩展名，当认不出情绪时的兜底名字 */
+function nameFromFileName(fileName) {
+  return String(fileName || '').replace(/\.[^.]+$/, '').trim().slice(0, 24);
+}
+
+/** 表情草稿的深拷贝。直接引用卡上那份的话，改到一半关掉编辑器也会留下改动 */
+function draftExpressionsOf(character) {
+  const list = character && Array.isArray(character.expressions) ? character.expressions : [];
+  return list.map((item) => ({
+    name: String((item && item.name) || ''),
+    keywords: Array.isArray(item && item.keywords) ? item.keywords.map(String) : [],
+    key: String((item && item.key) || ''),
+    default: item && item.default === true,
+    image: String((item && item.image) || '')
+  }));
+}
+
+/** 触发词框里的一行文本 → 词表（逗号分隔，中英文逗号都认） */
+function parseKeywords(text) {
+  return String(text || '')
+    .split(/[,，]/)
+    .map((k) => k.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+}
+
+/** 一条表情 = 缩略图（点击换图）+ 名称 + 触发词 + 删除 */
+function buildExpressionRow(expr, index) {
+  const thumb = h('button', {
+    type: 'button',
+    class: 'char-expr-thumb art-edge',
+    title: '点击上传这张表情的图',
+    ariaLabel: `上传「${expr.name || '这条表情'}」的图`,
+    onClick: () => pickExpressionImage(index)
+  });
+  if (expr.image) thumb.appendChild(h('img', { src: expr.image, alt: '' }));
+  else thumb.appendChild(h('span', { class: 'char-avatar-empty', text: '点击上传' }));
+
+  // 打字时**不重绘**（重绘会重建输入框、光标就跑了），直接写进草稿那一项。
+  const nameInput = h('input', {
+    type: 'text',
+    class: 'char-expr-name',
+    value: expr.name,
+    spellcheck: 'false',
+    placeholder: '名称（如 害羞）',
+    ariaLabel: '表情名'
+  });
+  nameInput.addEventListener('input', () => {
+    charExpressions[index].name = nameInput.value;
+  });
+
+  const keysInput = h('input', {
+    type: 'text',
+    class: 'char-expr-keys',
+    value: expr.keywords.join(', '),
+    spellcheck: 'false',
+    placeholder: '触发词，逗号分隔（可不填）',
+    ariaLabel: '触发词'
+  });
+  keysInput.addEventListener('input', () => {
+    charExpressions[index].keywords = parseKeywords(keysInput.value);
+  });
+
+  // 默认脸：没命中任何情绪时显示这张。整张卡只能有一个，所以是单选按钮
+  // 而不是复选框 —— 点一下自动把别的清掉，不会出现两个「兜底脸」。
+  const defaultBtn = button({
+    type: 'button',
+    class: `char-expr-default${expr.default ? ' is-on' : ''}`,
+    text: expr.default ? '★' : '☆',
+    title: expr.default
+      ? '这是默认脸：没命中任何情绪时显示这张。再点一下取消'
+      : '设为默认脸：没命中任何情绪时显示这张',
+    onClick: () => toggleDefaultExpression(index)
+  });
+
+  return h(
+    'div',
+    { class: 'char-expr-row' },
+    thumb,
+    h('div', { class: 'char-expr-fields' }, nameInput, keysInput),
+    defaultBtn,
+    button({
+      class: 'char-expr-del',
+      text: '✕',
+      title: '删掉这条表情',
+      onClick: () => removeExpression(index)
+    })
+  );
+}
+
+function renderCharExpressions() {
+  const host = el.charExprList;
+  if (!host) return;
+  clear(host);
+
+  if (!charExpressions.length) {
+    host.appendChild(
+      h('div', {
+        class: 'char-expr-empty',
+        text: '还没有表情图。加一条，名称写「害羞」、触发词写「脸红」试试。'
+      })
+    );
+  } else {
+    charExpressions.forEach((expr, index) => host.appendChild(buildExpressionRow(expr, index)));
+  }
+
+  const full = charExpressions.length >= MAX_EXPRESSIONS;
+  if (el.btnAddExpr) el.btnAddExpr.disabled = full;
+  if (el.btnBatchExpr) el.btnBatchExpr.disabled = full;
+}
+
+function addExpression() {
+  if (charExpressions.length >= MAX_EXPRESSIONS) return;
+  charExpressions.push({ name: '', keywords: [], image: '' });
+  renderCharExpressions();
+  // 加完直接落在名称框上，省得再点一下
+  const input = el.charExprList && el.charExprList.querySelector('.char-expr-row:last-child .char-expr-name');
+  if (input) input.focus();
+}
+
+function removeExpression(index) {
+  if (index < 0 || index >= charExpressions.length) return;
+  charExpressions.splice(index, 1);
+  // 删掉之后所有行都要重建（下标全变了）
+  renderCharExpressions();
+}
+
+/** 把某一条设成「默认脸」，其余全清（再点一下取消） */
+function toggleDefaultExpression(index) {
+  const target = charExpressions[index];
+  if (!target) return;
+  const wasOn = target.default === true;
+  for (const expr of charExpressions) delete expr.default;
+  if (!wasOn) target.default = true;
+  renderCharExpressions();
+}
+
+/**
+ * 批量导入一整个文件夹的表情差分。
+ *
+ * 一次导入二十几张，所以不做「逐张开裁剪浮层」——直接按状态卡那块画幅
+ * **顶部对齐自动裁**（cropTopToDataUrl）。情绪从文件名认（shy → 害羞，中英文都认），
+ * 认出来的一并当情绪键存下，模型的 <emo>shy</emo> 就是按它对。
+ */
+async function batchImportExpressions() {
+  const btn = el.btnBatchExpr;
+  if (!btn) return;
+
+  const room = MAX_EXPRESSIONS - charExpressions.length;
+  if (room <= 0) {
+    showToast(`表情图最多 ${MAX_EXPRESSIONS} 张，先删几条再导`, 'error');
+    return;
+  }
+
+  let picked;
+  try {
+    picked = await api.pickImages({ directory: true, title: '选择放着表情图的文件夹' });
+  } catch (err) {
+    showToast((err && err.message) || '选择文件夹失败', 'error');
+    return;
+  }
+  if (!picked || picked.canceled || !picked.files.length) return;
+
+  const label = btn.dataset.label || (btn.dataset.label = btn.textContent);
+  btn.disabled = true;
+
+  // 已经有的情绪键不重复导（同一个文件夹导第二遍时整批跳过，不会存两套）
+  const existingKeys = new Set(
+    charExpressions.map((expr) => String(expr.key || '').toLowerCase()).filter(Boolean)
+  );
+
+  let added = 0;
+  let failed = 0;
+  let dupe = 0;
+  let overflow = 0;
+
+  for (let i = 0; i < picked.files.length; i += 1) {
+    const file = picked.files[i];
+    btn.textContent = `导入中 ${i + 1}/${picked.files.length}…`;
+
+    const emotion = emotionFromFileName(file.name);
+    if (emotion && existingKeys.has(emotion.key)) {
+      dupe += 1;
+      continue;
+    }
+    if (added >= room) {
+      overflow += 1;
+      continue;
+    }
+
+    try {
+      const read = await api.readImage(file.path);
+      if (!read || !read.dataUrl) throw new Error((read && read.error) || '读不出来');
+
+      const image = await cropTopToDataUrl(read.dataUrl, {
+        aspect: EXPRESSION_RATIO,
+        outWidth: EXPRESSION_WIDTH
+      });
+
+      charExpressions.push({
+        name: emotion ? emotion.name : nameFromFileName(file.name),
+        key: emotion ? emotion.key : '',
+        keywords: [],
+        default: false,
+        image
+      });
+      if (emotion) existingKeys.add(emotion.key);
+      added += 1;
+    } catch (err) {
+      failed += 1;
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = label;
+  renderCharExpressions();
+
+  const bits = [`导入 ${added} 张`];
+  if (dupe) bits.push(`跳过 ${dupe} 张已有的`);
+  if (failed) bits.push(`${failed} 张读不出来`);
+  if (overflow) bits.push(`超出上限 ${overflow} 张没导`);
+  showToast(added ? `${bits.join('，')}。记得点「保存角色」` : bits.join('，'), added ? 'ok' : 'error');
+}
+
+async function pickExpressionImage(index) {
+  if (!editorCharacterById(editingCharacterId)) return;
+  const expr = charExpressions[index];
+  if (!expr) return;
+
+  // 没有名字的条目匹配不上任何东西，存下去等于白存 —— 先让他起个名再传图
+  if (!String(expr.name || '').trim()) {
+    showToast('先给这条表情起个名字（名字本身就是触发词）', 'error');
+    return;
+  }
+
+  const cropped = await pickAndCrop({
+    aspect: EXPRESSION_RATIO,
+    outWidth: EXPRESSION_WIDTH,
+    title: '裁剪表情图',
+    hint: '状态卡上铺的就是这一块',
+    pickTitle: '选一张表情图'
+  });
+  if (!cropped) return;
+
+  charExpressions[index].image = cropped;
+  renderCharExpressions();
+  showToast('表情图已换上，记得点「保存角色」', 'ok');
+}
+
+// ---------------------------------------------------------------------------
 //  表单：填进去 / 收回来
 // ---------------------------------------------------------------------------
 
@@ -524,6 +964,7 @@ function fillCharForm(character) {
   // 不清的话上一张卡的草稿会跟着漏进来。
   charDraftAvatar = character.avatar || '';
   charDraftPortrait = typeof character.portrait === 'string' ? character.portrait : undefined;
+  charExpressions = draftExpressionsOf(character);
 
   el.c.name.value = character.name || '';
   el.c.tags.value = (character.tags || []).join(', ');
@@ -554,6 +995,8 @@ function fillCharForm(character) {
 
   // 两张图的草稿在 fillCharForm 里跟着一起重置了，这里只负责画出来
   renderCharMedia();
+  // 表情图同理：上面刚深拷贝出新草稿，这里只负责铺出来
+  renderCharExpressions();
 
   // 开关的草稿要从这张卡的当前值起算（老数据没这个字段 = 开）
   charDraftWbEnabled = character.worldbookEnabled !== false;
@@ -878,6 +1321,21 @@ function stashCharForm() {
   //   其余（空串 / dataURL）—— 用户的选择，照写。
   if (charDraftPortrait === undefined) delete character.portrait;
   else character.portrait = charDraftPortrait;
+  // 表情图：没名字的条目存下去也匹配不上，直接丢掉；一条不剩就不留这个键
+  // （和 portrait 一个思路：空表留在数据里只是噪音）。
+  // key / default 只写有值的 —— 落盘归一化本来也会把空的丢掉，这里少写一份更干净。
+  const expressions = charExpressions
+    .filter((item) => item && String(item.name || '').trim())
+    .map((item) => ({
+      name: String(item.name).trim().slice(0, 24),
+      keywords: (item.keywords || []).map((k) => String(k).trim().slice(0, 24)).filter(Boolean),
+      ...(String(item.key || '').trim() ? { key: String(item.key).trim().toLowerCase() } : {}),
+      ...(item.default === true ? { default: true } : {}),
+      image: typeof item.image === 'string' && item.image.startsWith('data:image/') ? item.image : ''
+    }))
+    .slice(0, MAX_EXPRESSIONS);
+  if (expressions.length) character.expressions = expressions;
+  else delete character.expressions;
   // 剧情选项：开关关掉就写 null（不是 false/空对象）—— 一眼能看出「这个会话不开」。
   // 数量夹在 1~6，和注入时用的上限保持一致。
   if (el.c.optionsOn.checked) {
@@ -1203,6 +1661,10 @@ export function initCharacterEditor(injected) {
   el.btnClearAvatar.addEventListener('click', clearAvatar);
   el.charPortrait.addEventListener('click', pickPortrait);
   el.btnClearPortrait.addEventListener('click', clearPortrait);
+
+  // 表情图：列表本身由 renderCharExpressions 铺，这里接「添加」和「批量导入」
+  if (el.btnAddExpr) el.btnAddExpr.addEventListener('click', addExpression);
+  if (el.btnBatchExpr) el.btnBatchExpr.addEventListener('click', batchImportExpressions);
 
   // 自带世界书的开关：先更新草稿，再按草稿刷新说明文字。
   // 注意不能直接读 editorCharacterById —— 那时角色卡上还是旧值（还没保存），

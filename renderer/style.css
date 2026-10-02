@@ -67,6 +67,11 @@
      卡片/按钮靠这一层影子分层，不靠 1px 边框。 */
   --shadow-sm: 0 2px 10px rgba(217, 41, 104, 0.10);
   --shadow-lg: 0 6px 22px rgba(217, 41, 104, 0.14);
+  /* 透明底立绘的描边：淡底素材压在浅底上会糊边，给它描一圈深色（详解见 .sc-photo img）。
+     ⚠️ 不用 drop-shadow —— 它在 Chromium 里是按图的不透明区域算形状，一张图算一次，
+     二十几张表情图再加立绘、缩略图会明显卡（filter 还逼出合成层）。
+     box-shadow 走的是元素矩形，一遍就够，这里所有立绘都铺满框、矩形描边正好落在图边上。 */
+  --art-edge: 0 0 1px rgba(0, 0, 0, 0.35);
   --radius: 16px;
   --radius-sm: 12px;
 }
@@ -266,6 +271,8 @@
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2376717c' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
   --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.45);
+  /* 浅色立绘压在暗底上会「发光」，反着描一圈白（见 .sc-photo img 的注释） */
+  --art-edge: 0 0 1px 1px rgba(255, 255, 255, 0.55);
 }
 
 * { box-sizing: border-box; }
@@ -313,18 +320,13 @@ body {
 /* ------------------------------ 侧边栏 ------------------------------ */
 
 .sidebar {
-  /* 224。这个值是当初「右边有 300 在场角色栏」时定的（252 的话对话列会比改造前还窄）；
-     后来右栏撤了、对话列变宽，这个宽度就保持没动 —— 现在是个看着舒服的值，
-     不是被谁挤出来的。 */
-  width: 224px;
-  flex: 0 0 224px;
+  width: 260px;
+  flex: 0 0 260px;
   background: var(--bg-side);
-  /* 不再画那条右分隔线：设计稿的 .rail 也没有 —— 侧栏底色本来就比对话区深一点，
-     靠底色分层比靠 1px 线分层干净（线在浅色系里反而是最显「鼓」的那一笔）。 */
   display: flex;
   flex-direction: column;
   padding: 16px 13px 13px;
-  gap: 11px;
+  gap: 12px;
 }
 
 .brand {
@@ -948,8 +950,8 @@ body {
 
 /* 点「我」的头像能开状态卡：给个可点的信号（别让用户猜这里能点） */
 .msg-avatar.clickable { cursor: pointer; transition: box-shadow 0.15s; }
-.msg-avatar.clickable:hover { box-shadow: 0 0 0 3px var(--accent-soft-strong); }
-.msg-avatar.clickable:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.msg-avatar.clickable:hover { box-shadow: var(--art-edge), 0 0 0 3px var(--accent-soft-strong); }
+.msg-avatar.clickable:focus-visible { outline: none; box-shadow: var(--art-edge), var(--focus-ring); }
 
 .msg-body { flex: 1 1 auto; min-width: 0; }
 
@@ -2266,6 +2268,9 @@ body {
   height: 26px;
   border-radius: 50%;
   object-fit: cover;
+  /* 和上面那组圆头像同一个坑：透明底素材压浅底会糊边（见 --art-edge 那段）。
+     这里圆角直接开在 img 上、没有裁切容器，描边不会被 overflow 切掉。 */
+  box-shadow: var(--art-edge);
 }
 
 /* 侧边栏里表示「你正在这个页面」 */
@@ -3017,21 +3022,67 @@ body {
 .attr-paste-foot .field-help { margin: 0; }
 .attr-paste-foot .btn { flex: 0 0 auto; }
 
-.char-head-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 18px;
-  margin-bottom: 22px;
+/* 图片区：头像 / 形象 / 表情图收在一张浅色卡片里，和下面的文字字段分开。
+   带边框是为了在长表单里一眼看出「这里是图、下面是字」的边界。
+   整块是 <details>：点标题收起/展开，表单长的时候能先腾出空间写文字。 */
+.char-media-section {
+  margin: 0 0 18px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg-side);
 }
+
+/* 收起时下面没内容了，底部那圈 padding 也收掉，卡片贴着标题收口 */
+.char-media-section:not([open]) { padding-bottom: 12px; }
+
+/* 区块标题（同时是折叠开关）：字形和 field-label 一致，但作为整区的领头压粗一点；
+   点一下收/展，箭头指示当前状态。收起时和展开时的下边距分开算。 */
+.char-section-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.4;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+
+.char-section-label::-webkit-details-marker { display: none; }
+
+/* 折叠箭头：收起 ▸ / 展开 ▾ —— 和「高级选项」那批同一套写法 */
+.char-section-label::before {
+  content: "▸";
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.char-media-section[open] > .char-section-label::before { content: "▾"; }
+
+/* 展开时标题下面才需要留出到内容的间距；收起时标题就是全部内容 */
+.char-media-section[open] > .char-section-label { margin-bottom: 12px; }
+
+.char-section-label > .field-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+  flex: none;
+}
+
+/* 文字区：角色名 / 标签 / 长文本 / 属性，纯文本，不需要额外框线 */
+.char-text-section { display: flex; flex-direction: column; }
 
 /* 上传列：头像（1:1 圆）和形象（2:3 竖版）并排，各自下面一行小标签 + 清除。
    两个框的**形状就是存下来的形状** —— 裁剪时框住哪块，这里、列表卡上看到的就是哪块。 */
 .char-avatar-col {
-  flex: 0 0 auto;
   display: flex;
   flex-direction: row;
   align-items: flex-start;
   gap: 12px;
+  margin-bottom: 14px;
 }
 
 .char-media-item {
@@ -3064,6 +3115,40 @@ body {
 .char-portrait:hover { border-color: var(--accent); }
 .char-avatar:focus-visible,
 .char-portrait:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* ==========================================================================
+   透明底立绘的描边（--art-edge）
+
+   差分素材基本都是**透明底立绘**，而角色图是铺在卡片/缩略框的底色上的。
+   底色和素材颜色接近时就糊在一起，最常见的两种：
+     · 白发 + 浅色卡片 → 头发轮廓溶进背景，看上去像没画完
+     · 淡色立绘 + 暗色主题 → 反被衬得「发光」，边缘刺眼
+   给立绘容器描一圈极淡的边就能把轮廓勾出来。描边色跟着主题反着走：
+   浅底描深色、暗底描浅色（两处变量分别定义在 :root 和 [data-theme='dark']）。
+
+   ⚠️ 这里用 box-shadow 不用 filter: drop-shadow。drop-shadow 在 Chromium 里
+   是按「图的不透明区域」算形状的，一张图算一次、每帧重算 —— 一屏二十几张
+   表情缩略图加立绘会肉眼可见地卡，而且 filter 会逼出合成层。
+   box-shadow 走的是元素矩形，一遍就够；这里所有立绘都是铺满框的
+   （object-fit: cover），矩形描边正好落在图边上。
+   ========================================================================== */
+.art-edge { box-shadow: var(--art-edge); }
+
+/* 小圆头像同款描边（同一个坑，见上面那段）。头像也是透明底素材压浅底，尺寸更小、
+   糊边反而更扎眼。⚠️ 只在**有图**时描（:has(img)）：没图时这些位子是渐变底 + 首字的
+   字母徽章，给它们也套一圈边，平白多出一层看着像「选中」的暗框。
+   容器都是圆角，box-shadow 跟着 border-radius 走，正好勾住圆形轮廓。
+   下面几处 :hover / :focus-visible 的 box-shadow 优先级更高（(0,3,0) 对 (0,1,1)），
+   那几条各自把描边叠了回去，不然一悬停边就闪没了。 */
+.convo-avatar:has(img),
+.topbar-avatar:has(img),
+.sc-avatar:has(img),
+.panel-avatar:has(img),
+.msg-avatar:has(img),
+.wb-char-chip-avatar:has(img),
+.wb-picker-avatar:has(img) {
+  box-shadow: var(--art-edge);
+}
 
 /* 头像：正方形圆显示 —— 和消息气泡、状态卡里那个小圆图是同一块内容 */
 .char-avatar {
@@ -3108,15 +3193,124 @@ body {
 .char-portrait img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .char-avatar-empty { font-size: 12px; color: var(--text-faint); }
 
+/* 立绘容器的描边——透明底素材压在底色上，轮廓得勾出来（见 .art-edge 那段）。
+   ⚠️ 必须在下面 .char-portrait 的 width/height 之后写：.art-edge 和 .char-portrait
+   同为单类选择器（优先级一样），位置靠后的胜出。 */
+.char-avatar.art-edge,
+.char-portrait.art-edge,
+.char-expr-thumb.art-edge { box-shadow: var(--art-edge); }
+
 /* 有图时才显示「清除」 */
 .char-avatar-col .btn-sm { padding: 4px 10px; font-size: 11px; }
 
-.char-head-fields {
+/* ------------------------------ 表情图 ------------------------------ */
+
+.char-expr { margin-top: 4px; }
+
+.char-expr-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.char-expr-head .field-label { flex: 0 0 auto; padding-top: 0; }
+.char-expr-head .field-help { flex: 1 1 auto; min-width: 0; }
+.char-expr-head .btn-sm { flex: 0 0 auto; padding: 4px 10px; font-size: 11px; }
+
+.char-expr-list { display: flex; flex-direction: column; gap: 8px; }
+
+.char-expr-empty { font-size: 12px; color: var(--text-faint); }
+
+.char-expr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 缩略图：1:1，和状态卡上铺的那张同画幅 */
+.char-expr-thumb {
+  flex: 0 0 auto;
+  position: relative;
+  width: 64px;
+  height: 64px;
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.char-expr-thumb:hover { border-color: var(--accent); }
+/* 1px 实边也是描边，但它是主色/边框色，在浅底差分的轮廓上几乎看不出来，
+   所以再补一门 --art-edge（背景色在图片下面，不受影响）。 */
+.char-expr-thumb:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.char-expr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.char-expr-thumb .char-avatar-empty { font-size: 11px; }
+
+.char-expr-fields {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 6px;
+}
+
+/* ⚠️ 带 [type="text"]（= (0,2,1)）：通用那条 input[type="text"] 是 (0,1,1)
+   且写在文件更后面，只写类名的话宽高会被它盖掉。 */
+.char-expr-row input[type="text"] {
+  width: 100%;
+  min-height: 26px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.char-expr-del {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.char-expr-del:hover { background: var(--danger-bg); color: var(--danger); }
+
+/* 默认脸开关：☆ 空 / ★ 实。和删除按钮同尺寸，行里才不会高低不齐。
+   它是**单选** —— 点亮一条，别的自动熄掉（逻辑在 toggleDefaultExpression）。 */
+.char-expr-default {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.char-expr-default:hover { background: var(--bg-side); color: var(--text); }
+.char-expr-default:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.char-expr-default.is-on { color: var(--accent); background: var(--accent-soft); }
+
+.char-head-fields {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  margin-bottom: 18px;
 }
 
 /* 这里标签列不需要 152px，收窄一点让输入框更宽 */
@@ -4046,7 +4240,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 }
 
 .panel-avatar:hover { transform: translateY(-1px); }
-.panel-avatar:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.panel-avatar:focus-visible { outline: none; box-shadow: var(--art-edge), var(--focus-ring); }
 .panel-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ------------------------------ 状态卡（浮动） ------------------------------ */
@@ -4067,8 +4261,9 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 .state-card {
   position: absolute;
   /* 宽度定死：定位和「并排铺开」都按这个数算（stateCard.js 的 CARD_W） */
-  width: 250px;
-  max-height: 62vh;
+  width: 320px;
+  /* 高度上限：卡里要装一张 3:2 的角色图 + 字段列表，所以比一般浮层给得高 */
+  max-height: 86vh;
   display: flex;
   flex-direction: column;
   pointer-events: auto;
@@ -4095,6 +4290,46 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 }
 
 .sc-head:active { cursor: grabbing; }
+
+/* 角色图：标题下面**铺满卡片宽度**的一张。
+   画幅和编辑器里裁表情图用的比例一致（characterEditor.js 的 EXPRESSION_RATIO）。
+   定 1:1 是因为差分素材是竖版半身：方图按 top 对齐从上往下裁，正好取到胸口以上，
+   脸还是那么大，卡片又不至于长到要滚（3:2 只剩一条脸、2:3 又高出一截）。 */
+.sc-photo {
+  flex: 0 0 auto;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: var(--border-soft);
+  overflow: hidden;
+  /* 卡上铺的是透明底立绘，底色浅时轮廓会糊掉 —— 描边见 .art-edge 那段 */
+  box-shadow: var(--art-edge);
+}
+
+.sc-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+  display: block;
+}
+
+/* 表情名小标签：只在按关键词命中表情时出现，压在图的右下角 ——
+   「为什么现在显示这张」看一眼就知道。 */
+.sc-photo-tag {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  max-width: calc(100% - 16px);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* 30px 而不是设计稿 .ava.sm 的 38：这张卡的头里要塞下「名字 + 编辑 + 收起 + ✕」
    四样（设计稿只放了名字 + 收起），38 会把名字挤成省略号。
@@ -4173,7 +4408,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 .sc-group-title {
   font-size: 10.5px;
   font-weight: 400;
-  color: var(--text-faint);
+  color: var(--accent);
   letter-spacing: 0.12em;
   padding-bottom: 0;
   margin: 11px 0 9px;
@@ -4200,7 +4435,6 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   flex: 1 1 auto;
   min-width: 0;
   font-size: 12.5px;
-  font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;

@@ -47,6 +47,9 @@ import {
   worldbookById,
   worldbookCharacters
 } from './library.js';
+// 表情标签 <emo>…</emo> 也要从正文里剥掉，而「长什么样」只有 expressions.js 知道。
+// 它同样只依赖 library，不反向依赖这里，不成环。
+import { stripEmoTags } from './expressions.js';
 
 // 字段行：全角/半角冒号都认。字段名限制在 24 字内，避免把长句子误当成字段。
 const PANEL_LINE_RE = /^【([^】\n]{1,24})】[：:]\s*(.*)$/;
@@ -416,13 +419,15 @@ function stripStatusHeader(text) {
 
 /**
  * 助手消息的正文该怎么给模型/界面看：状态块抬头、状态栏行、分组小标题、
- * 剧情选项行都剥掉。四者都是程序读的中间产物 —— 值已经由面板权威注入，
- * 选项已经变成按钮，抬头和分组标题是给模型看的排版提示，正文里留着只会像
- * 漏网之鱼一样突兀地挂在那儿。
+ * 剧情选项行、表情标签都剥掉。它们都是程序读的中间产物 —— 值已经由面板权威注入，
+ * 选项已经变成按钮，表情已经换成卡上的图，抬头和分组标题是给模型看的排版提示，
+ * 正文里留着只会像漏网之鱼一样突兀地挂在那儿。
  */
 export function cleanAssistantText(text, panelFields, knownGroups) {
-  return stripStatusHeader(
-    stripOptionsLine(stripPanelGroupHeaders(stripPanelLines(text, panelFields), knownGroups))
+  return stripEmoTags(
+    stripStatusHeader(
+      stripOptionsLine(stripPanelGroupHeaders(stripPanelLines(text, panelFields), knownGroups))
+    )
   );
 }
 
@@ -434,6 +439,7 @@ export function cleanAssistantText(text, panelFields, knownGroups) {
  *   · [当前状态]            ASCII 写法的块抬头（程序注入的就是这个）
  *   · —— 组名 ——          分组小标题
  *   · 剧情选项：…           漏掉方括号的选项行
+ *   · <emo>shy</emo>       表情标签（模型按提示写在回复末尾，和状态块同一片）
  */
 function isStatusBlockLine(line) {
   const t = line.trim();
@@ -442,6 +448,7 @@ function isStatusBlockLine(line) {
   if (t.startsWith('——')) return true;
   if (t.startsWith('[当前状态')) return true;
   if (t.startsWith('剧情选项')) return true;
+  if (/^<\s*emo\b/i.test(t)) return true;
   return false;
 }
 
@@ -466,7 +473,8 @@ export function cutTrailingStatusBlock(text) {
       break;
     }
   }
-  return lines.slice(0, cut).join('\n');
+  // 正文里（不在末尾）出现标签时行级截断兜不住，这里再抹一道
+  return stripEmoTags(lines.slice(0, cut).join('\n'));
 }
 
 export function convoPanelFields(convo) {

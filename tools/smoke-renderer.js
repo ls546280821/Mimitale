@@ -2436,6 +2436,18 @@ await scenario('角色：头像和形象是两张图', async () => {
       !!byId('char-portrait').querySelector('.char-avatar-empty')
   );
 
+  // --- 图片区可折叠：标题点一下收起、再点一下展开 ---
+  // 变量名别叫 media：本场景后面那段「列表卡」测试已经用了 const media，
+  // 同一函数作用域里重名会直接 SyntaxError，整套断言会 0/0。
+  const mediaSection = $('.char-media-section');
+  check('图片区是默认展开的可折叠块', !!mediaSection && mediaSection.tagName === 'DETAILS' && mediaSection.open === true);
+  click('.char-media-section > .char-section-label');
+  await sleep(30);
+  check('点标题把图片区收起来了', !!mediaSection && mediaSection.open === false);
+  click('.char-media-section > .char-section-label');
+  await sleep(30);
+  check('再点一下又展开', !!mediaSection && mediaSection.open === true);
+
   // --- 传头像：点框 → 弹裁剪 → 「用这块」 ---
   click('#char-avatar');
   await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
@@ -5809,6 +5821,299 @@ await scenario('预设：编辑已有预设并落盘', async () => {
   check('关键词条目没被当成常驻', keyEntry && keyEntry.constant !== true);
   const constEntry = edited && (edited.entries || []).find((e) => e.id === 'pe-const');
   check('无关键词的条目被当常驻', constEntry && constEntry.constant === true);
+});
+
+// ---------------------------------------------------------------------------
+//  角色表情图 —— 按回复正文里的词换状态卡上的图
+//
+//  ⚠️ 放在预设那几条**聊天场景之前**：最后一条 chat:send 会被宿主侧的
+//  probePresetInjection 拿来当「预设到底注没注入」的样本，这里插在后面会把它顶掉。
+// ---------------------------------------------------------------------------
+await scenario('角色：表情图按回复关键词切换', async () => {
+  const isImg = (v) => typeof v === 'string' && v.startsWith('data:image/');
+  // 假后端每次回复的正文里都带着这句（见 smoke-test.js 的 chat:send）
+  const TRIGGER = '这是加粗';
+
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+
+  const NAME = '表情测试角色';
+  setValue('#c-name', NAME);
+
+  // 状态卡的入口条只列「真的持有字段的人」，所以这张卡得有属性才看得见状态卡
+  click('#btn-attr-template');
+  await waitFor('模板字段种进来了', () => $$('#c-attr-list .attr-row').length >= 3);
+
+  // 先给一张形象 —— 没命中表情时状态卡铺的就是它
+  click('#char-portrait');
+  await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
+  click('#crop-ok');
+  await waitFor('形象按 1024 落进框里', () => {
+    const i = byId('char-portrait').querySelector('img');
+    return !!i && i.naturalWidth === 1024;
+  });
+
+  // --- 加一条表情 ---
+  check('编辑器里有「添加表情」按钮', !!byId('btn-add-expr'));
+  check('还没加表情时有一句提示', /还没有表情图/.test(byId('char-expr-list').textContent));
+  click('#btn-add-expr');
+  await waitFor('多了一行表情', () => $$('#char-expr-list .char-expr-row').length === 1);
+
+  // 名都没起就传图要拦住 —— 没名字的条目匹配不上任何东西，存下去等于白存
+  click($('#char-expr-list .char-expr-thumb'));
+  await sleep(250);
+  check('没起名字就传图会被拦下（不弹裁剪）', !byId('crop-layer'));
+
+  setValue('#char-expr-list .char-expr-name', '表情甲');
+  setValue('#char-expr-list .char-expr-keys', TRIGGER);
+
+  click($('#char-expr-list .char-expr-thumb'));
+  await waitFor('裁剪浮层弹出来了', () => !!byId('crop-layer'));
+  check('裁剪标题是「裁剪表情图」', byId('crop-layer').textContent.includes('裁剪表情图'));
+  click('#crop-ok');
+  await waitFor('表情图按 640 落进缩略图', () => {
+    const i = $('#char-expr-list .char-expr-thumb img');
+    return !!i && i.naturalWidth === 640;
+  });
+  const exThumb = $('#char-expr-list .char-expr-thumb img');
+  check(
+    '表情图按 1:1 裁（640×640）',
+    !!exThumb && exThumb.naturalWidth === 640 && exThumb.naturalHeight === 640,
+    exThumb ? `${exThumb.naturalWidth}×${exThumb.naturalHeight}` : '缩略图里没图'
+  );
+
+  click('#btn-save-char');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
+  await sleep(200);
+
+  // --- 落盘 ---
+  const saved = (await savedCharacters()).find((c) => c.name === NAME);
+  check('角色存下来了', !!saved);
+  const expr = saved && Array.isArray(saved.expressions) ? saved.expressions[0] : null;
+  check('表情表落在了角色卡上', !!expr, JSON.stringify(saved && saved.expressions));
+  check(
+    '表情名和触发词都存下来了',
+    !!expr && expr.name === '表情甲' && Array.isArray(expr.keywords) && expr.keywords.includes(TRIGGER),
+    JSON.stringify(expr && { name: expr.name, keywords: expr.keywords })
+  );
+  check('表情图是 dataURL', isImg(expr && expr.image), String(expr && expr.image).slice(0, 24));
+  check('表情图和形象是两份，没互相顶掉', !!expr && isImg(saved.portrait) && expr.image !== saved.portrait);
+
+  // --- 开一场，看状态卡上铺哪张 ---
+  const card = $$('#char-page-grid .char-card').find(
+    (c) => c.querySelector('.char-card-name') && c.querySelector('.char-card-name').textContent === NAME
+  );
+  check('列表里能找到这张卡', !!card);
+  click(buttonByText(card, '聊天'));
+  await waitFor('切到聊天视图', () => shown('#view-chat'));
+  await waitFor('状态卡入口条出现', () => shown('#panel-box'));
+
+  const charAvatar = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner !== 'player');
+  check('入口条上有这个角色', !!charAvatar);
+  click(charAvatar);
+  await waitFor('角色状态卡出现', () => $$('#state-cards .state-card').some((c) => c.dataset.owner !== 'player'));
+
+  const scCard = () => $$('#state-cards .state-card').find((c) => c.dataset.owner !== 'player');
+
+  check('状态卡上有角色图', !!scCard().querySelector('.sc-photo img'));
+  check(
+    '还没说过话时铺的是角色形象（没有表情标签）',
+    !scCard().querySelector('.sc-photo-tag'),
+    (scCard().querySelector('.sc-photo-tag') || {}).textContent
+  );
+
+  // --- 说一句：回复正文里带上了触发词，卡上的图该换过来 ---
+  setValue('#input', '冒烟测试：表情');
+  click('#btn-send');
+  await waitFor('助手回复出现', () => $('#messages').textContent.includes('冒烟测试回复'), 8000);
+  await waitFor('流式状态结束', () => byId('btn-send').disabled === false, 8000);
+
+  // 卡片在刷新时会被重建，每次都要重新拿一遍节点
+  await waitFor('状态卡换上了表情图', () => {
+    const node = scCard();
+    return !!node && !!node.querySelector('.sc-photo-tag');
+  });
+  const tag = scCard().querySelector('.sc-photo-tag');
+  check('卡上标出了命中的表情名', !!tag && tag.textContent === '表情甲', tag ? tag.textContent : '没有标签');
+  const photo = scCard().querySelector('.sc-photo img');
+  check(
+    '铺的是那张表情图（不是形象）',
+    !!photo && photo.getAttribute('src') === expr.image,
+    photo ? `长度 ${String(photo.getAttribute('src')).length} / 表情图 ${String(expr.image).length}` : '没有图'
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  角色表情图（二）—— 批量导入 / 默认脸 / <emo> 标签
+//
+//  ⚠️ 同上：必须留在预设那几条聊天场景之前。
+// ---------------------------------------------------------------------------
+await scenario('角色：表情图批量导入、默认脸与 emo 标签', async () => {
+  const isImg = (v) => typeof v === 'string' && v.startsWith('data:image/');
+
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+
+  const NAME = '批量表情测试角色';
+  setValue('#c-name', NAME);
+
+  // 状态卡入口条只列「真的持有字段的人」，所以得有属性才看得见状态卡
+  click('#btn-attr-template');
+  await waitFor('模板字段种进来了', () => $$('#c-attr-list .attr-row').length >= 3);
+
+  // --- 批量导入：假后端给六个文件，前三个文件名是英文、后三个是中文 ---
+  check('编辑器里有「批量导入」按钮', !!byId('btn-batch-expr'));
+  click('#btn-batch-expr');
+  await waitFor(
+    '六张里导进五张（末张「羞怯」和英文的 shy 撞同一个情绪键，被跳过）',
+    () => $$('#char-expr-list .char-expr-row').length === 5
+  );
+
+  const rows = () => $$('#char-expr-list .char-expr-row');
+  const thumbOk = rows().every((r) => {
+    const img = r.querySelector('.char-expr-thumb img');
+    return !!img && img.naturalWidth === 640 && img.naturalHeight === 640;
+  });
+  check('批量导入的图都按 1:1 裁过（640×640）', thumbOk);
+
+  const names = $$('#char-expr-list .char-expr-name').map((i) => i.value);
+  check(
+    '英文文件名认出了中文情绪名',
+    names.slice(0, 3).join(',') === '害羞,微笑,慌张',
+    names.join(',')
+  );
+  check(
+    '中文文件名也认（正名「惊讶」+ 同义词「气愤」）',
+    names.slice(3).join(',') === '惊讶,生气',
+    names.join(',')
+  );
+
+  // 给「微笑」挂上一个关键词：假后端每轮回复里都有「这是加粗」，
+  // 这样等会儿发 <emo> 标签时，正文关键词和标签会指向**两张不同的图**，
+  // 才验得出「标签优先」。
+  setValue($$('#char-expr-list .char-expr-keys')[1], '这是加粗');
+
+  // --- 默认脸（单选） ---
+  const star = (i) => rows()[i].querySelector('.char-expr-default');
+  check('每行都有默认脸开关', rows().every((r) => !!r.querySelector('.char-expr-default')));
+  check('一开始没人是默认脸', !star(0).classList.contains('is-on') && !star(1).classList.contains('is-on'));
+
+  click(star(1));
+  await sleep(30);
+  check('点一下就把这条设成默认脸', star(1).classList.contains('is-on'));
+  check(
+    '别的行没被一起点亮',
+    rows().every((r, i) => i === 1 || !r.querySelector('.char-expr-default').classList.contains('is-on'))
+  );
+
+  click(star(1));
+  await sleep(30);
+  check('再点一下取消', !star(1).classList.contains('is-on'));
+  click(star(1));
+  await sleep(30);
+  check('重新点上', star(1).classList.contains('is-on'));
+
+  click('#btn-save-char');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
+  await sleep(200);
+
+  const saved = (await savedCharacters()).find((c) => c.name === NAME);
+  check('角色存下来了', !!saved);
+  const exprs = (saved && saved.expressions) || [];
+  check('五条表情都在卡上', exprs.length === 5, JSON.stringify(exprs.map((e) => e.name)));
+  check(
+    '情绪键落盘了（中文文件名映射到同一套英文键）',
+    exprs.map((e) => e.key).join(',') === 'shy,smile,panicked,surprised,angry',
+    JSON.stringify(exprs.map((e) => e.key))
+  );
+  check('每条都带了图', exprs.every((e) => isImg(e.image)));
+
+  // 透明底立绘压在卡片底色上，轮廓得描出来（白发 + 浅底最容易糊）。
+  // 描边色跟着主题反着走，所以拿的是算出来的值，不是写死的字符串。
+  {
+    const edgeVar = getComputedStyle(document.documentElement).getPropertyValue('--art-edge').trim();
+    check('定义了立绘描边变量 --art-edge', edgeVar.startsWith('0 0 1px'), edgeVar);
+    const thumb = rows()[0].querySelector('.char-expr-thumb');
+    const shadow = getComputedStyle(thumb).boxShadow;
+    check(
+      '表情缩略图上描边生效了（不是 none）',
+      !!shadow && shadow !== 'none' && shadow.includes('inset') === false,
+      shadow
+    );
+  }
+  const defEntry = exprs.find((e) => e.default === true);
+  check('默认脸只落了一条，而且是「微笑」', exprs.filter((e) => e.default === true).length === 1 &&
+    !!defEntry && defEntry.name === '微笑', defEntry && defEntry.name);
+  const shyEntry = exprs.find((e) => e.name === '害羞');
+  const smileEntry = exprs.find((e) => e.name === '微笑');
+
+  // --- 开一场：没说过话时该铺默认脸，而不是形象图 ---
+  const card = $$('#char-page-grid .char-card').find(
+    (c) => c.querySelector('.char-card-name') && c.querySelector('.char-card-name').textContent === NAME
+  );
+  check('列表里能找到这张卡', !!card);
+
+  // 列表卡那个圆头像也是透明底素材压底色，同一个坑（见 --art-edge 那段）
+  {
+    const av = card.querySelector('.char-card-avatar');
+    const avShadow = av ? getComputedStyle(av).boxShadow : '';
+    check('角色库列表卡的头像有描边', !!avShadow && avShadow !== 'none', avShadow);
+  }
+  click(buttonByText(card, '聊天'));
+  await waitFor('切到聊天视图', () => shown('#view-chat'));
+  await waitFor('状态卡入口条出现', () => shown('#panel-box'));
+
+  const charAvatar = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner !== 'player');
+  check('入口条上有这个角色', !!charAvatar);
+  click(charAvatar);
+  await waitFor('角色状态卡出现', () => $$('#state-cards .state-card').some((c) => c.dataset.owner !== 'player'));
+
+  const scCard = () => $$('#state-cards .state-card').find((c) => c.dataset.owner !== 'player');
+  const scPhoto = () => scCard().querySelector('.sc-photo img');
+
+  check(
+    '没说过话时铺的是默认脸「微笑」',
+    !!scPhoto() && scPhoto().getAttribute('src') === smileEntry.image,
+    (scCard().querySelector('.sc-photo-tag') || {}).textContent
+  );
+  check('卡上标着默认脸的名字', (scCard().querySelector('.sc-photo-tag') || {}).textContent === '微笑');
+
+  // 卡面那块 1:1 的立绘区：白发素材压在卡片底色上，就靠这条描边勾出轮廓
+  {
+    const photoShadow = getComputedStyle(scCard().querySelector('.sc-photo')).boxShadow;
+    check('状态卡图区有描边（不是 none）', !!photoShadow && photoShadow !== 'none', photoShadow);
+  }
+
+  // --- 发一句，回复里既有「这是加粗」又有 <emo>shy</emo>：标签该赢 ---
+  setValue('#input', '冒烟测试：表情标签');
+  click('#btn-send');
+  await waitFor('助手回复出现', () => $('#messages').textContent.includes('冒烟测试回复'), 8000);
+  await waitFor('流式状态结束', () => byId('btn-send').disabled === false, 8000);
+
+  await waitFor(
+    '状态卡换成了标签指定的那张',
+    () => {
+      const tag = scCard() && scCard().querySelector('.sc-photo-tag');
+      return !!tag && tag.textContent === '害羞';
+    },
+    6000
+  );
+  check(
+    '<emo> 标签压过了正文关键词（害羞 赢了 微笑）',
+    !!scPhoto() && scPhoto().getAttribute('src') === shyEntry.image,
+    (scCard().querySelector('.sc-photo-tag') || {}).textContent
+  );
+
+  // 标签是给程序读的，不该留在气泡正文里
+  check(
+    '气泡正文里看不见 <emo> 标签',
+    !$('#messages').textContent.includes('<emo>'),
+    ($('#messages').textContent.match(/<emo>[^<]*<\/emo>/) || [''])[0]
+  );
 });
 
 await scenario('预设：绑定到会话的「视角」弹窗', async () => {

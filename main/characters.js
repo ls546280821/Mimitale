@@ -25,6 +25,16 @@ const DEFAULT_OPTIONS = 3;
 // 角色「属性」的条数上限，和渲染层状态面板的 MAX_PANEL_FIELDS 保持一致
 const MAX_ATTRIBUTES = 120;
 
+// 一张卡最多带几张「表情图」。每张都是 base64，所以要有上限。
+// 一套完整的情绪差分动辄二十几张，所以给得比一般列表宽。
+const MAX_EXPRESSIONS = 30;
+// 表情名 / 触发词的单个长度上限
+const MAX_EXPRESSION_NAME = 24;
+// 一条表情最多几个额外的触发词
+const MAX_EXPRESSION_KEYWORDS = 8;
+// 表情的「情绪键」（英文短标识）长度上限，给 <emo> 标签用
+const MAX_EXPRESSION_KEY = 16;
+
 // 一个角色最多绑几本世界书。导入角色卡时内嵌的那本会自动绑上，
 // 之后用户还能手工加，所以给一个够用但不会失控的上限。
 const MAX_CHARACTER_WORLDBOOKS = 50;
@@ -90,6 +100,60 @@ function normalizeAttributes(value) {
   return normalizePanelFields(value).slice(0, MAX_ATTRIBUTES);
 }
 
+/**
+ * 角色「表情图」：一串 { name, keywords, key, default, image }，名字去重、顺序保留。
+ *
+ *   · name     —— 表情名，同时是默认的触发词（例如「害羞」）
+ *   · keywords —— 额外触发词。回复正文里出现名字或任一触发词，就算命中
+ *   · key      —— 英文情绪键（例如 shy）。模型在正文里写 <emo>shy</emo> 时按它对上，
+ *                 比中文关键词匹配更准；不填也不影响用
+ *   · default  —— 标了这一条的，就是「没命中任何表情时显示的那张」。整张卡只留一条
+ *   · image    —— dataURL。允许暂缺（先填名字、图以后再传）
+ */
+function normalizeExpressions(value) {
+  if (!Array.isArray(value)) return [];
+  const str = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+
+  const out = [];
+  const seen = new Set();
+  let hasDefault = false;
+  for (const item of value) {
+    const r = item && typeof item === 'object' ? item : {};
+    const name = str(r.name, MAX_EXPRESSION_NAME);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+
+    const keywords = Array.isArray(r.keywords)
+      ? r.keywords
+          .map((k) => str(k, MAX_EXPRESSION_NAME))
+          .filter((k) => k && k !== name)
+          .filter((k, i, list) => list.indexOf(k) === i)
+          .slice(0, MAX_EXPRESSION_KEYWORDS)
+      : [];
+
+    // 情绪键只留字母数字下划线连字符 —— 它是给 <emo> 标签做精确比对的，
+    // 夹进空格或标点只会让比对永远落空。
+    const key = str(r.key, MAX_EXPRESSION_KEY).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+
+    // 默认脸只认第一条：后面再有标 true 的，当没标。整张卡只能有一个兜底，
+    // 多留几个的话「没命中时显示哪张」就变成看顺序了。
+    const isDefault = r.default === true && !hasDefault;
+    if (isDefault) hasDefault = true;
+
+    const raw = typeof r.image === 'string' && r.image.startsWith('data:image/') ? r.image : '';
+
+    out.push({
+      name,
+      keywords,
+      ...(key ? { key } : {}),
+      ...(isDefault ? { default: true } : {}),
+      image: raw.length <= MAX_AVATAR_CHARS ? raw : ''
+    });
+    if (out.length >= MAX_EXPRESSIONS) break;
+  }
+  return out;
+}
+
 /** 把任意来源的角色数据整理成内部统一格式，顺便挡住非法值 */
 function normalizeCharacter(raw, source) {
   const r = raw && typeof raw === 'object' ? raw : {};
@@ -99,6 +163,8 @@ function normalizeCharacter(raw, source) {
   // 角色形象（2:3 立绘），和头像分开存：头像是消息气泡 / 状态卡上那个小圆图，
   // 形象是角色库列表上那张竖版图、点开能看大图。
   const portrait = typeof r.portrait === 'string' && r.portrait.startsWith('data:image/') ? r.portrait : '';
+  // 表情图（多张，按回复正文里的关键词取用）。空数组就不落这个键。
+  const expressions = normalizeExpressions(r.expressions);
 
   return {
     id: typeof r.id === 'string' && r.id ? r.id : newCharacterId(),
@@ -109,6 +175,7 @@ function normalizeCharacter(raw, source) {
     //    characterPortrait）；「键在、值是空串」= 用户明确不要形象。
     //    写成 portrait: '' 会把老卡全变成「没有形象」，列表就只剩首字色块了。
     ...(typeof r.portrait === 'string' ? { portrait: portrait.length <= MAX_AVATAR_CHARS ? portrait : '' } : {}),
+    ...(expressions.length ? { expressions } : {}),
     description: str(r.description, 20000),
     personality: str(r.personality, 10000),
     scenario: str(r.scenario, 10000),
@@ -147,10 +214,12 @@ function normalizeCharacter(raw, source) {
 module.exports = {
   normalizeCharacter,
   normalizeAttributes,
+  normalizeExpressions,
   normalizeOptionsSpec,
   normalizeGender,
   normalizeWorldbookIds,
   newCharacterId,
   MAX_AVATAR_CHARS,
-  MAX_CHARACTER_WORLDBOOKS
+  MAX_CHARACTER_WORLDBOOKS,
+  MAX_EXPRESSIONS
 };

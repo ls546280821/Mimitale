@@ -40,6 +40,65 @@ function ratio(aspect) {
 }
 
 /**
+ * 不弹界面，直接把一张图按比例**从顶部对齐**裁好、缩到 outWidth、转成 dataURL。
+ * 给「批量导入表情图」用 —— 二十几张逐个开裁剪浮层点确定，没人受得了。
+ *
+ * 为什么顶部对齐：差分素材都是「头顶对齐」的立绘，从上往下裁才不会把脸切掉
+ * （和状态卡 .sc-photo 的 object-position: center top 是同一套对齐）。
+ *
+ * @param {string} dataUrl 原图
+ * @param {object} options
+ * @param {number} [options.aspect]   宽高比（1 = 正方形）
+ * @param {number} [options.outWidth] 输出宽度（高度按 aspect 算）
+ * @returns {Promise<string>} 裁好的 dataURL（解不开时 reject）
+ */
+export function cropTopToDataUrl(dataUrl, options) {
+  const opts = options || {};
+  const outWidth = Math.max(16, Math.round(Number(opts.outWidth) || 512));
+  const [rw, rh] = ratio(Number(opts.aspect) || 1);
+  const target = rw / rh;
+
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      const srcW = Math.max(1, image.naturalWidth);
+      const srcH = Math.max(1, image.naturalHeight);
+
+      // 在原图里取一块比例正确的最大矩形：先按宽度铺满，算出来太高就反过来按高度定
+      let cw = srcW;
+      let ch = Math.round(cw / target);
+      if (ch > srcH) {
+        ch = srcH;
+        cw = Math.round(ch * target);
+      }
+      const ox = Math.round((srcW - cw) / 2);
+      const oy = 0; // 顶部对齐，脸留在框里
+
+      // 输出高度**从宽度按整数比算**，不借道裁剪框的取整结果（比例会歪）
+      const w = Math.max(1, Math.min(outWidth, cw));
+      const h = Math.max(1, Math.round((w * rh) / rw));
+
+      const out = document.createElement('canvas');
+      out.width = w;
+      out.height = h;
+      const ctx = out.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(image, ox, oy, cw, ch, 0, 0, w, h);
+
+      let url = out.toDataURL('image/webp', 0.85);
+      if (url.startsWith('data:image/')) return resolve(url);
+
+      // 浏览器不支持编码 webp，给了张 PNG 回来，那就用它
+      url = out.toDataURL('image/png');
+      resolve(url.startsWith('data:image/') ? url : dataUrl);
+    };
+    image.onerror = () => reject(new Error('这张图解不开'));
+    image.src = dataUrl;
+  });
+}
+
+/**
  * 打开裁剪浮层。
  *
  * @param {object} options

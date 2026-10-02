@@ -8,6 +8,7 @@
 //    · 角色卡 id  —— 某个角色（单角色聊天 / 世界书里的本书角色）
 //
 //  点入口条（views/panelUi.js）上的头像打开、或点消息区「我」的头像。
+//  展开的卡：标题下面铺一张角色图（表情图优先，见 data/expressions.js），再往下是字段。
 //  卡片默认只读（纯文本展示），点「编辑」才切成输入框。
 //  写入复用 data/panel.js 的 setPanelField / appendPanelFields，与游戏内改值走同一条落盘路径。
 //
@@ -43,15 +44,17 @@ import {
   appendPanelFields
 } from '../data/panel.js';
 import { panelEntities } from '../data/cast.js';
+import { stateCardPhoto } from '../data/expressions.js';
 import { persistConversations } from '../data/persist.js';
 import { onRefresh, refreshAll } from './refresh.js';
 
 // 卡片尺寸常量。**定位和「并排铺开」都按这几个数算**，改宽度要一起改。
-const CARD_W = 250;
+// 320 而不是更窄：卡上要铺一张角色图，太窄的话图和右侧的字段列都挤。
+const CARD_W = 320;
 const CARD_GAP = 12;
 const EDGE = 20;      // 离对话列左右边缘至少留这么多
 const TOP = 130;      // 第一排的 y：正好落在入口条下面，不压住标题
-const ROW_STEP = 190; // 换行时往下错这么多（不是整屏 —— 上一排还露着一点）
+const ROW_STEP = 320; // 换行时往下错这么多（不是整屏 —— 上一排还露着一点）
 
 // owner -> { open, editing, x, y, z, slot, moved }。开合 / 位置是「此刻怎么摆」，
 // 挂在模块里，不落盘（重开应用回到自动排布的落点）。
@@ -61,8 +64,17 @@ let cardsConvoId = null;
 // 拖动 / 点击时把卡片提到最前
 let topZ = 1;
 
-function entityFor(convo, owner) {
-  return panelEntities(convo).find((e) => e.owner === owner) || null;
+/**
+ * 这张卡头上该铺哪张图。
+ *
+ * 有表情表就按最近几条助手回复挑一张（见 data/expressions.js）；挑不到就铺角色形象。
+ * `allowLoose` 只在**场上就他一个角色**时开：正文里常直接写「她脸红了」不带名字，
+ * 这时候还要求名字挨着触发词就什么都匹配不上；人多了就必须点名，免得一句话点亮好几张。
+ */
+function cardPhoto(convo, entity, charCount) {
+  if (!entity || !entity.card) return { src: '', label: '' };
+  const allowLoose = entity.kind === 'character' && charCount <= 1;
+  return stateCardPhoto(convo, entity.card, entity.name, allowLoose);
 }
 
 /** 某个人拥有的字段（按面板里的先后顺序）。返回的是复合键。 */
@@ -376,9 +388,9 @@ function wireDrag(card, head, state) {
 //  画卡片
 // ---------------------------------------------------------------------------
 
-function buildCard(convo, owner, state) {
-  const entity = entityFor(convo, owner);
-  const name = (entity && entity.name) || owner;
+function buildCard(convo, entity, state, charCount) {
+  const owner = entity.owner;
+  const name = entity.name || owner;
 
   const card = h('div', { class: `state-card${state.open ? ' open' : ''}` });
   card.dataset.owner = owner;
@@ -395,7 +407,7 @@ function buildCard(convo, owner, state) {
   }
 
   // 头部的按钮随开合变：收起时只给「展开」，展开后才出现「编辑」和「收起」。
-  // 一共就三枚，收起态两枚 —— 浮卡只有 250px 宽，再多就挤成一团了。
+  // 一共就三枚，收起态两枚 —— 浮卡宽度有限，再多名字就被挤成省略号了。
   const headBits = [
     avatar,
     h('span', { class: 'sc-title', text: name, title: name }),
@@ -429,9 +441,18 @@ function buildCard(convo, owner, state) {
   // 头部就是拖动把手
   wireDrag(card, head, state);
 
-  // 收起的卡只有标题行 —— 字段连 DOM 都不生成。这样「同时看几张」不会互相
+  // 收起的卡只有标题行 —— 图和字段连 DOM 都不生成。这样「同时看几张」不会互相
   // 顶位置，也顺带解决了「展开几张之后剩下的看不见」。
   if (!state.open) return card;
+
+  // 角色图：横铺在标题下面。表情命中时右下角挂个小标签写表情名，
+  // 让「为什么现在显示这张」一眼看得出来。
+  const photo = cardPhoto(convo, entity, charCount);
+  if (photo.src) {
+    const wrap = h('div', { class: 'sc-photo art-edge' }, h('img', { src: photo.src, alt: '' }));
+    if (photo.label) wrap.appendChild(h('span', { class: 'sc-photo-tag', text: photo.label }));
+    card.appendChild(wrap);
+  }
 
   const body = h('div', { class: 'sc-body' });
   const fields = ownerFields(convo, owner);
@@ -507,9 +528,13 @@ export function renderStateCards() {
   // 铺的顺序一律按 panelEntities(convo)：玩家永远第一个，后面按本局的出场顺序。
   // **不用 openCards 的插入顺序** —— 那样点了谁谁就跳到前面去，界面会显得在乱动。
   // （落在哪一格是 state.slot 决定的，跟这里的 DOM 顺序无关，两者互不影响。）
+  // 场上「有几个角色卡」。只有一个人的时候，表情匹配可以不要求正文里点名
+  // （见 cardPhoto / data/expressions.js 的 allowLoose）。
+  const charCount = entities.filter((e) => e.kind === 'character').length;
+
   for (const entity of entities) {
     const state = openCards.get(entity.owner);
-    if (state) host.appendChild(buildCard(convo, entity.owner, state));
+    if (state) host.appendChild(buildCard(convo, entity, state, charCount));
   }
   syncBatchButton();
 }

@@ -119,14 +119,14 @@ export function card({ title, sub, subTitle, avatar, avatarText, avatarClass, ac
         'button',
         {
           type: 'button',
-          class: ['char-card-avatar', 'clickable', avatarClass],
+          class: ['char-card-avatar', 'clickable', 'art-edge', avatarClass],
           title: mediaTitle || title,
           'aria-label': mediaTitle || title,
           onclick: onMediaClick
         },
         media
       )
-    : h('div', { class: ['char-card-avatar', avatarClass] }, media);
+    : h('div', { class: ['char-card-avatar', 'art-edge', avatarClass] }, media);
 
   return h(
     'div',

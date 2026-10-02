@@ -295,10 +295,28 @@ function seedForShots() {
       extra || {}
     );
 
+  // 出图用的占位插画（不写盘、只在 --shot-only 的种子数据里）
+  const shotArt = (w, h, hue, label) =>
+    'data:image/svg+xml;charset=utf-8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+        `<rect width="${w}" height="${h}" fill="hsl(${hue},72%,91%)"/>` +
+        `<circle cx="${w / 2}" cy="${h * 0.4}" r="${Math.round(h * 0.2)}" fill="hsl(${hue},55%,68%)"/>` +
+        `<text x="${w / 2}" y="${h - 16}" font-size="${Math.round(h * 0.08)}" text-anchor="middle" fill="hsl(${hue},50%,36%)">${label}</text>` +
+        `</svg>`
+    );
+
   store.characters = [
+    // 状态卡上要铺一张角色图，所以这张卡带形象 + 两张表情：
+    // 触发词挑假后端每轮回复里都有的那句话，出图时才稳定命中。
     card('c-shot-1', '属性测试角色', {
       description: '属性测试角色的设定文本',
       tags: ['测试分类', '治愈'],
+      portrait: shotArt(300, 450, 335, '角色形象'),
+      expressions: [
+        { name: '表情甲', keywords: ['这是加粗'], image: shotArt(640, 640, 210, '表情甲') },
+        { name: '表情乙', keywords: ['这是高亮'], image: shotArt(640, 640, 20, '表情乙') }
+      ],
       attributes: [
         { name: '金币', type: 'text', value: '100' },
         { name: '上衣', type: 'text', value: '布衣' },
@@ -594,6 +612,27 @@ function registerStubs() {
     );
   ipcMain.handle('images:pick', () => ({ canceled: false, dataUrl: PICK_IMAGE }));
 
+  // 批量导入表情图：六个「文件名里带情绪词」的假文件，读回同一张真图。
+  // 前三个用英文、后三个用中文 —— 渲染层认情绪的两种输入都要跑到。
+  // 最后一张「羞怯」是 shy 的中文别名，会和第一张撞同一个情绪键，用来验去重。
+  const BATCH_EXPR_FILES = [
+    { path: 'C:\\smoke\\lucia_a3_shy.png', name: 'Lucia_A3_shy_transparent.png' },
+    { path: 'C:\\smoke\\lucia_a2_smile.png', name: 'Lucia_A2_smile_transparent.png' },
+    { path: 'C:\\smoke\\lucia_a5_panicked.png', name: 'Lucia_A5_panicked_transparent.png' },
+    { path: 'C:\\smoke\\cn_4.png', name: '露西娅_惊讶_透明.png' },
+    { path: 'C:\\smoke\\cn_5.png', name: '露西娅_气愤_透明.png' },
+    { path: 'C:\\smoke\\cn_6.png', name: '露西娅_羞怯_透明.png' }
+  ];
+  ipcMain.handle('images:pick-many', (_event, options) => {
+    if (options && options.directory) return { canceled: false, files: BATCH_EXPR_FILES };
+    return { canceled: true, files: [] };
+  });
+  ipcMain.handle('images:read', (_event, filePath) => {
+    const hit = BATCH_EXPR_FILES.some((f) => f.path === filePath);
+    if (!hit) return { dataUrl: '', error: '不在本次选中的文件里' };
+    return { dataUrl: PICK_IMAGE, error: '' };
+  });
+
   // 生图：记下请求参数（要验它用的是「生图」那组配置，不是聊天模型），
   // 返回一张真的 1×1 PNG，让渲染层真实的「解码 → 压缩 → 存进会话」链路跑一遍
   ipcMain.handle('images:generate', (_event, payload) => {
@@ -875,8 +914,7 @@ function registerStubs() {
     // 测试要能容忍 —— 真模型就是会这么写。
     const askedForOptions = ((payload && payload.messages) || []).some((m) =>
       String((m && m.content) || '').includes('【剧情选项】')
-    );
-    if (askedForOptions) {
+    );    if (askedForOptions) {
       // 故意不带方括号（写成「剧情选项：」而不是「【剧情选项】：」）——
       // 指令是让模型带方括号的，但真模型经常漏，解析要两边都认。
       //
@@ -890,6 +928,17 @@ function registerStubs() {
       const bracketedOptionsLine = '【剧情选项】：我想先喝一杯，压压惊 / 我直接问他叫什么名字 / 我假装什么都没听见';
       CONTENT = `${CONTENT}\n\n【好感度】：63/100\n${optionsLine}\n${bracketedOptionsLine}`;
       pieces = [...pieces, '\n\n【好感度】：63/100\n', optionsLine, '\n', bracketedOptionsLine];
+    }
+
+    // 用户发「表情标签」时，回复末尾带一个 <emo> 标签。
+    // 顺带验「标签优先于关键词」：正文里同时有「这是加粗」（会命中「表情甲」），
+    // 标签说的是 shy，最终该以标签为准。按 role 过滤，别被提示词里的 <emo> 字样误触发。
+    const askedEmoTag = ((payload && payload.messages) || []).some(
+      (m) => m && m.role === 'user' && String(m.content || '').includes('表情标签')
+    );
+    if (askedEmoTag) {
+      CONTENT = `${CONTENT}\n<emo>shy</emo>`;
+      pieces = [...pieces, '\n<emo>shy</emo>'];
     }
 
     for (const piece of pieces) {
@@ -2769,7 +2818,8 @@ app.whenReady().then(async () => {
   // 结构和逻辑测试盖不住的「看着对不对」（间距、对齐、配色）得靠这个看，
   // 不用每次都临时加代码再删。
   // 用法：electron tools/smoke-test.js --no-sandbox --shot=settings
-  const shotArg = (process.argv.find((a) => a.startsWith('--shot')) || '').split('=')[1];
+  // 精确匹配 --shot=，别让 --shot-only 也命中（它没有 =，会被误当成截图场景）
+  const shotArg = (process.argv.find((a) => a.startsWith('--shot=')) || '').split('=')[1];
   // 再加 --shot-dark 就用夜间模式出图，文件名带 -dark 后缀。
   // 暗色主题是另一套变量，只验白天等于只验了一半 —— 「浅色底 + 浅色字」
   // 这类错误在白天截图里根本不会露头。
@@ -3393,6 +3443,72 @@ app.whenReady().then(async () => {
 
           const eb = $('#state-cards .state-card .sc-edit');
           if (eb) { eb.click(); await nap(360); }
+
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 状态卡上的角色图：标题下面横铺一张，右下角是命中的表情名小标签。
+        // 走的是**真实路径**（角色卡点「聊天」→ 真发一轮 → 点入口条头像），
+        // 种子卡的触发词写在假后端每轮回复都带的那句话上，所以必定命中表情甲。
+        stateExpr: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+
+          $('#btn-chars')?.click();
+          await nap(550);
+          const card = $$('#char-page-grid .char-card').find(c => {
+            const n = c.querySelector('.char-card-name');
+            return n && n.textContent.trim() === '属性测试角色';
+          });
+          const chat = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '聊天');
+          if (chat) { chat.click(); await nap(700); }
+
+          const input = $('#input');
+          if (input) {
+            input.value = '你好';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          $('#btn-send')?.click();
+          await nap(2400);
+
+          const av = $$('#panel-cast .panel-avatar').find(b => b.dataset.owner !== 'player');
+          if (av) { av.click(); await nap(450); }
+
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 角色编辑器里的「表情图」区：一行一条（缩略图 + 名称 + 触发词 + 删除）。
+        charExpr: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+
+          $('#btn-chars')?.click();
+          await nap(550);
+          const card = $$('#char-page-grid .char-card').find(c => {
+            const n = c.querySelector('.char-card-name');
+            return n && n.textContent.trim() === '属性测试角色';
+          });
+          const edit = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (edit) { edit.click(); await nap(700); }
+
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 图片区收起态：点「图片」标题把这块折起来，看收起后卡片贴着标题收口、
+        // 下面文字区顶上来（表单短一截）
+        charMediaCollapsed: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+
+          $('#btn-chars')?.click();
+          await nap(550);
+          const card = $$('#char-page-grid .char-card').find(c => {
+            const n = c.querySelector('.char-card-name');
+            return n && n.textContent.trim() === '属性测试角色';
+          });
+          const edit = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (edit) { edit.click(); await nap(700); }
+
+          // 点标题收起图片区（details 的原生行为）
+          const label = document.querySelector('.char-media-section > .char-section-label');
+          if (label) { label.click(); await nap(300); }
 
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 状态卡入口条：一行头像（我 / 各角色）。旧面板的收起态已经没有了，
