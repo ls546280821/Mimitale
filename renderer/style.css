@@ -31,6 +31,7 @@
   --accent: #d92968;
   --accent-hover: #e8558a;
   --accent-pressed: #b81f57;
+  --on-accent: #ffffff;      /* 强调色 / 渐变底上的字（白） */
   --accent-soft: rgba(217, 41, 104, 0.10);
   --accent-soft-strong: rgba(217, 41, 104, 0.16);
   --accent-line: rgba(217, 41, 104, 0.35);   /* 心理描写左边框 */
@@ -108,15 +109,11 @@
   --accent-border-faint: rgba(22, 112, 184, 0.25);
   --brand-grad: linear-gradient(135deg, #7cc4ff 0%, #4d8cff 100%);
   --brand-glow: 0 0 12px rgba(124, 196, 255, 0.7), 0 0 6px rgba(77, 140, 255, 0.55);
-  --danger: #d94a52;
+  /* --danger / --danger-hover / --danger-text / --ok-* 与 :root 相同，这里不重复声明 */
   --danger-bg: #f2f7fd;
-  --danger-hover: #b93a42;
-  --danger-text: #a0242c;
   --danger-border: #d5e3f2;
   --danger-bg-hover: #eaf2fb;
   --danger-border-hover: #bcd2e9;
-  --ok-text: #1a7d52;
-  --ok-border: #cbe9d9;
   --overlay: rgba(22, 34, 46, 0.28);
   --user-bubble: #d3e9ff;
   --pre-bg: #f1f7fe;
@@ -183,15 +180,11 @@
   --accent-border-faint: rgba(26, 125, 82, 0.25);
   --brand-grad: linear-gradient(135deg, #8fe0b4 0%, #4fbf8b 100%);
   --brand-glow: 0 0 12px rgba(143, 224, 180, 0.7), 0 0 6px rgba(79, 191, 139, 0.55);
-  --danger: #d94a52;
+  /* --danger / --danger-hover / --danger-text / --ok-* 与 :root 相同，这里不重复声明 */
   --danger-bg: #f1f8f4;
-  --danger-hover: #b93a42;
-  --danger-text: #a0242c;
   --danger-border: #d3e9dd;
   --danger-bg-hover: #e9f4ee;
   --danger-border-hover: #bcdcc9;
-  --ok-text: #1a7d52;
-  --ok-border: #cbe9d9;
   --overlay: rgba(23, 36, 29, 0.28);
   --user-bubble: #d6f0e2;    /* 自己消息气泡：奶绿 */
   --pre-bg: #f0f9f4;
@@ -433,7 +426,7 @@ body {
   display: grid;
   place-items: center;
   overflow: hidden;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 15px;
   font-weight: 600;
   line-height: 1;
@@ -540,7 +533,7 @@ body {
 /* 主按钮：一层主色底 + 淡阴影，不描边（描边正是「鼓」的来源之一） */
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: var(--shadow-sm);
 }
 .btn-primary:hover { background: var(--accent-hover); }
@@ -643,7 +636,7 @@ body {
   display: grid;
   place-items: center;
   overflow: hidden;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 17px;
   font-weight: 600;
   line-height: 1;
@@ -944,7 +937,7 @@ body {
    ⚠️ 这几条**不能**再写 background —— `.msg.user .msg-avatar` 是 (0,2,0)，
    比 `.g1`.g6` 这些单类 (0,1,0) 高一级，写了底色就会把渐变整个盖掉。 */
 .msg.user .msg-avatar,
-.msg.assistant .msg-avatar { color: #fff; }
+.msg.assistant .msg-avatar { color: var(--on-accent); }
 /* 出错的这条保持警示色（也是 (0,2,0)，能盖过渐变，是故意的） */
 .msg.error .msg-avatar { background: var(--danger-bg); color: var(--danger); }
 
@@ -1591,7 +1584,7 @@ body {
   border: none;
   border-radius: 50%;
   background: rgba(23, 37, 66, 0.62);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   line-height: 18px;
   cursor: pointer;
@@ -2148,7 +2141,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 30px;
   font-weight: 600;
   user-select: none;
@@ -2654,7 +2647,7 @@ body {
 .attr-tab.active {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   box-shadow: var(--shadow-sm);
 }
 
@@ -2675,7 +2668,7 @@ body {
 /* 选中标签里的数字要跟着反色，否则蓝底上压一块灰底，看着像没选中 */
 .attr-tab.active .attr-tab-count {
   background: rgba(255, 255, 255, 0.26);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* 「＋ 新建分组」：长得像一个标签，但它是个输入框。
@@ -3173,7 +3166,7 @@ body {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.45);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px;
   opacity: 0;
   transition: opacity 0.15s;
@@ -4227,7 +4220,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   padding: 0;
   border: 0;
   border-radius: 50%;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 14px;
   font-weight: 600;
   line-height: 1;
@@ -4323,7 +4316,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.55);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 11px;
   line-height: 1.6;
   overflow: hidden;
@@ -4339,7 +4332,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--on-accent);
   font-size: 13px;
   font-weight: 600;
   display: inline-flex;
@@ -4533,7 +4526,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 }
 
 /* 删除按钮平时不显示，悬停才出现，避免界面显得吵 */
-.panel-del:hover { color: var(--danger-text, #d9534f); background: var(--bg-input); }
+.panel-del:hover { color: var(--danger-text); background: var(--bg-input); }
 
 /* ------------------------------ 视角设置弹窗 ------------------------------ */
 
@@ -4644,7 +4637,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   padding: 0 4px;
   border-radius: 999px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 10.5px;
   line-height: 15px;
   text-align: center;
@@ -4790,7 +4783,7 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   border-radius: 5px;
 }
 
-.cwb-row-del:hover { color: var(--danger-text, #d9534f); background: var(--bg-input); }
+.cwb-row-del:hover { color: var(--danger-text); background: var(--bg-input); }
 
 /* 选择世界书的浮层 */
 .cwb-picker {

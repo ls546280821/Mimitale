@@ -445,11 +445,6 @@ function fillEntryForm(entry) {
   showEntryForm(true);
 }
 
-/** 当前正在编辑哪一本（给别的视图判「生成结果该落进哪本书」用） */
-export function currentWorldbookId() {
-  return editingWorldbookId;
-}
-
 /**
  * 把编辑焦点安全地切到某一本。
  *

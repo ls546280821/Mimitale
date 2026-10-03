@@ -363,14 +363,13 @@ async function autoContinueTruncated(convo, index, endpoint, worldbookSection, r
   const out = { rounds: 0, reasoningTokens: 0 };
   if ((state.settings || {}).autoContinue === false) return out;
 
-  const lastMsg = () => convo.messages[convo.messages.length - 1];
   let tip = null;
 
-  while (
-    out.rounds < MAX_AUTO_CONTINUE &&
-    lastMsg().finishReason === 'length' &&
-    String(lastMsg().content || '').trim()
-  ) {
+  while (out.rounds < MAX_AUTO_CONTINUE) {
+    const lastMsg = convo.messages[convo.messages.length - 1];
+    if (!lastMsg || lastMsg.finishReason !== 'length' || !String(lastMsg.content || '').trim()) {
+      break;
+    }
     out.rounds += 1;
 
     // 第一轮流式跑起来之后，「正在思考」那行早被正文顶掉了 —— 这里补一条明确的

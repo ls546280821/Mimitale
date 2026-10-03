@@ -346,8 +346,6 @@ export function openImageCrop({ dataUrl, aspect = 1, outWidth = 512, title = '�
       draw();
       syncZoomInput();
       view.focus?.();
-
-      return new Promise(() => {}); // 结果由 shut() 直接 resolve 外层
     }
   });
 }

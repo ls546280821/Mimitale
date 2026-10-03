@@ -18,6 +18,11 @@ export function activeConvo() {
   return state.conversations.find((c) => c.id === state.activeId) || null;
 }
 
+/** 读出的数据不一定是数组（老数据 / 手改过 JSON），统一兜成空数组 */
+export function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 /** 文件名里不能出现的字符（Windows 最严），换成下划线 */
 export function safeFileName(name) {
   const base = String(name || '').trim().replace(/[\\/:*?"<>|]/g, '_');

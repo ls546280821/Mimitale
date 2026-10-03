@@ -20,6 +20,7 @@
 
 import { CONFIG } from '../core/config.js';
 import { state } from '../core/state.js';
+import { asArray } from '../core/util.js';
 import {
   characterForConvo,
   effectiveDialoguePresets,
@@ -36,7 +37,6 @@ import {
 } from './narration.js';
 import { optionsInstruction } from './suggestions.js';
 import { convoPlayer, convoUserName, userName, worldbookCast, playerProfileForPrompt, panelEntities } from './cast.js';
-import { providerById, isBridgeProvider } from './providers.js';
 
 /**
  * 替换角色卡里的占位符。
@@ -128,7 +128,7 @@ function parseExampleDialogue(text, charName, me) {
 
 /** 这条消息带的图（用户发的 + AI 生成的都存这儿） */
 export function messageImages(message) {
-  return Array.isArray(message.images) ? message.images.filter((s) => typeof s === 'string' && s) : [];
+  return asArray(message.images).filter((s) => typeof s === 'string' && s);
 }
 
 /**
@@ -154,13 +154,6 @@ export function characterContextForConvo(convo) {
   return parts.join('\n');
 }
 
-/** 当前会话实际用的服务商是不是本机桥接（只读判断，不改会话） */
-export function convoIsBridge(convo) {
-  const provider =
-    providerById(convo.providerId) || providerById((state.settings || {}).activeProviderId);
-  return isBridgeProvider(provider);
-}
-
 /**
  * 预设（叠在对话上的一层指令）拼成的注入段。
  *
@@ -179,7 +172,7 @@ export function dialoguePresetSection(convo, recentMessages) {
 
   // 命中判定只看「最近这几条」的正文；和世界书的扫描深度保持同一个量级。
   // 多条预设共用同一份扫描文本，不必每条各扫一遍。
-  const haystack = (Array.isArray(recentMessages) ? recentMessages : [])
+  const haystack = asArray(recentMessages)
     .slice(-WORLDBOOK_SCAN_DEPTH)
     .map((m) => String((m && m.content) || ''))
     .join('\n')
@@ -191,12 +184,12 @@ export function dialoguePresetSection(convo, recentMessages) {
     // 正文（顶层 content）：常驻
     if (String(preset.content || '').trim()) blocks.push(String(preset.content).trim());
 
-    const entries = Array.isArray(preset.entries) ? preset.entries : [];
+    const entries = asArray(preset.entries);
     for (const entry of entries) {
       if (entry.enabled === false) continue;
       const text = String(entry.content || '').trim();
       if (!text) continue;
-      const keys = Array.isArray(entry.keys) ? entry.keys : [];
+      const keys = asArray(entry.keys);
       // 没关键词就是常驻（normalizePresetEntry 已把这种情况标成 constant）
       if (!keys.length || entry.constant === true) {
         blocks.push(text);
@@ -440,7 +433,7 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
 function expressionInstruction(convo) {
   const rows = [];
   for (const entity of panelEntities(convo)) {
-    const all = entity.card && Array.isArray(entity.card.expressions) ? entity.card.expressions : [];
+    const all = asArray(entity.card && entity.card.expressions);
     const list = all.filter((e) => e && e.key && e.image);
     if (!list.length) continue;
     rows.push(`- ${entity.name}：${list.map((e) => `${e.key}（${e.name}）`).join('、')}`);

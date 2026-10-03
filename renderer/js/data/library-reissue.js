@@ -17,6 +17,8 @@
 //  冒烟测试根本走不到（characters:import 在测试里是个桩）。
 // ============================================================================
 
+import { asArray } from '../core/util.js';
+
 /**
  * 给一批导入结果重新发 id，并改写角色 → 世界书的指向。
  *
@@ -26,8 +28,8 @@
  * @returns {{ books: object[], chars: object[] }}
  */
 export function reissueImportedIds(books, chars, stamp) {
-  const list = Array.isArray(books) ? books : [];
-  const list2 = Array.isArray(chars) ? chars : [];
+  const list = asArray(books);
+  const list2 = asArray(chars);
   const prefix = String(stamp || '');
 
   // 旧 id → 新 id。角色的 worldbookIds 靠这张表改写。

@@ -18,6 +18,7 @@
 // ============================================================================
 
 import { OPTIONS_LABEL, OPTIONS_LINE_RE } from './panel.js';
+import { asArray } from '../core/util.js';
 
 // --- 帮我想想 ---
 
@@ -82,6 +83,11 @@ function convoOptionsSpec(convo) {
   return { count, hint: String(spec.hint || '').trim().slice(0, 200) };
 }
 
+/** 会话当前的剧情选项列表（容错：老会话可能没有这个字段） */
+function convoOptions(convo) {
+  return asArray(convo && convo.options);
+}
+
 // 孤立的拉丁字母片段（模型把格式示例里的「A / B / C」当成标签抄出来了）。
 // 单独一个字母当选项毫无意义（界面上也不显示编号），直接丢掉；
 // 只丢**单个**字母，「OK」「B超」这种多字组合不受影响。
@@ -137,7 +143,7 @@ export function rerollOptionsInstruction(convo) {
   const spec = convoOptionsSpec(convo);
   const count = spec ? spec.count : 3;
 
-  const previous = (Array.isArray(convo.options) ? convo.options : []).filter(Boolean);
+  const previous = convoOptions(convo).filter(Boolean);
   const avoid = previous.length
     ? `上一批选项是：${previous.map((t) => `「${t}」`).join('、')}。换一批时请避开这些（或至少别原样照搬），给几个明显不一样的做法。\n`
     : '';
@@ -174,7 +180,7 @@ export function optionsInstruction(convo) {
   if (spec.hint) lines.push(`额外要求：${spec.hint}`);
 
   // 显式要求避开上一批，否则模型会「原地打转」给出同一批选项。
-  const previous = (Array.isArray(convo.options) ? convo.options : []).filter(Boolean);
+  const previous = convoOptions(convo).filter(Boolean);
   if (previous.length) {
     lines.push(
       `上一轮已经给过：${previous.map((t) => `「${t}」`).join('、')}。` +
@@ -205,7 +211,7 @@ export function syncConvoOptions(convo) {
   if (!convo || !Array.isArray(convo.messages)) return false;
 
   const before = JSON.stringify(convo.options || []);
-  const previous = Array.isArray(convo.options) ? convo.options : [];
+  const previous = convoOptions(convo);
   let found = previous;
 
   if (convoOptionsSpec(convo)) {

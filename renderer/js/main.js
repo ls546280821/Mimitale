@@ -39,7 +39,7 @@
 import { api } from './core/api.js';
 import { state } from './core/state.js';
 import { el } from './core/dom.js';
-import { activeConvo } from './core/util.js';
+import { activeConvo, asArray } from './core/util.js';
 
 import { showToast } from './ui/toast.js';
 import { applyTheme, toggleTheme, applyAccent, toggleAccent } from './ui/theme.js';
@@ -273,7 +273,7 @@ function bindEvents() {
     // 否则会跟「想输入数字」打架。选项按钮上印着对应序号，一眼对上。
     if (event.key >= '1' && event.key <= '9' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
       const convo = activeConvo();
-      const options = convo && Array.isArray(convo.options) ? convo.options : [];
+      const options = asArray(convo && convo.options);
       const idx = Number(event.key) - 1;
       if (!el.input.value.trim() && options[idx] && !state.streaming) {
         event.preventDefault();
@@ -543,7 +543,7 @@ async function init() {
 
   const config = await api.getSettings();
   state.settings = config.settings;
-  state.presets = Array.isArray(config.presets) ? config.presets : [];
+  state.presets = asArray(config.presets);
   setEditingProvider(state.settings.activeProviderId);
 
   // 主题以设置里的值为准（preload 已经按启动参数先打过一次，这里只是对齐）
@@ -553,13 +553,13 @@ async function init() {
   applyChatAppearance();
 
   const storedChars = await api.getCharacters();
-  state.characters = Array.isArray(storedChars && storedChars.characters) ? storedChars.characters : [];
+  state.characters = asArray(storedChars && storedChars.characters);
 
   // 世界书读不到不该拦住启动，但**必须记住没读到** ——
   // 否则之后随便存一次角色，就会把 worldbooks.json 覆盖成空文件。
   try {
     const storedBooks = await api.getWorldbooks();
-    state.worldbooks = Array.isArray(storedBooks && storedBooks.worldbooks) ? storedBooks.worldbooks : [];
+    state.worldbooks = asArray(storedBooks && storedBooks.worldbooks);
     markWorldbooksLoaded();
   } catch (err) {
     console.error('读取世界书失败', err);
@@ -569,7 +569,7 @@ async function init() {
   // 预设同理：读失败要记住，否则之后存一次预设就把文件写空了
   try {
     const storedPresets = await api.getPresets();
-    state.dialoguePresets = Array.isArray(storedPresets && storedPresets.presets) ? storedPresets.presets : [];
+    state.dialoguePresets = asArray(storedPresets && storedPresets.presets);
     markPresetsLoaded();
   } catch (err) {
     console.error('读取预设失败', err);
@@ -577,7 +577,7 @@ async function init() {
   }
 
   const stored = await api.getConversations();
-  state.conversations = Array.isArray(stored.conversations) ? stored.conversations : [];
+  state.conversations = asArray(stored.conversations);
   state.activeId = stored.activeId || null;
 
   // 读盘进来的字段定义不可信（手改过 JSON、老版本写的），过一遍归一化。

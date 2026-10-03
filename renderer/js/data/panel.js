@@ -25,7 +25,7 @@
 //  选项已经变成可点的按钮，原文留在气泡里只会吵）。
 // ============================================================================
 
-import { now } from '../core/util.js';
+import { now, asArray } from '../core/util.js';
 import {
   clampFieldValue,
   normalizePanelField,
@@ -478,7 +478,7 @@ export function cutTrailingStatusBlock(text) {
 }
 
 export function convoPanelFields(convo) {
-  return convo && Array.isArray(convo.panelFields) ? convo.panelFields : [];
+  return asArray(convo && convo.panelFields);
 }
 
 export function convoPanel(convo) {
@@ -1259,7 +1259,7 @@ export function syncPlayerNameFromPanel(convo) {
 export function migrateConvoPanel(convo) {
   if (!convo || typeof convo !== 'object') return;
 
-  const fields = Array.isArray(convo.panelFields) ? convo.panelFields : [];
+  const fields = asArray(convo.panelFields);
   const panel = convo.panel && typeof convo.panel === 'object' ? convo.panel : {};
   const defs = convo.panelDefs && typeof convo.panelDefs === 'object' ? convo.panelDefs : {};
 
@@ -1313,7 +1313,7 @@ export function syncCopyAttrsFromSource(copies, sources) {
   if (!Array.isArray(copies) || !copies.length) return empties;
 
   const byName = new Map();
-  for (const s of Array.isArray(sources) ? sources : []) {
+  for (const s of asArray(sources)) {
     const n = String((s && s.name) || '').trim();
     if (n && !byName.has(n)) byName.set(n, s);
   }

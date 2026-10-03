@@ -9,13 +9,13 @@
 // ---------------------------------------------------------------------------
 
 import { state } from '../core/state.js';
-import { uid } from '../core/util.js';
+import { uid, asArray } from '../core/util.js';
 import { normalizePanelFields } from '../core/panel-fields.js';
 
 // --- 角色库 ---
 
 export function characters() {
-  return Array.isArray(state.characters) ? state.characters : [];
+  return asArray(state.characters);
 }
 
 export function characterById(id) {
@@ -66,7 +66,7 @@ export function characterPortrait(character) {
 // --- 世界书 ---
 
 export function worldbooks() {
-  return Array.isArray(state.worldbooks) ? state.worldbooks : [];
+  return asArray(state.worldbooks);
 }
 
 export function worldbookById(id) {
@@ -79,7 +79,7 @@ export function worldbookById(id) {
  * 和角色库里的那个角色互相独立 —— 改这边不影响那边，反之亦然。
  */
 export function worldbookCharacters(book) {
-  return book && Array.isArray(book.characters) ? book.characters : [];
+  return asArray(book && book.characters);
 }
 
 /**
@@ -93,7 +93,7 @@ export function newWorldbookCharId() {
 
 /** 会话绑定了哪些世界书（id 列表，容错老数据） */
 export function convoWorldbookIds(convo) {
-  return convo && Array.isArray(convo.worldbookIds) ? convo.worldbookIds : [];
+  return asArray(convo && convo.worldbookIds);
 }
 
 // --- 预设 ---
@@ -105,7 +105,7 @@ export function convoWorldbookIds(convo) {
  * （DeepSeek / OpenAI / Kimi…），完全是另一回事。
  */
 export function dialoguePresets() {
-  return Array.isArray(state.dialoguePresets) ? state.dialoguePresets : [];
+  return asArray(state.dialoguePresets);
 }
 
 export function dialoguePresetById(id) {
@@ -176,8 +176,8 @@ export function worldbookPayload(book) {
     entries[String(index)] = {
       uid: index,
       comment: entry.title || '',
-      key: Array.isArray(entry.keys) ? entry.keys : [],
-      keysecondary: Array.isArray(entry.secondaryKeys) ? entry.secondaryKeys : [],
+      key: asArray(entry.keys),
+      keysecondary: asArray(entry.secondaryKeys),
       content: entry.content || '',
       constant: entry.constant === true,
       selective: Array.isArray(entry.secondaryKeys) && entry.secondaryKeys.length > 0,

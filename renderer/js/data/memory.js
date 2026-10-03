@@ -15,7 +15,7 @@
 // ============================================================================
 
 import { api } from '../core/api.js';
-import { uid } from '../core/util.js';
+import { uid, asArray } from '../core/util.js';
 import { stripPanelLines } from './panel.js';
 import { ensureConvoEndpoint } from './providers.js';
 import { characterForConvo } from './library.js';
@@ -43,7 +43,7 @@ export function convoContextMessages(convo) {
 }
 
 export function convoSummaries(convo) {
-  return convo && Array.isArray(convo.summaries) ? convo.summaries : [];
+  return asArray(convo && convo.summaries);
 }
 
 /** 摘要覆盖到了第几条（未压缩的历史从这里开始） */

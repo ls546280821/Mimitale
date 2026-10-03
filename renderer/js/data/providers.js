@@ -11,11 +11,11 @@
 // ============================================================================
 
 import { state } from '../core/state.js';
-import { activeConvo } from '../core/util.js';
+import { activeConvo, asArray } from '../core/util.js';
 
 export function providers() {
   const s = state.settings || {};
-  return Array.isArray(s.providers) ? s.providers : [];
+  return asArray(s.providers);
 }
 
 export function providerById(id) {

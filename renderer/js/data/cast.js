@@ -15,6 +15,7 @@
 
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
+import { asArray } from '../core/util.js';
 import {
   characterForConvo,
   characterById,
@@ -52,7 +53,7 @@ export function effectiveWorldbookIds(convo) {
   if (!character) return [];
   if (character.worldbookEnabled === false) return [];
 
-  return Array.isArray(character.worldbookIds) ? character.worldbookIds : [];
+  return asArray(character.worldbookIds);
 }
 
 /**

@@ -28,5 +28,4 @@ export const normalizePanelFields = panelFieldsApi.normalizePanelFields;
 export const groupPanelFields = panelFieldsApi.groupPanelFields;
 export const fieldProgress = panelFieldsApi.fieldProgress;
 export const describePanelField = panelFieldsApi.describePanelField;
-export const parseNumericValue = panelFieldsApi.parseNumericValue;
 export const trimNumber = panelFieldsApi.trimNumber;

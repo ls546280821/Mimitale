@@ -231,26 +231,24 @@ async function savePreset() {
       updatedAt: now()
     });
   } else {
-    state.dialoguePresets = [
-      ...dialoguePresets(),
-      {
-        id: `pr${uid()}`,
-        name: draft.name,
-        note: draft.note,
-        tags: draft.tags,
-        content: draft.content,
-        entries: [],
-        enabled: draft.enabled,
-        global: draft.global,
-        temperature: draft.temperature,
-        maxTokens: draft.maxTokens,
-        topP: draft.topP,
-        createdAt: now(),
-        updatedAt: now()
-      }
-    ];
+    const created = {
+      id: `pr${uid()}`,
+      name: draft.name,
+      note: draft.note,
+      tags: draft.tags,
+      content: draft.content,
+      entries: [],
+      enabled: draft.enabled,
+      global: draft.global,
+      temperature: draft.temperature,
+      maxTokens: draft.maxTokens,
+      topP: draft.topP,
+      createdAt: now(),
+      updatedAt: now()
+    };
+    state.dialoguePresets = [...dialoguePresets(), created];
     // 新建的要记住 id，否则第二次点保存会再建一个
-    draft.id = state.dialoguePresets[state.dialoguePresets.length - 1].id;
+    draft.id = created.id;
   }
 
   const ok = await persistPresets();

@@ -21,6 +21,7 @@
 // ============================================================================
 
 import { characterPortrait } from './library.js';
+import { asArray } from '../core/util.js';
 
 // 和 main/characters.js 的 MAX_EXPRESSIONS 同步（那边是落盘的守卫，这边给界面用）
 export const MAX_EXPRESSIONS = 30;
@@ -45,7 +46,7 @@ export function stripEmoTags(text) {
 
 /** 一张卡上的表情表（老卡没有这个字段 → 空表） */
 export function characterExpressions(character) {
-  return character && Array.isArray(character.expressions) ? character.expressions : [];
+  return asArray(character && character.expressions);
 }
 
 /** 一张卡上标了「默认脸」的那条（没标 → null） */
@@ -59,7 +60,7 @@ export function defaultExpression(character) {
 /** 一条表情的全部触发词：表情名本身 + 额外写的词 */
 export function expressionTriggers(expression) {
   const name = String((expression && expression.name) || '').trim();
-  const extra = Array.isArray(expression && expression.keywords) ? expression.keywords : [];
+  const extra = asArray(expression && expression.keywords);
   const out = [];
   for (const raw of [name, ...extra]) {
     const word = String(raw || '').trim();
@@ -82,7 +83,7 @@ export function matchExpression(convo, character, characterName, allowLoose) {
   const entries = characterExpressions(character);
   if (!convo || !entries.length) return null;
 
-  const messages = Array.isArray(convo.messages) ? convo.messages : [];
+  const messages = asArray(convo.messages);
   const name = String(characterName || '').trim();
   const loose = allowLoose === true;
 
