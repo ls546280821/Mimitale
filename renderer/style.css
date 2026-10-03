@@ -1681,6 +1681,10 @@ body {
 #chars-modal { z-index: 60; }
 /* 角色编辑器字段多，比别的弹窗宽一档，内容才不显得挤 */
 #chars-modal .modal-card { max-width: 820px; }
+/* 表情图弹窗是从角色编辑器里点出来的，跟 AI 生成同一档：
+   压在角色编辑器（60）之上、确认框（70）之下。缺了这条会退回 .modal 的 50，
+   弹窗就被角色编辑器整个盖住。 */
+#expr-modal { z-index: 65; }
 #confirm-modal { z-index: 70; }
 
 /* ------------------------------ AI 生成角色 ------------------------------ */
@@ -3015,55 +3019,24 @@ body {
 .attr-paste-foot .field-help { margin: 0; }
 .attr-paste-foot .btn { flex: 0 0 auto; }
 
-/* 图片区：头像 / 形象 / 表情图收在一张浅色卡片里，和下面的文字字段分开。
-   带边框是为了在长表单里一眼看出「这里是图、下面是字」的边界。
-   整块是 <details>：点标题收起/展开，表单长的时候能先腾出空间写文字。 */
-.char-media-section {
-  margin: 0 0 18px;
-  padding: 12px 14px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 10px;
-  background: var(--bg-side);
+/* 图片区：头像 / 形象 + 表情图入口，放在表单最顶上，和下面的文字字段同级。
+   不再是一张折叠卡 —— 要的是「一眼就看到」，不是收起来。 */
+.char-media-top {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 18px;
 }
 
-/* 收起时下面没内容了，底部那圈 padding 也收掉，卡片贴着标题收口 */
-.char-media-section:not([open]) { padding-bottom: 12px; }
-
-/* 区块标题（同时是折叠开关）：字形和 field-label 一致，但作为整区的领头压粗一点；
-   点一下收/展，箭头指示当前状态。收起时和展开时的下边距分开算。 */
-.char-section-label {
+/* 头像 / 形象下面那行「表情图 · 已设 N 条 · 管理」 */
+.char-expr-entry {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  line-height: 1.4;
-  cursor: pointer;
-  user-select: none;
-  list-style: none;
+  gap: 10px;
 }
 
-.char-section-label::-webkit-details-marker { display: none; }
-
-/* 折叠箭头：收起 ▸ / 展开 ▾ —— 和「高级选项」那批同一套写法 */
-.char-section-label::before {
-  content: "▸";
-  color: var(--text-faint);
-  font-weight: 400;
-}
-
-.char-media-section[open] > .char-section-label::before { content: "▾"; }
-
-/* 展开时标题下面才需要留出到内容的间距；收起时标题就是全部内容 */
-.char-media-section[open] > .char-section-label { margin-bottom: 12px; }
-
-.char-section-label > .field-icon {
-  width: 15px;
-  height: 15px;
-  color: var(--accent);
-  flex: none;
-}
+.char-expr-entry .field-label { flex: 0 0 auto; padding-top: 0; }
+.char-expr-entry .field-help { flex: 1 1 auto; min-width: 0; }
+.char-expr-entry .btn-sm { flex: 0 0 auto; padding: 4px 10px; font-size: 11px; }
 
 /* 文字区：角色名 / 标签 / 长文本 / 属性，纯文本，不需要额外框线 */
 .char-text-section { display: flex; flex-direction: column; }
@@ -3196,9 +3169,12 @@ body {
 /* 有图时才显示「清除」 */
 .char-avatar-col .btn-sm { padding: 4px 10px; font-size: 11px; }
 
-/* ------------------------------ 表情图 ------------------------------ */
+/* ------------------------------ 表情图弹窗 ------------------------------ */
 
-.char-expr { margin-top: 4px; }
+.expr-card { max-width: 640px; }
+
+/* 头一行（计数 + 批量导入 + 添加）的间距比默认紧一点；滚动交给 .modal-body */
+.expr-body { gap: 10px; }
 
 .char-expr-head {
   display: flex;

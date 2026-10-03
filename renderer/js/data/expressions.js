@@ -24,7 +24,7 @@ import { characterPortrait } from './library.js';
 import { asArray } from '../core/util.js';
 
 // 和 main/characters.js 的 MAX_EXPRESSIONS 同步（那边是落盘的守卫，这边给界面用）
-export const MAX_EXPRESSIONS = 30;
+export const MAX_EXPRESSIONS = 60;
 
 // 往回看几条助手消息。太深的话会把很久以前的表情翻出来。
 const MAX_SCAN_MESSAGES = 6;

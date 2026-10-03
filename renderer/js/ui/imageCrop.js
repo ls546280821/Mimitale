@@ -12,9 +12,14 @@
 //
 //  只用 canvas 标准 API，零依赖。返回 Promise<string|null>：
 //  确定得到 dataURL，取消（按钮 / Esc / 点空白）得 null。
+//
+//  还导出一个「选完再裁」的顺手封装 pickAndCrop —— 角色头像 / 形象、表情图
+//  三个地方都要「弹文件框 → 裁剪 → 拿 dataURL」，走同一份实现。
 // ============================================================================
 
 import { h } from './build.js';
+import { api } from '../core/api.js';
+import { showToast } from './toast.js';
 
 // 视口宽度上限；实际会再按窗口高度收一档，保证高窗口里也放得下
 const VIEW_MAX_W = 340;
@@ -348,4 +353,26 @@ export function openImageCrop({ dataUrl, aspect = 1, outWidth = 512, title = '�
       view.focus?.();
     }
   });
+}
+
+/**
+ * 选一张本地图 → 裁剪 → 返回最终 dataURL；取消或出错返回 null。
+ *
+ * 三个调用方（头像 / 形象 / 表情图）的差别只有比例和文案，流程完全一样，
+ * 所以收在这里。出错已经弹过 toast 了，调用方拿到 null 直接 return 即可。
+ */
+export async function pickAndCrop({ aspect, outWidth, title, hint, pickTitle }) {
+  let result;
+  try {
+    result = await api.pickImage({ title: pickTitle });
+  } catch (err) {
+    showToast((err && err.message) || '选择图片失败', 'error');
+    return null;
+  }
+  if (!result || result.canceled) return null;
+  if (!result.dataUrl) {
+    showToast(result.error || '这张图片用不了', 'error');
+    return null;
+  }
+  return openImageCrop({ dataUrl: result.dataUrl, aspect, outWidth, title, hint });
 }

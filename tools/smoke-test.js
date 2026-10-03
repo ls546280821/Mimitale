@@ -3471,7 +3471,7 @@ app.whenReady().then(async () => {
           if (av) { av.click(); await nap(450); }
 
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
-        // 角色编辑器里的「表情图」区：一行一条（缩略图 + 名称 + 触发词 + 删除）。
+        // 角色编辑器顶部的图片区：头像 / 形象 + 表情图入口行（表情的编辑在独立弹窗里）
         charExpr: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
@@ -3487,9 +3487,9 @@ app.whenReady().then(async () => {
           if (edit) { edit.click(); await nap(700); }
 
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
-        // 图片区收起态：点「图片」标题把这块折起来，看收起后卡片贴着标题收口、
-        // 下面文字区顶上来（表单短一截）
-        charMediaCollapsed: `
+        // 表情图弹窗：一张卡几十条表情，现在单独一个弹窗编
+        //（缩略图 + 名称 + 触发词 + 默认脸 + 删除）
+        charExprModal: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
           const nap = (ms) => new Promise(r => setTimeout(r, ms));
@@ -3503,9 +3503,8 @@ app.whenReady().then(async () => {
           const edit = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
           if (edit) { edit.click(); await nap(700); }
 
-          // 点标题收起图片区（details 的原生行为）
-          const label = document.querySelector('.char-media-section > .char-section-label');
-          if (label) { label.click(); await nap(300); }
+          $('#btn-manage-expr')?.click();
+          await nap(400);
 
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 状态卡入口条：一行头像（我 / 各角色）。旧面板的收起态已经没有了，

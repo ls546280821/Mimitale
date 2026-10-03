@@ -2457,17 +2457,12 @@ await scenario('角色：头像和形象是两张图', async () => {
       !!byId('char-portrait').querySelector('.char-avatar-empty')
   );
 
-  // --- 图片区可折叠：标题点一下收起、再点一下展开 ---
-  // 变量名别叫 media：本场景后面那段「列表卡」测试已经用了 const media，
-  // 同一函数作用域里重名会直接 SyntaxError，整套断言会 0/0。
-  const mediaSection = $('.char-media-section');
-  check('图片区是默认展开的可折叠块', !!mediaSection && mediaSection.tagName === 'DETAILS' && mediaSection.open === true);
-  click('.char-media-section > .char-section-label');
-  await sleep(30);
-  check('点标题把图片区收起来了', !!mediaSection && mediaSection.open === false);
-  click('.char-media-section > .char-section-label');
-  await sleep(30);
-  check('再点一下又展开', !!mediaSection && mediaSection.open === true);
+  // --- 头像 / 形象 挪到了表单最顶上，和角色名同级（不再有折叠的「图片」块）---
+  check(
+    '头像 / 形象 是表单第一个区块',
+    !!$('.char-media-top') && byId('char-form').firstElementChild === $('.char-media-top')
+  );
+  check('没有可折叠的「图片」块了', !$('.char-media-section'));
 
   // --- 传头像：点框 → 弹裁剪 → 「用这块」 ---
   click('#char-avatar');
@@ -5229,6 +5224,157 @@ await scenario('世界书：副本的「在状态栏显示」开关', async () =
 });
 
 // ---------------------------------------------------------------------------
+//  场景 33b：把「世界书同名副本」名下的字段并回「我」（mergePlayerOwnedFields）。
+//
+//  玩家挑一张卡当自己（convo.player.name = 卡名），而这本书里正好有个**同名副本**
+//  也在显示状态 —— 同一个人会占两张状态卡、属性存两份，注入时还被拆成
+//  「角色名·字段名」前缀。合并只认名字，把副本那份并到 'player' 名下。
+// ---------------------------------------------------------------------------
+await scenario('面板：世界书同名副本的字段并回「我」', async () => {
+  let mod = null;
+  try {
+    mod = await import(new URL('js/data/panel.js', document.baseURI).href);
+  } catch (err) {
+    check('panel 模块能动态加载（场景33b）', false, (err && err.message) || String(err));
+  }
+  if (!mod || typeof mod.mergePlayerOwnedFields !== 'function') {
+    check('mergePlayerOwnedFields 可用（场景33b）', false);
+    return;
+  }
+  check('mergePlayerOwnedFields 可用（场景33b）', true);
+
+  const lib = await import(new URL('js/data/library.js', document.baseURI).href);
+  const wbList = lib.worldbooks();
+  const saved = wbList.slice();
+  wbList.push({
+    id: 'bk_merge',
+    name: '同名副本测试',
+    entries: [],
+    characters: [
+      { id: 'wc_dup', name: '同名人', showInPanel: true, attributes: [{ name: '好感度', value: '30' }] },
+      { id: 'wc_other', name: '别人', showInPanel: true, attributes: [{ name: '好感度', value: '10' }] }
+    ]
+  });
+  const key = (name, owner) => `${name}\u0000${owner}`;
+
+  try {
+    // 1) 副本有、玩家没有的同名字段 → 整条搬给玩家
+    const c1 = {
+      player: { name: '同名人', profile: '', characterId: null },
+      worldbookIds: ['bk_merge'],
+      panel: { [key('好感度', 'wc_dup')]: '30/100', [key('好感度', 'wc_other')]: '10/100' },
+      panelFields: [key('好感度', 'wc_dup'), key('好感度', 'wc_other')],
+      panelDefs: {
+        [key('好感度', 'wc_dup')]: { type: 'meter', max: 100, owner: 'wc_dup' },
+        [key('好感度', 'wc_other')]: { type: 'meter', max: 100, owner: 'wc_other' }
+      },
+      messages: []
+    };
+    mod.mergePlayerOwnedFields(c1);
+    check(
+      '同名副本的字段搬到了「我」名下',
+      c1.panelFields.includes(key('好感度', 'player')) && !c1.panelFields.includes(key('好感度', 'wc_dup')),
+      JSON.stringify(c1.panelFields)
+    );
+    check(
+      '搬过去的定义 owner 也改成 player',
+      c1.panelDefs[key('好感度', 'player')] && c1.panelDefs[key('好感度', 'player')].owner === 'player',
+      JSON.stringify(c1.panelDefs[key('好感度', 'player')])
+    );
+    check(
+      '不同名的角色不动',
+      c1.panelFields.includes(key('好感度', 'wc_other')),
+      JSON.stringify(c1.panelFields)
+    );
+
+    // 2) 两边都有同名字段 → 保留玩家那份值，副本键删掉
+    const c2 = {
+      player: { name: '同名人', profile: '', characterId: null },
+      worldbookIds: ['bk_merge'],
+      panel: { [key('好感度', 'player')]: '88/100', [key('好感度', 'wc_dup')]: '30/100' },
+      panelFields: [key('好感度', 'player'), key('好感度', 'wc_dup')],
+      panelDefs: {
+        [key('好感度', 'player')]: { type: 'meter', max: 100, owner: 'player' },
+        [key('好感度', 'wc_dup')]: { type: 'meter', max: 100, owner: 'wc_dup' }
+      },
+      messages: []
+    };
+    mod.mergePlayerOwnedFields(c2);
+    check(
+      '同名字段保留玩家那份值',
+      c2.panel[key('好感度', 'player')] === '88/100' && !c2.panelFields.includes(key('好感度', 'wc_dup')),
+      `${c2.panel[key('好感度', 'player')]} / ${JSON.stringify(c2.panelFields)}`
+    );
+
+    // 3) 手改标记跟着键一起搬
+    const c3 = {
+      player: { name: '同名人', profile: '', characterId: null },
+      worldbookIds: ['bk_merge'],
+      panel: { [key('好感度', 'wc_dup')]: '30/100' },
+      panelFields: [key('好感度', 'wc_dup')],
+      panelDefs: { [key('好感度', 'wc_dup')]: { type: 'meter', max: 100, owner: 'wc_dup' } },
+      panelManual: { [key('好感度', 'wc_dup')]: true },
+      messages: []
+    };
+    mod.mergePlayerOwnedFields(c3);
+    check(
+      '手改标记跟着搬到玩家键',
+      c3.panelManual[key('好感度', 'player')] === true && !c3.panelManual[key('好感度', 'wc_dup')],
+      JSON.stringify(c3.panelManual)
+    );
+
+    // 4) 幂等：再调一次什么都不动
+    const before = JSON.stringify([c1.panelFields, c1.panel]);
+    mod.mergePlayerOwnedFields(c1);
+    check('合并是幂等的', JSON.stringify([c1.panelFields, c1.panel]) === before, '二次调用改了数据');
+
+    // 5) 名字对不上的副本不动（没撞名就不该合并）
+    const c4 = {
+      player: { name: '别人不知道我是谁', profile: '', characterId: null },
+      worldbookIds: ['bk_merge'],
+      panel: { [key('好感度', 'wc_dup')]: '30/100' },
+      panelFields: [key('好感度', 'wc_dup')],
+      panelDefs: { [key('好感度', 'wc_dup')]: { type: 'meter', max: 100, owner: 'wc_dup' } },
+      messages: []
+    };
+    mod.mergePlayerOwnedFields(c4);
+    check(
+      '名字对不上时保持不变',
+      c4.panelFields.length === 1 && c4.panelFields[0] === key('好感度', 'wc_dup'),
+      JSON.stringify(c4.panelFields)
+    );
+
+    // 6) 「我」那张卡要能找到卡对象（挑世界书副本当自己时，player.characterId 是空的，
+    //    得按名字把同名副本找回来）—— 否则状态卡没立绘、没表情图。
+    const castMod = await import(new URL('js/data/cast.js', document.baseURI).href);
+    const withFields = {
+      player: { name: '同名人', profile: '', characterId: null },
+      worldbookIds: ['bk_merge'],
+      panel: { [key('好感度', 'wc_dup')]: '30/100' },
+      panelFields: [key('好感度', 'wc_dup')],
+      panelDefs: { [key('好感度', 'wc_dup')]: { type: 'meter', max: 100, owner: 'wc_dup' } },
+      messages: []
+    };
+    const meEnt = castMod.panelEntities(withFields).find((e) => e.owner === 'player');
+    check(
+      '挑同名副本当自己时，「我」能找到那张卡',
+      !!meEnt && !!meEnt.card && meEnt.card.id === 'wc_dup',
+      JSON.stringify(meEnt && meEnt.card && meEnt.card.id)
+    );
+    const foreign = { ...withFields, player: { name: '跟谁都不重名', profile: '', characterId: null } };
+    const meEnt2 = castMod.panelEntities(foreign).find((e) => e.owner === 'player');
+    check(
+      '名字对不上时不硬塞一张卡给「我」',
+      !!meEnt2 && !meEnt2.card,
+      JSON.stringify(meEnt2 && meEnt2.card)
+    );
+  } finally {
+    wbList.length = 0;
+    wbList.push(...saved);
+  }
+});
+
+// ---------------------------------------------------------------------------
 //  场景 34：「同步属性」把角色库同名卡的属性补进世界书副本（副本是快照，
 //  角色库后来补的属性不会回流）。钉住 syncCopyAttrsFromSource 四条语义：
 //  按名字补属性、已有字段不覆盖、源卡没有的进 missing、补进去是深拷贝。
@@ -5949,11 +6095,25 @@ await scenario('角色：表情图按回复关键词切换', async () => {
     return !!i && i.naturalWidth === 1024;
   });
 
-  // --- 加一条表情 ---
-  check('编辑器里有「添加表情」按钮', !!byId('btn-add-expr'));
+  // --- 表情图编辑挪进了独立弹窗：从编辑器入口打开 ---
+  check('编辑器里有「管理表情图」入口', !!byId('btn-manage-expr'));
+  click('#btn-manage-expr');
+  await waitFor('表情弹窗打开了', () => shown('#expr-modal'));
+  // 它是从角色编辑器里点开的：层级必须高过角色编辑弹窗，否则整块被盖住，看着像没反应
+  check(
+    '表情弹窗压在角色编辑器之上',
+    Number(getComputedStyle(byId('expr-modal')).zIndex) > Number(getComputedStyle(byId('chars-modal')).zIndex),
+    `expr=${getComputedStyle(byId('expr-modal')).zIndex} chars=${getComputedStyle(byId('chars-modal')).zIndex}`
+  );
+  check('弹窗里有「添加表情」按钮', !!byId('btn-add-expr'));
   check('还没加表情时有一句提示', /还没有表情图/.test(byId('char-expr-list').textContent));
   click('#btn-add-expr');
   await waitFor('多了一行表情', () => $$('#char-expr-list .char-expr-row').length === 1);
+  check(
+    '编辑器入口跟着显示已设条数',
+    /已设 1 条/.test(byId('char-expr-summary').textContent),
+    byId('char-expr-summary').textContent
+  );
 
   // 名都没起就传图要拦住 —— 没名字的条目匹配不上任何东西，存下去等于白存
   click($('#char-expr-list .char-expr-thumb'));
@@ -5977,6 +6137,10 @@ await scenario('角色：表情图按回复关键词切换', async () => {
     !!exThumb && exThumb.naturalWidth === 640 && exThumb.naturalHeight === 640,
     exThumb ? `${exThumb.naturalWidth}×${exThumb.naturalHeight}` : '缩略图里没图'
   );
+
+  // 关掉表情弹窗再回编辑器保存
+  click('#btn-expr-done');
+  await waitFor('表情弹窗关掉了', () => !shown('#expr-modal'));
 
   click('#btn-save-char');
   await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));
@@ -6040,6 +6204,46 @@ await scenario('角色：表情图按回复关键词切换', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  角色表情图（词表）—— 差分文件名都得认得出情绪
+//
+//  认不出就退回「拿文件名当名字」，导进来一片 Char_C1_flustered_transparent：
+//  图进来了，名字不能看，还得一条条手改 —— 所以词表按差分集的键逐个过一遍。
+// ---------------------------------------------------------------------------
+await scenario('角色：表情词典认得差分文件名', async () => {
+  const mod = await import(new URL('js/views/charExpressions.js', document.baseURI).href);
+
+  // 键 → 中文名。一套立绘差分的完整划分（基础 / 常态 / 亲密 / 状态 / 关系）
+  const EXPECTED = {
+    neutral: '平静', smile: '微笑', shy: '害羞', confused: '困惑', panicked: '慌张',
+    sad: '难过', teary: '委屈', surprised: '惊讶', proud: '得意', angry: '生气',
+    disgust: '嫌弃', curious: '好奇', smirk: '坏笑', cold: '冷漠', tired: '疲惫',
+    relieved: '安心', flustered: '脸红别脸', panting: '喘气', resist: '抗拒', dazed: '迷离',
+    defiant: '挑衅', pleading: '求饶', enduring: '隐忍', afterglow: '事后', happy: '开心',
+    helpless: '无奈', serious: '认真', blank: '发呆', scared: '害怕', aching: '心疼',
+    tipsy: '微醺', sleepy: '犯困', hopeful: '期待', clingy: '撒娇', sulky: '赌气',
+    moved: '感动', jealous: '嫉妒', worried: '担忧', apologetic: '道歉', thankful: '感谢',
+    peeking: '偷看', uneasy: '不安'
+  };
+
+  const keyOf = (file) => (mod.emotionFromFileName(file) || {}).key;
+  const missed = [];
+  const wrongName = [];
+  for (const [key, name] of Object.entries(EXPECTED)) {
+    // 中性占位：真差分集就是「角色_编号_英文键_transparent.png」这个形状
+    const got = mod.emotionFromFileName(`Char_${key}_transparent.png`);
+    if (!got) missed.push(key);
+    else if (got.key !== key || got.name !== name) wrongName.push(`${key}→${got.key}/${got.name}`);
+  }
+  check(`${Object.keys(EXPECTED).length} 个差分键都认得出`, missed.length === 0, missed.join(','));
+  check('认出来的中文名也对得上', wrongName.length === 0, wrongName.join(' '));
+
+  // 中文文件名走另一条路，抽几个有代表性的
+  check('中文文件名照样认得出', keyOf('Char_害羞_透明.png') === 'shy');
+  check('中文同义词也能落到键上', keyOf('Char_吃醋_透明.png') === 'jealous');
+  check('没见过的词不硬猜（退回文件名）', mod.emotionFromFileName('Char_0231.png') === null);
+});
+
+// ---------------------------------------------------------------------------
 //  角色表情图（二）—— 批量导入 / 默认脸 / <emo> 标签
 //
 //  ⚠️ 同上：必须留在预设那几条聊天场景之前。
@@ -6060,7 +6264,9 @@ await scenario('角色：表情图批量导入、默认脸与 emo 标签', async
   await waitFor('模板字段种进来了', () => $$('#c-attr-list .attr-row').length >= 3);
 
   // --- 批量导入：假后端给六个文件，前三个文件名是英文、后三个是中文 ---
-  check('编辑器里有「批量导入」按钮', !!byId('btn-batch-expr'));
+  click('#btn-manage-expr');
+  await waitFor('表情弹窗打开了', () => shown('#expr-modal'));
+  check('弹窗里有「批量导入」按钮', !!byId('btn-batch-expr'));
   click('#btn-batch-expr');
   await waitFor(
     '六张里导进五张（末张「羞怯」和英文的 shy 撞同一个情绪键，被跳过）',
@@ -6110,6 +6316,10 @@ await scenario('角色：表情图批量导入、默认脸与 emo 标签', async
   click(star(1));
   await sleep(30);
   check('重新点上', star(1).classList.contains('is-on'));
+
+  // 关掉表情弹窗再保存
+  click('#btn-expr-done');
+  await waitFor('表情弹窗关掉了', () => !shown('#expr-modal'));
 
   click('#btn-save-char');
   await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'));

@@ -160,6 +160,14 @@ export const el = {
   charExprList: $('char-expr-list'),
   btnAddExpr: $('btn-add-expr'),
   btnBatchExpr: $('btn-batch-expr'),
+  // 表情图弹窗（挂在角色编辑器之上）
+  exprModal: $('expr-modal'),
+  exprCount: $('expr-count'),
+  btnCloseExpr: $('btn-close-expr'),
+  btnExprDone: $('btn-expr-done'),
+  // 角色编辑器里那行「表情图 · 已设 N 条 · 管理」
+  btnManageExpr: $('btn-manage-expr'),
+  charExprSummary: $('char-expr-summary'),
   charFootHint: $('char-foot-hint'),
   c: {
     name: $('c-name'),

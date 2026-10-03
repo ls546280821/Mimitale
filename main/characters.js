@@ -26,8 +26,8 @@ const DEFAULT_OPTIONS = 3;
 const MAX_ATTRIBUTES = 120;
 
 // 一张卡最多带几张「表情图」。每张都是 base64，所以要有上限。
-// 一套完整的情绪差分动辄二十几张，所以给得比一般列表宽。
-const MAX_EXPRESSIONS = 30;
+// 一套完整的情绪差分动辄二三十张，所以给得比一般列表宽。
+const MAX_EXPRESSIONS = 60;
 // 表情名 / 触发词的单个长度上限
 const MAX_EXPRESSION_NAME = 24;
 // 一条表情最多几个额外的触发词
