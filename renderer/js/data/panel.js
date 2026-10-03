@@ -1320,6 +1320,88 @@ export function seedPanelFromCharacters(convo, list, ownerFor) {
 }
 
 /**
+ * 把「归在别的 owner 名下、但其实就是玩家本人」的字段并到 'player' 名下。
+ *
+ * 场景：玩家挑了一张卡当自己（convo.player.characterId = 角色库那张卡），
+ * 而这个世界书里还有一个**同名副本**（名字和玩家名一样）。两者 id 不同
+ * （一个是角色库 id、一个是 wc 前缀），种字段时各归各的，于是同一个人
+ * 在入口条上出现两张卡、同一属性被存成两份，注入时还会被拆成
+ * 「角色名·字段名」的前缀（clashingFieldNames 认为它在跟别人抢）。
+ *
+ * 判定只看名字（和 cast.js 的 isPlayerCharacterCopy 一个口径）：副本名字
+ * 等于玩家名，就视为玩家本人。不动名字对不上的 owner。
+ *
+ * 合并规则：
+ *   · 目标键（fieldName\u0000player）还没有 → 整条搬过去（键/值/定义都搬）
+ *   · 已经有 → 保留目标那份值（先种的玩家卡属性优先），只删掉多余的键
+ *   · panelManual 上手改过的标记跟着键一起搬
+ *
+ * 幂等：搬完那一侧就没有键了，再调一次无事发生。返回是否改动。
+ */
+export function mergePlayerOwnedFields(convo) {
+  if (!convo) return false;
+
+  const playerName = String((convo.player && convo.player.name) || '').trim();
+  if (!playerName) return false;
+
+  // 本会话绑定的世界书里，哪些副本名字和玩家名一样 → 它们的 owner 要并过来
+  const aliases = new Set();
+  for (const bookId of convoWorldbookIds(convo)) {
+    const book = worldbookById(bookId);
+    for (const copy of worldbookCharacters(book)) {
+      const id = copy && copy.id ? String(copy.id) : '';
+      if (id && String(copy.name || '').trim() === playerName) aliases.add(id);
+    }
+  }
+  // 玩家挑的那张角色库里、名字自己也撞了的卡不算别名 —— 那种情况 player
+  // 本来就是它的 owner，不用动。
+  if (!aliases.size) return false;
+
+  const fields = [...convoPanelFields(convo)];
+  const panel = { ...convoPanel(convo) };
+  const defs = { ...convoPanelDefs(convo) };
+  const manual = convo.panelManual && typeof convo.panelManual === 'object'
+    ? { ...convo.panelManual }
+    : null;
+
+  const remove = new Set();
+  let changed = false;
+
+  // 遍历用快照：循环里会往 fields 里 push 目标键，直接遍历会被新加的键带着跑
+  for (const key of [...fields]) {
+    const { name, owner } = panelKeyParts(key);
+    if (!owner || !aliases.has(owner)) continue;
+
+    const target = panelKey(name, 'player');
+    // 目标键是否已经存在（原本就在 fields 里，或前面几条刚搬过去）
+    const hasTarget = fields.includes(target) && !remove.has(target);
+    if (!hasTarget && fields.length + 1 - remove.size <= MAX_PANEL_FIELDS) {
+      if (panel[key] !== undefined) panel[target] = panel[key];
+      if (defs[key]) defs[target] = { ...defs[key], owner: 'player' };
+      fields.push(target);
+    }
+    // 目标已存在 → 保留玩家那份的值（开聊时先种的玩家卡属性优先），只删多余键
+    delete panel[key];
+    delete defs[key];
+    if (manual && manual[key]) {
+      manual[target] = true;
+      delete manual[key];
+    }
+    remove.add(key);
+    changed = true;
+  }
+
+  if (!changed) return false;
+
+  convo.panelFields = fields.filter((key) => !remove.has(key));
+  convo.panel = panel;
+  convo.panelDefs = defs;
+  if (manual) convo.panelManual = manual;
+  convo.updatedAt = now();
+  return true;
+}
+
+/**
  * 把「身份四项」（姓名/年龄/性别/种族）种进状态面板，归到「身份」分组。
  * 单角色对话种的是绑卡身份，玩世界书种的是玩家自己（姓名来自弹窗填写）。
  * 四项标 static（偶尔才变）。

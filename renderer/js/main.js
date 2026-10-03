@@ -58,6 +58,7 @@ import {
   convoFieldDisplayNames,
   migrateConvoPanel,
   absorbTopLevelIntoPlayer,
+  mergePlayerOwnedFields,
   panelGroupNames,
   cutTrailingStatusBlock
 } from './data/panel.js';
@@ -591,6 +592,9 @@ async function init() {
     if (convo.panelDefs !== undefined) convo.panelDefs = normalizePanelDefs(convo.panelDefs);
     // 老会话里 owner 为空的字段当场认领（归角色或并回主角），幂等。
     absorbTopLevelIntoPlayer(convo);
+    // 「玩家挑的卡」和世界书里的同名副本撞了 → 副本那份并回「我」，
+    // 同一个人只留一张状态卡。幂等，只在真撞上时才动数据。
+    mergePlayerOwnedFields(convo);
     // 选项是程序写进去的，读盘时只要保证形状对（不是数组就当没有）
     if (!Array.isArray(convo.options)) convo.options = [];
     if (convo.optionsSpec && typeof convo.optionsSpec !== 'object') convo.optionsSpec = null;

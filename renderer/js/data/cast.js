@@ -178,7 +178,24 @@ export function panelEntities(convo) {
   const seen = new Set();
 
   const player = convoPlayer(convo);
-  const playerCard = player && player.characterId ? characterById(player.characterId) : null;
+  // 「我」的那张卡：优先玩家挑的角色库卡（convo.player.characterId）；
+  // 挑的是世界书副本当自己时那里是空的 —— 这时按**名字**在本会话绑定的书里
+  // 找回那个同名副本（就是玩家本人，见 data/panel.js 的 mergePlayerOwnedFields）。
+  // 不这么兜的话，「我」这张卡拿不到卡对象 → 状态卡没有立绘、没有表情图。
+  let playerCard = player && player.characterId ? characterById(player.characterId) : null;
+  if (!playerCard && player) {
+    const playerName = convoUserName(convo);
+    for (const bookId of convoWorldbookIds(convo)) {
+      const book = worldbookById(bookId);
+      const copy = book
+        ? worldbookCharacters(book).find((c) => c && String(c.name || '').trim() === playerName)
+        : null;
+      if (copy) {
+        playerCard = copy;
+        break;
+      }
+    }
+  }
   out.push({
     owner: 'player',
     kind: 'player',

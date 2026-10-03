@@ -21,7 +21,7 @@ import { el } from '../core/dom.js';
 import { uid, now, activeConvo } from '../core/util.js';
 import { showToast } from '../ui/toast.js';
 import { characterById, worldbookCharacters } from '../data/library.js';
-import { seedIdentity, seedPanelFromCharacters } from '../data/panel.js';
+import { seedIdentity, seedPanelFromCharacters, mergePlayerOwnedFields } from '../data/panel.js';
 import { applyMacros } from '../data/messages.js';
 import { convoUserName, convoPlayer, worldbookCast } from '../data/cast.js';
 import { gmRuleText } from '../data/narration.js';
@@ -95,6 +95,11 @@ export function startWorldPlay(book) {
   if (pickedCard) seedPanelFromCharacters(convo, [pickedCard], 'player');
   seedPanelFromCharacters(convo, worldbookCharacters(book));
 
+  // 挑的这张卡（或同名角色）可能也在这本书里当 NPC 副本 —— 副本名字和玩家名
+  // 撞上时把它名下的字段并回「我」，否则同一个人会占两张状态卡、属性存两份，
+  // 注入时还被拆成「角色名·字段名」的前缀。种完字段再并，把副本那份一起收掉。
+  mergePlayerOwnedFields(convo);
+
   // 开场：书里写了就用书里的；没写就让模型按设定现生成一段
   const opening = String(book.opening || '').trim();
   if (opening) {
@@ -142,6 +147,10 @@ function startCharacterChat(character) {
 
   // 复用「绑定角色」那套：自动插入开场白、自动把会话标题起成角色名
   applyCharacterChoice(character.id);
+
+  // 绑定之后才并：单卡会话里挑一张卡当自己，而这张卡（或同名角色）正好
+  // 又是 TA 自带世界书里的副本 —— 同上，合并成「我」一份。
+  mergePlayerOwnedFields(convo);
 
   closePlayerModal();
   showView('chat');
