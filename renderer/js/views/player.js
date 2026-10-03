@@ -1,49 +1,48 @@
 // ---------------------------------------------------------------------------
-//  进入世界：玩家角色弹窗
+//  开始之前：玩家角色弹窗
 //
-//  进世界之前先问一句「你是谁」—— 名字手填，或者挑一张角色卡当自己
-//  （选了只是把名字和设定**填**进输入框，填完还能改，改了以你改的为准）。
+//  「跟角色聊」和「进世界」都要先问一句「你是谁」—— 名字手填，或者挑一张角色卡
+//  当自己（选了只是把名字和设定**填**进输入框，填完还能改）。留空也行，那样就
+//  以默认的「你」开始。
 //
-//  这个文件只装弹窗本身。真正「开始游玩」的编排（建会话 + 种状态面板 +
-//  切换视图 + 生成开局）留在 main.js —— 它要调 createConvo / seedIdentity /
-//  seedPanelFromCharacters / applyMacros / showView，而 views 层不许向上
-//  import 入口。等那几个动作各自归位（createConvo 该进 data/conversations.js、
-//  seed* 该进 data/panel.js），再把它一起搬过来。
+//  同一个弹窗服务这两条路，靠 pendingStart 记住这次是为谁开的；真正「开始」的
+//  编排在 views/worldPlay.js（要建会话、种状态面板、切视图），这里只管弹窗本身
+//  和「读回填进去的内容」。
 //
 //  不登记刷新总线：弹窗是「打开时按需重画」的，不参与全局重绘。
 // ---------------------------------------------------------------------------
 
 import { el } from '../core/dom.js';
-import { state } from '../core/state.js';
 import { characterById, characters, characterAttrs, worldbookById } from '../data/library.js';
-import { applyMacros } from '../data/messages.js';
+import { playerProfileFromCharacter } from '../data/cast.js';
 
-/** 弹窗正对着哪本书（关掉就清空） */
-let playingBookId = null;
-
-/** 弹窗里现在这本书 —— 给 main.js 的「开始游玩」用 */
-export function getPlayingBook() {
-  return worldbookById(playingBookId);
-}
+/** 这次弹窗是为哪次「开始」开的；关掉就清空 */
+let pendingStart = null;
 
 /**
- * 把角色卡拼成「玩家角色」的设定文本。描述和性格都带上；{{char}}/{{user}}
- * 都替换成角色名。开场背景（scenario）不带（那是「这张卡当 NPC」的场景预设）。
+ * 弹窗现在是为谁开的 —— 给入口层的「开始」按钮用。
+ * 目标（书 / 角色）中途被删掉时返回 null，调用方直接关掉弹窗就行。
  */
-function playerProfileFromCharacter(character) {
-  if (!character) return '';
-  const name = String(character.name || '').trim() || '你';
-  const bits = [];
-  const desc = String(character.description || '').trim();
-  const personality = String(character.personality || '').trim();
-  // {{char}} 与 {{user}} 都指向「你自己」（= 这张卡），用 applyMacros 统一替换：
-  // 传 name=角色名，让 {{char}}→角色名、{{user}}→角色名。
-  if (desc) bits.push(applyMacros(desc, character, name));
-  if (personality) bits.push(`【性格】${applyMacros(personality, character, name)}`);
-  return bits.join('\n');
+export function getPlayerStart() {
+  if (!pendingStart) return null;
+  if (pendingStart.kind === 'world') {
+    const book = worldbookById(pendingStart.bookId);
+    return book ? { kind: 'world', book } : null;
+  }
+  const character = characterById(pendingStart.characterId);
+  return character ? { kind: 'chat', character } : null;
 }
 
-/** 下拉框下面那行预览：让「会被带进世界的是什么」一眼可见 */
+/** 读弹窗里填的东西（纯读，不写任何东西） */
+export function readPlayerDraft() {
+  return {
+    name: (el.playerName.value || '').trim(),
+    profile: (el.playerProfile.value || '').trim(),
+    card: characterById(el.playerChar.value) || null
+  };
+}
+
+/** 下拉框下面那行预览：让「会被带进去的是什么」一眼可见 */
 function updatePlayerCharPreview() {
   const host = el.playerCharPreview;
   if (!host) return;
@@ -108,35 +107,60 @@ export function applyPlayerCharChoice() {
     el.playerName.value = character.name;
     el.playerProfile.value = playerProfileFromCharacter(character);
   } else {
-    // 选回「自己写一个」：把名字还原成设置里的默认值，设定清空
-    el.playerName.value = (state.settings && state.settings.userName) || '';
+    // 选回「自己写一个」：把自动填的东西清掉
+    el.playerName.value = '';
     el.playerProfile.value = '';
   }
   updatePlayerCharPreview();
 }
 
-export function openPlayerModal(bookId) {
-  const book = worldbookById(bookId);
-  if (!book) return;
+/** 打开弹窗并把这次的文案铺好 */
+function showPlayerModal({ pending, title, sub, hint, confirmText }) {
+  pendingStart = pending;
 
-  playingBookId = bookId;
+  if (el.playerTitle) el.playerTitle.textContent = title;
+  if (el.playerSub) el.playerSub.textContent = sub;
+  if (el.playerFootHint) el.playerFootHint.textContent = hint;
+  if (el.btnStartPlay) el.btnStartPlay.textContent = confirmText;
 
-  if (el.playerTitle) el.playerTitle.textContent = `进入「${book.name}」`;
-  if (el.playerSub) {
-    el.playerSub.textContent = '先给这个世界里的自己一个身份，然后就可以开始了';
-  }
-
-  // 每次打开都重列一遍角色库（可能刚加过新角色），并回到「自己写一个」
+  // 每次打开都重列一遍角色库（可能刚加过新角色），并从空白开始
   renderPlayerCharOptions();
-  el.playerName.value = (state.settings && state.settings.userName) || '';
+  el.playerName.value = '';
   el.playerProfile.value = '';
 
   el.playerModal.classList.remove('hidden');
   el.playerName.focus();
-  el.playerName.select();
+}
+
+/** 跟某个角色开聊之前：先定「你是谁」 */
+export function openChatPlayerModal(characterId) {
+  const character = characterById(characterId);
+  if (!character) return;
+
+  showPlayerModal({
+    pending: { kind: 'chat', characterId },
+    title: `和「${character.name}」聊天`,
+    sub: '先定好你是谁，再开始',
+    hint: '留空的话，TA 就称呼你「你」',
+    confirmText: '开始聊天'
+  });
+}
+
+/** 进入某个世界之前：先给这个世界里的自己一个身份 */
+export function openPlayerModal(bookId) {
+  const book = worldbookById(bookId);
+  if (!book) return;
+
+  showPlayerModal({
+    pending: { kind: 'world', bookId },
+    title: `进入「${book.name}」`,
+    sub: '先给这个世界里的自己一个身份，然后就可以开始了',
+    hint: '进入世界后会自动打开 GM 模式',
+    confirmText: '开始游玩'
+  });
 }
 
 export function closePlayerModal() {
   el.playerModal.classList.add('hidden');
-  playingBookId = null;
+  pendingStart = null;
 }

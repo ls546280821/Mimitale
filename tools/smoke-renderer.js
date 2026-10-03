@@ -106,6 +106,27 @@ async function clickMoreItem(sel) {
   await waitFor('「⋯」菜单点完收起', () => menu.classList.contains('hidden'));
 }
 
+/**
+ * 点角色卡上的「聊天」，并把「你是谁」那一步走完。
+ *
+ * 开聊前会先弹这个窗（和「进世界」共用同一个），不填就是默认的「你」；
+ * 传 opts.name / opts.profile 可以顺手把身份填上。
+ */
+async function startChatWith(card, opts = {}) {
+  click(buttonByText(card, '聊天'));
+  await waitFor('「你是谁」弹窗打开', () => shown('#player-modal'));
+  if (opts.name) setValue('#player-name', opts.name);
+  if (opts.profile) setValue('#player-profile', opts.profile);
+  click('#btn-start-play');
+  await waitFor('「你是谁」弹窗关掉', () => !shown('#player-modal'));
+}
+
+/** 当前激活的那条会话（读的是落盘数据；落盘是异步的，要轮询时用这个） */
+const activeConvo = async () => {
+  const cs = await window.mimitale.getConversations();
+  return (cs.conversations || []).find((c) => c.id === cs.activeId);
+};
+
 function setValue(target, value) {
   const node = typeof target === 'string' ? $(target) : target;
   if (!node) throw new Error(`找不到输入框：${target}`);
@@ -937,7 +958,7 @@ await scenario('属性：从角色卡种到状态面板', async () => {
 
   const card = $$('#char-page-grid .char-card').find((c) => c.textContent.includes('属性测试角色'));
   check('找到了新角色的卡片', !!card);
-  click(buttonByText(card, '聊天'));
+  await startChatWith(card);
   await waitFor('切到聊天视图', () => shown('#view-chat'));
 
   await waitFor('状态卡入口条出现', () => shown('#panel-box'));
@@ -1921,7 +1942,7 @@ await scenario('导出', async () => {
   // --- 空会话不该导出：点「聊天」会新建一个还没说话的空会话 ---
   click('#btn-chars');
   await waitFor('切到角色库页面', () => shown('#view-chars'));
-  click(buttonByText($$('#char-page-grid .char-card')[0], '聊天'));
+  await startChatWith($$('#char-page-grid .char-card')[0]);
   await waitFor('切回聊天视图', () => shown('#view-chat'));
   await sleep(150);
   await clickMoreItem('#btn-export-convo');
@@ -3356,7 +3377,7 @@ await scenario('角色自带的世界书：顶部能看出生效', async () => {
       if (!chatBtn) {
         check('角色卡上有「聊天」按钮', false, JSON.stringify(Array.from(card.querySelectorAll('button')).map((b) => b.textContent.trim())));
       } else {
-        click(chatBtn);
+        await startChatWith(card);
         await waitFor('回到聊天视图', () => shown('#view-chat'), 8000);
         await sleep(500);
 
@@ -3507,7 +3528,7 @@ await scenario('剧情选项', async () => {
   await sleep(150);
   const card = $$('#char-page-grid .char-card').find((c) => String(c.textContent || '').includes(NAME));
   check('新角色出现在列表里', !!card);
-  click(buttonByText(card, '聊天'));
+  await startChatWith(card);
   await waitFor('切到聊天视图', () => shown('#view-chat'), 8000);
   await sleep(300);
 
@@ -4407,6 +4428,79 @@ await scenario('面板：同名属性按 owner 各自保留', async () => {
   // 能查到角色名。断言按「前缀 = 归属 id」来验冲突确实加了前缀。
   check('注入里同名「好感度」带归属前缀区分', prompt.includes('sis·好感度') && prompt.includes('young·好感度'), prompt);
   check('注入里无冲突的「铜板」保持纯字段名（不带前缀）', prompt.includes('【铜板】') && !prompt.includes('young·铜板'), prompt);
+
+  // 描述（hint）里的 {{user}} 要展开成玩家名再注入。原样注入的话模型会看见
+  // 占位符本身，然后开始猜它指谁。
+  const hintConvo = {
+    panel: {},
+    panelFields: [],
+    panelDefs: {},
+    messages: [],
+    player: { name: '测试者甲' }
+  };
+  mod.seedPanelFromCharacters(
+    hintConvo,
+    [
+      {
+        id: 'other',
+        name: '对方',
+        attributes: [{ name: '好感度', type: 'meter', min: 0, max: 100, value: '0/100', hint: '对{{user}}的信赖与在意' }]
+      }
+    ],
+    'other'
+  );
+  const hintPrompt = mod.formatPanelForPrompt(hintConvo);
+  check(
+    '字段描述里的 {{user}} 展开成玩家名，不再原样注入',
+    !hintPrompt.includes('{{user}}') && hintPrompt.includes('对测试者甲的信赖与在意'),
+    hintPrompt
+  );
+
+  // 模型照抄前缀（「前缀妹妹·好感度」）时要拆回给原来的 owner，不能新建一个
+  // 名字里带前缀的重复字段。同名字段开始带前缀之后这条路径才第一次被走到 ——
+  // 角色库里的卡按名字反查以前是查不到的（characterById 是按 id 查的）。
+  // 卡临时塞进内存 state（不走保存：那条路绕开渲染层，列表不会刷新）。
+  const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+  const backupChars = stateMod.state.characters;
+  stateMod.state.characters = [
+    ...(Array.isArray(backupChars) ? backupChars : []),
+    { id: 'pfx-sis', name: '前缀姐姐', attributes: [{ name: '好感度', type: 'meter', min: 0, max: 100, value: '5/100' }] },
+    { id: 'pfx-young', name: '前缀妹妹', attributes: [{ name: '好感度', type: 'meter', min: 0, max: 100, value: '80/100' }] }
+  ];
+
+  const round = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
+
+  // 老数据：同一个人身上「好感度」和「前缀妹妹·好感度」两份都躺着 → 并回一份
+  const dupBase = mod.panelKey('好感度', 'pfx-young');
+  const dupBad = mod.panelKey('前缀妹妹·好感度', 'pfx-young');
+  const legacyDup = {
+    panel: { [dupBase]: '80/100', [dupBad]: '90/100' },
+    panelFields: [dupBase, dupBad],
+    panelDefs: {},
+    messages: [],
+    player: null
+  };
+
+  try {
+    mod.seedPanelFromCharacters(round, stateMod.state.characters.slice(-2), (c) => c.id);
+    round.messages = [{ role: 'assistant', content: '【前缀妹妹·好感度】：90/100' }];
+    mod.syncConvoPanel(round);
+    mod.syncConvoPanel(legacyDup);
+  } finally {
+    stateMod.state.characters = backupChars;
+  }
+  check(
+    '照抄「前缀妹妹·好感度」拆回那张卡的字段，不新建带前缀的重复字段',
+    mod.convoPanelFields(round).length === 2 &&
+      round.panel[mod.panelKey('好感度', 'pfx-young')] === '90/100' &&
+      !mod.convoPanelFields(round).some((k) => mod.panelFieldName(k).includes('·')),
+    JSON.stringify(round.panelFields) + ' ' + JSON.stringify(round.panel)
+  );
+  check(
+    '老数据里重复的「前缀妹妹·好感度」被并回「好感度」',
+    mod.convoPanelFields(legacyDup).length === 1 && legacyDup.panel[dupBase] === '90/100',
+    JSON.stringify(legacyDup.panelFields) + ' ' + JSON.stringify(legacyDup.panel)
+  );
 
   // 单角色聊天：字段名不冲突时，注入不该加前缀（保持老行为）
   const solo = { panel: {}, panelFields: [], panelDefs: {}, messages: [], player: null };
@@ -5906,7 +6000,7 @@ await scenario('角色：表情图按回复关键词切换', async () => {
     (c) => c.querySelector('.char-card-name') && c.querySelector('.char-card-name').textContent === NAME
   );
   check('列表里能找到这张卡', !!card);
-  click(buttonByText(card, '聊天'));
+  await startChatWith(card);
   await waitFor('切到聊天视图', () => shown('#view-chat'));
   await waitFor('状态卡入口条出现', () => shown('#panel-box'));
 
@@ -6063,7 +6157,7 @@ await scenario('角色：表情图批量导入、默认脸与 emo 标签', async
     const avShadow = av ? getComputedStyle(av).boxShadow : '';
     check('角色库列表卡的头像有描边', !!avShadow && avShadow !== 'none', avShadow);
   }
-  click(buttonByText(card, '聊天'));
+  await startChatWith(card);
   await waitFor('切到聊天视图', () => shown('#view-chat'));
   await waitFor('状态卡入口条出现', () => shown('#panel-box'));
 
@@ -6125,7 +6219,7 @@ await scenario('预设：绑定到会话的「视角」弹窗', async () => {
 
   const chatBtn = buttonByText(charCard, '聊天');
   check('角色卡上有「聊天」按钮', !!chatBtn);
-  if (chatBtn) click(chatBtn);
+  if (chatBtn) await startChatWith(charCard);
   await waitFor('切回对话视图', () => shown('#view-chat'));
 
   // 打开「视角」弹窗
@@ -6180,10 +6274,6 @@ await scenario('预设：绑定到会话的「视角」弹窗', async () => {
   check('自动跟随全局时状态说明写「跟随全局」', /跟随全局/.test(stateNote().textContent), stateNote().textContent.trim());
 
   // 轮询落盘（视角弹窗是「改动即时生效」的异步链，固定 sleep 会偶尔跑输）
-  const activeConvo = async () => {
-    const cs = await window.mimitale.getConversations();
-    return (cs.conversations || []).find((c) => c.id === cs.activeId);
-  };
   const settleIds = async (want, label) => {
     const t0 = Date.now();
     for (;;) {
@@ -6240,15 +6330,12 @@ await scenario('预设：绑定到会话的「视角」弹窗', async () => {
   boxFor('带条目的预设').checked = true;
   boxFor('带条目的预设').dispatchEvent(new Event('change', { bubbles: true }));
   await settleIds(['pr-entries'], '只勾一条');
+
   click('#btn-close-perspective');
   await sleep(60);
   check('关掉视角弹窗', !shown('#perspective-modal'));
 });
 
-// 注入：绑了预设之后，它的正文要真的进到发给模型的消息里。
-// 这是整个功能的落点 —— 前面存的、选的都对，最后没拼进提示词就等于没有。
-// 具体断言在宿主侧（tools/smoke-test.js 的 probePresets）：那边能读到
-// chat:send 记下来的真实 messages，页面里读不到。
 await scenario('预设：绑好后发一轮，正文进提示词', async () => {
   setValue('#input', '准备好了吗');
   click('#btn-send');
@@ -6323,6 +6410,95 @@ await scenario('预设：导出单条与全部', async () => {
 
   // 具体内容由宿主侧看 util:saveFile 收到的 payload（probePresetExport）
   check('导出没有卡住界面', shown('#view-presets'));
+});
+
+// ---------------------------------------------------------------------------
+//  开聊前先定「你是谁」
+//
+//  点角色卡的「聊天」不再直接建会话 —— 先弹「你是谁」（和「进世界」共用同一个
+//  弹窗），填完才建；什么都不填就以默认的「你」开始（会话上不存 player）。
+//
+//  这个场景会**建三条新会话**，所以放在最后跑 —— 否则后面所有依赖「当前会话」
+//  的场景都会跑在它新建的会话上（预设绑定那几条就是这么被顶掉的）。
+// ---------------------------------------------------------------------------
+await scenario('开聊前先定「你是谁」', async () => {
+  const settlePlayer = async (want) => {
+    const t0 = Date.now();
+    for (;;) {
+      const a = await activeConvo();
+      const p = a && a.player;
+      if (want === null ? !p : p && p.name === want.name && p.profile === want.profile) return a;
+      if (Date.now() - t0 > 3000) return null;
+      await sleep(25);
+    }
+  };
+
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  const card = await waitFor('角色库里有卡可开聊', () => $$('#char-page-grid .char-card')[0]);
+
+  // —— 点「聊天」先弹窗，这时还没建会话 ——
+  click(buttonByText(card, '聊天'));
+  await waitFor('「你是谁」弹窗打开', () => shown('#player-modal'));
+  check('角色卡的「聊天」会先问「你是谁」', shown('#player-modal'));
+  check('名字默认是空的（留空就是「你」）', byId('player-name').value === '', JSON.stringify(byId('player-name').value));
+
+  // —— 填好身份再开始：落到新会话上 ——
+  setValue('#player-name', '测试者甲');
+  setValue('#player-profile', 'P-玩家设定');
+  click('#btn-start-play');
+  await waitFor('弹窗关掉并进入对话', () => !shown('#player-modal') && shown('#view-chat'));
+
+  const stored = await settlePlayer({ name: '测试者甲', profile: 'P-玩家设定' });
+  check(
+    '填好的身份落到新会话上',
+    !!stored,
+    stored ? JSON.stringify(stored.player) : '等 3 秒也没等到落盘'
+  );
+
+  // —— 再开一场、什么都不填：会话上不存 player，界面回到默认的「你」——
+  click('#btn-chars');
+  await waitFor('切回角色库页面', () => shown('#view-chars'));
+  await startChatWith($$('#char-page-grid .char-card')[0]);
+  await waitFor('切回聊天视图', () => shown('#view-chat'));
+
+  const blank = await settlePlayer(null);
+  check(
+    '什么都不填也能开聊，player 不落盘',
+    !!blank,
+    blank ? JSON.stringify(blank.player) : '等 3 秒也没等到'
+  );
+
+  // —— 挑一张角色卡当自己：绑定的那个角色仍要留在入口条里 ——
+  // ⚠️ 这条守着一个真 bug：玩家一旦有身份，单卡会话绑的卡就丢掉了「永远显示」
+  //    的豁免，掉进 showsInPanel（默认 false）里被过滤掉 —— 入口条只剩「我」，
+  //    那个角色的状态卡再也点不开，表情键也不注入。
+  click('#btn-chars');
+  await waitFor('切回角色库页面', () => shown('#view-chars'));
+  const soloCard = $$('#char-page-grid .char-card')[0];
+  click(buttonByText(soloCard, '聊天'));
+  await waitFor('「你是谁」弹窗打开（挑卡当自己）', () => shown('#player-modal'));
+
+  const selfOptions = Array.from(byId('player-char').options).filter((o) => o.value);
+  check('开聊前能从角色库挑一张卡当自己', selfOptions.length > 0, `${selfOptions.length} 个可选`);
+  setValue('#player-char', selfOptions[0].value);
+  click('#btn-start-play');
+  await waitFor('弹窗关掉并进入对话（挑卡当自己）', () => !shown('#player-modal') && shown('#view-chat'));
+  await sleep(250);
+
+  const castAvatars = $$('#panel-cast .panel-avatar');
+  check(
+    '挑卡当自己后，绑定的角色仍在入口条里',
+    castAvatars.length >= 2 && castAvatars.some((a) => a.dataset.owner !== 'player'),
+    `入口条 ${castAvatars.length} 个：` + castAvatars.map((a) => a.dataset.owner).join('、')
+  );
+
+  // —— 身份只在开聊前定：视角弹窗里已经没有「我是谁」了 ——
+  click('#btn-perspective');
+  await waitFor('视角弹窗打开', () => shown('#perspective-modal'));
+  check('视角弹窗里不再有「我是谁」', !byId('p-player-name') && !byId('p-player-char'));
+  click('#btn-close-perspective');
+  await sleep(60);
 });
 
 return { results, notes, hoverProbe };

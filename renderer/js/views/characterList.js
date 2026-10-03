@@ -34,7 +34,7 @@ export function renderCharacterPage() {
     empty: el.charPageEmpty,
     sub: el.charsPageSub,
     subText: list.length
-      ? `共 ${list.length} 个角色 · 点「聊天」直接开一个新会话`
+      ? `共 ${list.length} 个角色 · 点「聊天」先定好你是谁，再开始`
       : '导入酒馆角色卡，或自己写一个',
     items: list,
     card: characterCard

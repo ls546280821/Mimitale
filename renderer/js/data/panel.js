@@ -43,6 +43,7 @@ import { persistConversations } from './persist.js';
 import {
   characterAttrs,
   characterById,
+  characters,
   convoWorldbookIds,
   worldbookById,
   worldbookCharacters
@@ -140,6 +141,13 @@ function findCardForOwner(convo, id) {
   const target = String(id || '').trim();
   if (!target) return null;
 
+  // 'player' 不是卡 id，但「挑一张卡当自己」之后「我」名下也有卡属性 ——
+  // 认领字段 / 取描述时都得能顺着它找到那张卡。
+  if (target === 'player') {
+    const picked = convo && convo.player && convo.player.characterId;
+    return picked ? findCardForOwner(convo, picked) : null;
+  }
+
   const direct = characterById(target);
   if (direct) return direct;
 
@@ -216,8 +224,24 @@ function ownerIdByLabel(convo, label) {
   const p = convo.player;
   if (p && String(p.name || '').trim() === text) return 'player';
 
-  const direct = characterById(text);
-  if (direct && String(direct.name || '').trim() === text) return direct.id;
+  // 会话里已有的 owner 先认一遍：模型照抄的前缀就是我们注入的显示名，
+  // 按它反查最准（角色库可能有同名卡，按名字查会认错人）。
+  for (const key of convoPanelFields(convo)) {
+    const owner = panelKeyParts(key).owner;
+    if (owner && owner !== 'player' && panelOwnerLabel(convo, owner) === text) return owner;
+  }
+
+  // 这一局绑定的那张卡优先 —— 角色库里可能有同名的卡，先认正在聊的这位
+  const boundId = String(convo.characterId || '').trim();
+  if (boundId) {
+    const bound = characterById(boundId);
+    if (bound && String(bound.name || '').trim() === text) return bound.id;
+  }
+
+  // 角色库要按**名字**找。characterById 是按 id 查的，拿名字去查永远查不到 ——
+  // 角色库里的卡一旦被写进状态栏（「露西娅·好感度」），前缀就会拆不开。
+  const inLibrary = characters().find((c) => c && String(c.name || '').trim() === text);
+  if (inLibrary) return inLibrary.id;
 
   for (const bookId of convoWorldbookIds(convo)) {
     const book = worldbookById(bookId);
@@ -606,8 +630,59 @@ function clampPanelValue(convo, name, value, defs) {
  * （小模型经常不听话），从零重建会把它们连值一起抹掉。
  * 所以以现有面板为底，把历史里扫到的值盖上去。
  */
+/**
+ * 自愈：同一个角色身上可能同时躺着「好感度」和「露西娅·好感度」两份。
+ *
+ * 前缀拆不开的那些日子里，模型照抄「角色名·字段名」会被当成一个新字段名
+ * 整个存下来。现在拆得开了，已经落盘的还得并回去。
+ * 只在前缀确实指同一个 owner、且那个 owner 已经有去掉前缀的同名字段时才合并 ——
+ * 保守起见不碰任何正常的复合键（字段名里本来带间隔号的会被前缀反查挡掉）。
+ */
+function healPrefixedKeys(convo) {
+  const fields = convoPanelFields(convo);
+  if (!fields.length) return false;
+
+  const panel = { ...convoPanel(convo) };
+  const remove = new Set();
+
+  for (const key of fields) {
+    const { name, owner } = panelKeyParts(key);
+    if (!owner || !name.includes(OWNER_LABEL_SEP)) continue;
+
+    const i = name.indexOf(OWNER_LABEL_SEP);
+    const head = name.slice(0, i).trim();
+    const rest = name.slice(i + 1).trim();
+    if (!head || !rest) continue;
+    if (ownerIdByLabel(convo, head) !== owner) continue;
+
+    const target = panelKey(rest, owner);
+    if (!fields.includes(target)) continue;
+
+    // 手改过的以面板里的为准；否则用这份 —— 它是模型最近写进来的
+    if (!(convo.panelManual && convo.panelManual[target]) && String(panel[key] || '').trim()) {
+      panel[target] = panel[key];
+    }
+    remove.add(key);
+  }
+
+  if (!remove.size) return false;
+
+  const defs = { ...convoPanelDefs(convo) };
+  convo.panelFields = fields.filter((key) => !remove.has(key));
+  convo.panel = panel;
+  for (const key of remove) {
+    delete panel[key];
+    delete defs[key];
+  }
+  convo.panelDefs = defs;
+  return true;
+}
+
 export function syncConvoPanel(convo) {
   if (!convo || !Array.isArray(convo.messages)) return false;
+
+  // 先把老数据里「角色名·字段名」重复的字段并回去，再按正常流程扫
+  healPrefixedKeys(convo);
 
   const beforeFields = convoPanelFields(convo).join('\u0001');
   const beforePanel = JSON.stringify(convoPanel(convo));
@@ -721,8 +796,12 @@ export function absorbTopLevelIntoPlayer(convo) {
   // 只算「本局真实持有字段的 owner」（避免把角色库里没进这局的卡也算进来）。
   const ownerByFieldName = new Map();
   const activeOwners = new Set(convoPanelFields(convo).map(ownerOf).filter(Boolean));
-  for (const owner of activeOwners) {
-    if (owner === 'player') continue;
+  // 「我」排在最后认领。挑一张卡当自己以后 player 名下也有卡属性，跳过它会让
+  // 玩家卡上写死的字段名（比如「对某某的感情」）被别的角色认走；
+  // 但也不能抢在角色前面 —— 同名字段（好感度/地点）历史上一直归角色。
+  const claimOrder = [...activeOwners].filter((owner) => owner !== 'player');
+  claimOrder.push('player');
+  for (const owner of claimOrder) {
     const card = findCardForOwner(convo, owner);
     if (!card) continue;
     for (const attr of characterAttrs(card)) {
@@ -732,8 +811,10 @@ export function absorbTopLevelIntoPlayer(convo) {
   }
 
   // 单角色聊天（绑了卡、但没进世界）→ 无主字段全归那张卡。
-  // 判据：会话绑了角色卡，且没有被当成玩家角色（没有 convo.player）。
-  const soloOwner = (!convo.player && convo.characterId && activeOwners.has(convo.characterId))
+  // 判据只看「会话绑了哪张卡」：开聊时挑一张卡当自己也会写 convo.player，
+  // 但那不改变「这张卡是这局的主角」—— 拿玩家身份当条件会把字段认给错的人。
+  // 进世界的会话 characterId 为空，这里自然拿不到。
+  const soloOwner = (convo.characterId && activeOwners.has(convo.characterId))
     ? convo.characterId
     : '';
 
@@ -889,6 +970,40 @@ function mergeMeterValue(value, prev, def) {
  * 单独列在图例里，而不是跟在值后面 —— 值本身要**原样回显**给模型看
  * （它就是模型上一轮写的），掺上注解会影响它照着抄。
  */
+/** 这一局绑定角色的名字（世界会话没绑卡 → 空） */
+function boundCharacterLabel(convo) {
+  const id = String((convo && convo.characterId) || '').trim();
+  if (!id) return '';
+  const card = findCardForOwner(convo, id);
+  return (card && String(card.name || '').trim()) || '';
+}
+
+/**
+ * 展开字段描述里的宏。
+ *
+ * 描述是**卡作者写给「这张卡当 NPC」的场合**用的，原样注入的话模型会看见
+ * 「{{user}}」这种占位符然后开始猜它指谁 —— 玩家自己也挑了一张卡当角色时，
+ * 它会绕不出来（「卢西恩是玩家，{{user}} 也是玩家，那这是谁对谁的？」）。
+ *   · {{char}} / <BOT>   → 这条字段的主人
+ *   · {{user}} / <USER>  → 对话的另一方
+ * 「另一方」对玩家的字段来说就是这一局绑定的角色 —— 卡作者写「对{{user}}的信赖」
+ * 时假设这张卡是 NPC，被玩家拿去当自己以后，指对面那个人才说得通。
+ */
+function panelMacroText(convo, owner, text) {
+  const raw = String(text || '');
+  if (!raw) return '';
+
+  const self = panelOwnerLabel(convo, owner) || '';
+  const playerLabel = panelOwnerLabel(convo, 'player') || '你';
+  const other = owner === 'player' ? boundCharacterLabel(convo) || playerLabel : playerLabel;
+
+  return raw
+    .replace(/\{\{char\}\}/gi, () => self || other)
+    .replace(/<BOT>/gi, () => self || other)
+    .replace(/\{\{user\}\}/gi, () => other)
+    .replace(/<USER>/gi, () => other);
+}
+
 function panelFieldLegend(convo, fields) {
   const clash = clashingFieldNames(convo);
   const lines = [];
@@ -898,7 +1013,8 @@ function panelFieldLegend(convo, fields) {
     const desc = describePanelField(def);
     if (!desc) continue;
     // 图例里也用「角色名·字段名」的显示名（有冲突时），和正文保持一致
-    lines.push(`- ${panelFieldDisplayName(convo, key, (name) => clash.has(name))}：${desc}`);
+    const name = panelFieldDisplayName(convo, key, (n) => clash.has(n));
+    lines.push(`- ${name}：${panelMacroText(convo, panelKeyParts(key).owner, desc)}`);
   }
   return lines;
 }
@@ -959,6 +1075,9 @@ const PANEL_PROMPT_LEAD = '这是本局的状态表，由你在每轮回复的�
 const PANEL_PROMPT_TAIL =
   '正文写完后，另起一行接着把更新过的状态表写出来 —— 每行都是「【字段名】：新值」的写法，\n' +
   '冒号用全角「：」，字段名和顺序照上面那份表原样保留，一个都不能少。\n' +
+  // 值防膨胀：不加这条，模型会习惯往值里塞括号补充说明，状态表就慢慢长回十几二十行。
+  // 值是**快照**，细节属于正文。
+  '每行的值要短（十几个字以内）—— 不要用括号补充说明，细节写进正文，不要堆进状态值。\n' +
   '状态表是你这轮回复的一部分，必须写在正文末尾。';
 
 /**
@@ -1227,7 +1346,7 @@ export function seedIdentity(convo, name, character, owner) {
 /**
  * 面板里的「姓名」被剧情改了 → 跟着改会话上的玩家名。
  * 不跟着改就会出现「面板说你叫 A，消息标签和 {{user}} 还叫你 B」的矛盾。
- * 只对进了世界的会话生效（普通角色扮演没有「玩家角色」这一说）。
+ * 只对设了玩家角色的会话生效（没设身份就没有名字可同步）。
  */
 export function syncPlayerNameFromPanel(convo) {
   const player = convo && convo.player;

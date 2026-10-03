@@ -1,11 +1,14 @@
 'use strict';
 
 // ============================================================================
-//  views/worldPlay.js —— 「进入世界」按下开始之后的事
+//  views/worldPlay.js —— 「开始」按下之后的事
 //
-//  弹窗本身（填名字 / 挑一张角色卡当自己）在 views/player.js。
-//  这里管的是按了「开始」之后：建会话、把这个世界装上、种状态面板、
-//  切到对话视图，以及「书里没写开场白时让模型按设定现生成一段」。
+//  两条路共用同一个「你是谁」弹窗（本身在 views/player.js）：
+//    · 进世界 —— 建会话、把这个世界装上、开 GM、切到对话视图，
+//      书里没写开场白时让模型按设定现生成一段
+//    · 跟角色聊 —— 建会话、绑上这张卡、带上刚定好的身份
+//
+//  这里管的就是「按了开始之后」：谁来建会话、谁来种状态面板、谁来切视图。
 //
 //  开局那段用独立的 requestId 调接口，所以流式分片不会被聊天窗口的监听器接住 ——
 //  生成过程不会闪在界面里，写完才一次性落进去。生成期间空会话显示「正在生成开局…」，
@@ -25,28 +28,47 @@ import { gmRuleText } from '../data/narration.js';
 import { ensureConvoEndpoint } from '../data/providers.js';
 import { createConvo } from '../data/conversations.js';
 import { persistConversations } from '../data/persist.js';
-import { getPlayingBook, closePlayerModal } from './player.js';
+import { getPlayerStart, readPlayerDraft, closePlayerModal, openChatPlayerModal } from './player.js';
 import { showView } from './viewSwitch.js';
 import { renderAll } from './redraw.js';
 import { renderMessages, setOpeningBusy } from './chatMessages.js';
 import { applyCharacterChoice } from './chatList.js';
 
 /**
+ * 把弹窗里填的身份落到会话上。
+ * 名字和设定都留空 = 不设 —— 界面和提示词都回到默认的「你」。
+ */
+function applyPlayerIdentity(convo, draft) {
+  if (!convo) return;
+  convo.player =
+    draft.name || draft.profile
+      ? { name: draft.name, profile: draft.profile, characterId: draft.card ? draft.card.id : null }
+      : null;
+  convo.updatedAt = now();
+}
+
+/**
+ * 玩家弹窗那颗主按钮：按这次弹窗是为谁开的，分流到「进世界」或「开聊」。
+ * 目标中途被删掉（getPlayerStart 返回 null）就直接关窗，不去猜。
+ */
+export function startPlayerFlow() {
+  const start = getPlayerStart();
+  if (!start) {
+    closePlayerModal();
+    return;
+  }
+  if (start.kind === 'world') startWorldPlay(start.book);
+  else startCharacterChat(start.character);
+}
+
+/**
  * 「开始游玩」：建一个会话，把这个世界装上，并存下玩家自己的角色。
  * 世界模型本来就应该由 GM 叙述，所以顺手把 GM 模式打开。
  */
-export function startWorldPlay() {
-  const book = getPlayingBook();
+export function startWorldPlay(book) {
   if (!book) return;
 
-  const name = el.playerName.value.trim();
-  const profile = el.playerProfile.value.trim();
-
-  if (!name) {
-    showToast('给你的角色起个名字吧', 'error');
-    el.playerName.focus();
-    return;
-  }
+  const draft = readPlayerDraft();
 
   const convo = createConvo(true);
   convo.worldbookIds = [book.id];
@@ -56,8 +78,8 @@ export function startWorldPlay() {
 
   // 你在这个世界里的身份。选了角色卡就记住是哪张（名字/设定仍以输入框为准，
   // 因为选完还能改）。
-  const pickedCard = characterById(el.playerChar.value);
-  convo.player = { name, profile, characterId: pickedCard ? pickedCard.id : null };
+  applyPlayerIdentity(convo, draft);
+  const pickedCard = draft.card;
 
   // 剧情选项：选卡当自己时，把卡上的剧情选项配置一起带进这个世界 ——
   // 否则进世界的会话 optionsSpec 永远是 null，剧情选项全程不生效。
@@ -69,7 +91,7 @@ export function startWorldPlay() {
   // 同名以先出现的为准，所以自己卡上的「金币」不会被书里的盖掉。
   // 归属（owner）：你自己的身份和卡标成 'player'（在「我的状态」卡里看，
   // 不挤在「当前状态」面板里）；书里角色的各归各的 id。
-  seedIdentity(convo, name, pickedCard, 'player');
+  seedIdentity(convo, draft.name, pickedCard, 'player');
   if (pickedCard) seedPanelFromCharacters(convo, [pickedCard], 'player');
   seedPanelFromCharacters(convo, worldbookCharacters(book));
 
@@ -79,7 +101,7 @@ export function startWorldPlay() {
     convo.messages = [
       {
         role: 'assistant',
-        content: applyMacros(opening, null, name),
+        content: applyMacros(opening, null, draft.name),
         at: now(),
         greeting: true
       }
@@ -91,11 +113,59 @@ export function startWorldPlay() {
   renderAll({ forceScroll: true });
   persistConversations(0);
 
-  showToast(`进入「${book.name}」—— 你是「${name}」`, 'ok');
+  showToast(`进入「${book.name}」—— 你是「${convoUserName(convo)}」`, 'ok');
   el.input.focus();
 
   // 没写开场白就去生成一段。失败也不影响玩，只是开局空着
   if (!opening) generateWorldOpening(convo, book);
+}
+
+/**
+ * 「开始聊天」：建会话并绑上这个角色。
+ *
+ * 身份要在绑卡**之前**落到会话上 —— 自动插入的开场白里，{{user}} 得用刚填的名字。
+ * 选了角色卡当自己时，那张卡的身份和属性一并种进「我」那张状态卡。
+ */
+function startCharacterChat(character) {
+  if (!character) return;
+
+  const draft = readPlayerDraft();
+
+  createConvo(true);
+  const convo = activeConvo();
+  applyPlayerIdentity(convo, draft);
+
+  if (draft.card) {
+    seedIdentity(convo, draft.name, draft.card, 'player');
+    seedPanelFromCharacters(convo, [draft.card], 'player');
+  }
+
+  // 复用「绑定角色」那套：自动插入开场白、自动把会话标题起成角色名
+  applyCharacterChoice(character.id);
+
+  closePlayerModal();
+  showView('chat');
+  renderAll({ forceScroll: true });
+  persistConversations(0);
+
+  showToast(`开始和「${character.name}」聊天`, 'ok');
+  el.input.focus();
+}
+
+/**
+ * 点角色卡的「聊天」：先问一句「你是谁」，按了开始才建会话。
+ * 身份是在开聊前定好的，所以中途不能换 —— 想换就另开一个会话。
+ */
+export function chatWithCharacter(id) {
+  const character = characterById(id);
+  if (!character) return;
+
+  if (state.streaming) {
+    showToast('正在生成回答，先点「停止生成」再开新会话');
+    return;
+  }
+
+  openChatPlayerModal(id);
 }
 
 /**
@@ -161,22 +231,4 @@ async function generateWorldOpening(convo, book) {
     setOpeningBusy(null);
     if (activeConvo() === convo) renderMessages({ forceScroll: true });
   }
-}
-
-/** 点「聊天」：新建一个会话并绑上这个角色，然后切回聊天视图 */
-export function chatWithCharacter(id) {
-  const character = characterById(id);
-  if (!character) return;
-
-  if (state.streaming) {
-    showToast('正在生成回答，先点「停止生成」再开新会话');
-    return;
-  }
-
-  createConvo(true);
-  // 复用「绑定角色」那套逻辑：自动插入开场白、自动把会话标题起成角色名
-  applyCharacterChoice(id);
-
-  showView('chat');
-  showToast(`开始和「${character.name}」聊天`, 'ok');
 }

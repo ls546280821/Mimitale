@@ -23,7 +23,7 @@ import { providers, providerById, currentEndpoint, isBridgeProvider } from '../d
 import { characterById, worldbookById, convoWorldbookIds } from '../data/library.js';
 import { seedIdentity, seedPanelFromCharacters } from '../data/panel.js';
 import { applyMacros } from '../data/messages.js';
-import { userName } from '../data/cast.js';
+import { convoUserName } from '../data/cast.js';
 import { persistConversations } from '../data/persist.js';
 import { renderHeader } from './header.js';
 import { renderAll } from './redraw.js';
@@ -298,7 +298,7 @@ export async function applyCharacterChoice(characterId) {
     convo.messages = [
       {
         role: 'assistant',
-        content: applyMacros(next.firstMes, next, userName()),
+        content: applyMacros(next.firstMes, next, convoUserName(convo)),
         at: now(),
         greeting: true
       }

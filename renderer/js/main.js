@@ -121,7 +121,7 @@ import { sendMessage, autoGrowInput, stopGenerating } from './views/composer.js'
 import { clearConvo } from './views/convoActions.js';
 import { summarizeNow } from './views/summarize.js';
 import { exportCharacter, exportConversation } from './views/chatExport.js';
-import { startWorldPlay, chatWithCharacter } from './views/worldPlay.js';
+import { startPlayerFlow, chatWithCharacter } from './views/worldPlay.js';
 
 // 「设置弹窗里当前正在编辑的服务商」随设置弹窗一起搬到了 views/settings.js ——
 // 入口层只在启动时把当前服务商带过去（setEditingProvider）。
@@ -250,7 +250,7 @@ function bindEvents() {
   // 进入世界前创建玩家角色
   el.btnClosePlayer.addEventListener('click', closePlayerModal);
   el.btnCancelPlayer.addEventListener('click', closePlayerModal);
-  el.btnStartPlay.addEventListener('click', startWorldPlay);
+  el.btnStartPlay.addEventListener('click', startPlayerFlow);
   el.playerChar.addEventListener('change', applyPlayerCharChoice);
   el.playerModal.addEventListener('click', (event) => {
     if (event.target === el.playerModal) closePlayerModal();

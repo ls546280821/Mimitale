@@ -141,6 +141,7 @@ export const el = {
   btnClosePlayer: $('btn-close-player'),
   btnCancelPlayer: $('btn-cancel-player'),
   btnStartPlay: $('btn-start-play'),
+  playerFootHint: $('player-foot-hint'),
   btnCloseChars: $('btn-close-chars'),
   btnImportCard: $('btn-import-card'),
   btnAiChar: $('btn-ai-char'),
@@ -206,9 +207,6 @@ export const el = {
   s: {
     temp: $('s-temp'),
     maxTokens: $('s-maxtokens'),
-    userName: $('s-username'),
-    maxTurns: $('s-maxturns'),
-    system: $('s-system'),
     sendOnEnter: $('s-sendonenter'),
     showDate: $('s-showdate'),
     showUsage: $('s-showusage'),

@@ -138,8 +138,8 @@ function messageNode(message, index, character, labels, ctx) {
   // 否则你自己的气泡上会顶着角色的脸。
   const speaker = isUser || isError ? null : character;
 
-  // 说话人显示名：助手那侧，绑了角色卡就是角色名，进了世界就是世界名，
-  // 通用助手用全局人设那个名字；你自己那侧用玩家角色名（世界会话里填的那个）。
+  // 说话人显示名：助手那侧，绑了角色卡就是角色名，进了世界就是世界名；
+  // 你自己那侧用会话上存的玩家角色名，没设就是「你」。
   const userLabel = (labels && labels.user) || userName();
   const assistantLabel = speaker ? speaker.name : (labels && labels.assistant) || 'AI';
 

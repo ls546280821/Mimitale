@@ -19,7 +19,6 @@
 //  拆成两个监听器会让这条顺序失效。
 // ---------------------------------------------------------------------------
 
-import { CONFIG } from '../core/config.js';
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { el } from '../core/dom.js';
@@ -156,9 +155,6 @@ function fillModelSelect(select, providerId, current, emptyHint, keepMissing = t
 function fillSettingsForm(settings) {
   el.s.temp.value = settings.temperature ?? 0.7;
   el.s.maxTokens.value = settings.maxTokens ?? 2048;
-  el.s.userName.value = settings.userName || '你';
-  el.s.maxTurns.value = settings.maxTurns ?? CONFIG.MAX_TURNS;
-  el.s.system.value = settings.systemPrompt || '';
   el.s.sendOnEnter.checked = settings.sendOnEnter !== false;
   el.s.showDate.checked = settings.showDate !== false;
   el.s.showUsage.checked = settings.showUsage !== false;
@@ -353,8 +349,6 @@ function readSettingsForm() {
 
   const temp = Number(el.s.temp.value);
   const maxTokens = Number(el.s.maxTokens.value);
-  const maxTurns = Number(el.s.maxTurns.value);
-  const name = el.s.userName.value.trim();
 
   return {
     providers: providers(),
@@ -362,9 +356,6 @@ function readSettingsForm() {
     activeModel: (state.settings || {}).activeModel,
     temperature: isNaN(temp) ? 0.7 : Math.max(0, Math.min(2, temp)),
     maxTokens: isNaN(maxTokens) ? 2048 : Math.max(64, Math.min(32000, maxTokens)),
-    userName: name || '你',
-    maxTurns: isNaN(maxTurns) ? CONFIG.MAX_TURNS : Math.max(1, Math.min(200, Math.round(maxTurns))),
-    systemPrompt: el.s.system.value,
     sendOnEnter: el.s.sendOnEnter.checked,
     showDate: el.s.showDate.checked,
     showUsage: el.s.showUsage.checked,

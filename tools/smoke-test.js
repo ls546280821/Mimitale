@@ -130,9 +130,6 @@ function makeStore() {
       temperature: 0.7,
       maxTokens: 512,
       topP: 0.95,
-      systemPrompt: '冒烟测试用的全局人设。',
-      userName: '测试者',
-      maxTurns: 20,
       theme: 'light',
       sendOnEnter: true,
       showDate: false,
@@ -2703,7 +2700,7 @@ function probeSettingsWhitelist(result) {
   const UI_WRITABLE_SETTINGS = [
     // settings.js 的表单
     'providers', 'activeProviderId', 'activeModel', 'temperature', 'maxTokens',
-    'userName', 'maxTurns', 'systemPrompt', 'sendOnEnter', 'showDate', 'showUsage',
+    'sendOnEnter', 'showDate', 'showUsage',
     'autoContinue', 'worldbookRecursiveDepth',
     'imageProviderId', 'imageModel', 'imageSize',
     'ragEnabled', 'embeddingProviderId', 'embeddingModel',

@@ -13,7 +13,6 @@
 //  而且很难发现 —— 所以沉到 data 层，谁都不用认识谁。
 // ============================================================================
 
-import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { asArray } from '../core/util.js';
 import {
@@ -28,10 +27,9 @@ import {
 } from './library.js';
 import { convoPanelFields, panelFieldOwner } from './panel.js';
 
-/** {{user}} 的替换值（全局默认名） */
+/** {{user}} 的替换值（默认名；世界会话用玩家角色名覆盖） */
 export function userName() {
-  const name = (state.settings && state.settings.userName) || '';
-  return String(name).trim() || '你';
+  return '你';
 }
 
 /**
@@ -94,18 +92,41 @@ export function convoPlayer(convo) {
 }
 
 /**
- * 把玩家角色设定里的 {{char}}/{{user}}/<BOT>/<USER> 统一替换成玩家名
- * （选卡当自己时这些都指玩家本人）。纯函数，只读不改。
+ * 把一段文本里的 {{char}}/{{user}}/<BOT>/<USER> 统一替换成玩家名 ——
+ * 挑一张卡当自己时，这些宏都指玩家本人。纯函数，只读不改。
+ */
+function substituteSelf(text, name) {
+  const who = String(name || '').trim() || '你';
+  return String(text)
+    .replace(/\{\{char\}\}/gi, () => who)
+    .replace(/\{\{user\}\}/gi, () => who)
+    .replace(/<BOT>/gi, () => who)
+    .replace(/<USER>/gi, () => who);
+}
+
+/**
+ * 把玩家角色设定里的宏统一替换成玩家名，拼成能直接注入的文本。纯函数，只读不改。
  */
 export function playerProfileForPrompt(convo) {
   const player = convoPlayer(convo);
   if (!player || !player.profile) return '';
-  const name = player.name || convoUserName(convo);
-  return String(player.profile)
-    .replace(/\{\{char\}\}/gi, () => name)
-    .replace(/\{\{user\}\}/gi, () => name)
-    .replace(/<BOT>/gi, () => name)
-    .replace(/<USER>/gi, () => name);
+  return substituteSelf(player.profile, player.name || convoUserName(convo));
+}
+
+/**
+ * 把一张角色卡拼成「玩家角色」的设定文本：描述 + 性格都带上。
+ * 开场背景（scenario）不带 —— 那是「这张卡当 NPC」的场景预设，不是「我是谁」。
+ * 「挑一张卡当自己」时用它预填设定框（填完还能改）。
+ */
+export function playerProfileFromCharacter(character) {
+  if (!character) return '';
+  const name = String(character.name || '').trim() || '你';
+  const bits = [];
+  const desc = String(character.description || '').trim();
+  const personality = String(character.personality || '').trim();
+  if (desc) bits.push(substituteSelf(desc, name));
+  if (personality) bits.push(`【性格】${substituteSelf(personality, name)}`);
+  return bits.join('\n');
 }
 
 /** {{user}} 的替换值：进了世界的会话用玩家角色的名字，其它会话用设置里的名字 */
@@ -168,8 +189,11 @@ export function panelEntities(convo) {
   seen.add('player');
 
   // 单卡会话绑的那张卡：不管开关，永远显示（TA 就是这局的主角）。
-  // gmMode 的会话 characterId 为空，这里自然拿不到。
-  const soloCardId = !player && convo.characterId ? String(convo.characterId) : '';
+  // ⚠️ 不能拿「玩家有没有设身份」当条件 —— 开聊时挑了一张卡当自己之后，
+  //    玩家一有身份，绑定的那个角色就会掉进 showsInPanel（默认 false）被过滤掉，
+  //    入口条只剩「我」，那个角色的状态卡再也点不开。
+  //    进世界的会话 characterId 为空，这里自然拿不到。
+  const soloCardId = convo.characterId ? String(convo.characterId) : '';
 
   for (const name of convoPanelFields(convo)) {
     const owner = panelFieldOwner(convo, name);

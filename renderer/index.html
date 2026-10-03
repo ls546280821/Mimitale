@@ -341,43 +341,6 @@
           <div class="section-head">
             <span class="section-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-            </span>
-            <div>
-              <div class="section-title">人设</div>
-              <div class="section-desc">决定 AI 的性格和说话方式</div>
-            </div>
-          </div>
-
-          <div class="field-grid">
-            <label class="field">
-              <span class="field-label">你的名字</span>
-              <input id="s-username" type="text" spellcheck="false" placeholder="你" aria-label="你的名字" />
-              <span class="field-help">角色卡里的 <code>{{user}}</code> 会替换成它</span>
-            </label>
-            <label class="field">
-              <span class="field-label">带入轮数</span>
-              <input id="s-maxturns" type="number" min="1" max="200" step="1" aria-label="上下文轮数" />
-              <span class="field-help">每次发给模型的历史轮数，越大越记得久也越费钱</span>
-            </label>
-          </div>
-
-          <label class="field field-stack">
-            <span class="field-label">系统提示词</span>
-            <textarea id="s-system" rows="5" placeholder="你是……"></textarea>
-            <span class="field-help">
-              这一段决定了 AI 的性格和回答方式，可以随时改。<br />
-              绑定了角色卡的会话<b>不会</b>使用这里的内容，改用角色卡自己的设定。
-            </span>
-          </label>
-        </section>
-
-        <section class="panel-section">
-          <div class="section-head">
-            <span class="section-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="1" y="6" width="22" height="12" rx="6" />
                 <circle cx="16" cy="12" r="3" />
               </svg>
@@ -844,7 +807,7 @@
               <label class="field field-stack">
                 <span class="field-label">角色专属系统提示词</span>
                 <textarea id="c-system" rows="3" spellcheck="false" placeholder="留空则使用通用扮演规则"></textarea>
-                <span class="field-help">填了会用它取代「设置」里的全局人设。</span>
+                <span class="field-help">这张卡专属的开场设定，留空则只用通用扮演规则。</span>
               </label>
 
               <label class="field field-stack">
@@ -1156,7 +1119,7 @@
         <label class="field field-stack">
           <span class="field-label">叙述模式</span>
           <select id="p-narration" aria-label="叙述模式">
-            <option value="standard">标准 —— 只写对话和动作</option>
+            <option value="standard">标准 —— 对话、动作、环境融成叙述</option>
             <option value="inner">内心描写 —— 每轮附上角色的真实心理</option>
             <option value="god">上帝视角 —— 正文 + 心理 + 旁白</option>
           </select>
@@ -1378,22 +1341,22 @@
 
         <label class="field field-stack">
           <span class="field-label">你的名字</span>
-          <input id="player-name" type="text" spellcheck="false" placeholder="例如 旅行者" />
-          <span class="field-help">这个世界里的人会这么称呼你，也会替换掉 <code>{{user}}</code>。</span>
+          <input id="player-name" type="text" spellcheck="false" placeholder="留空就是「你」" />
+          <span class="field-help">TA 会这么称呼你，也会替换掉 <code>{{user}}</code>。</span>
         </label>
 
         <label class="field field-stack">
           <span class="field-label">你的设定</span>
           <textarea id="player-profile" rows="7" spellcheck="false" placeholder="你是谁、长什么样、什么来头、会什么……&#10;例如：来自异世界的旅人，背着一把用旧的长剑，对这个世界几乎一无所知，但学得很快。"></textarea>
           <span class="field-help">
-            这段会作为「玩家角色」注入提示词，让 GM 知道主角是谁。<br />
-            留空也行，那样就只用名字。
+            这段会作为「玩家角色」每轮注入提示词，让 AI 知道你是谁。<br />
+            留空也行 —— 那样就只用名字，名字也留空就用「你」。
           </span>
         </label>
       </div>
 
       <footer class="modal-foot">
-        <span class="foot-hint">进入世界后会自动打开 GM 模式</span>
+        <span class="foot-hint" id="player-foot-hint"></span>
         <div class="foot-actions">
           <button id="btn-cancel-player" class="btn btn-ghost" type="button">取消</button>
           <button id="btn-start-play" class="btn btn-primary" type="button">开始游玩</button>

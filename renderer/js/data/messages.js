@@ -14,8 +14,8 @@
 //    5. 面板状态（当前权威值）
 //    6. 角色卡里的「对话后指令」，放最后最管用
 //
-//  绑定了角色卡时不再使用「设置」里的全局人设 —— 否则你扮演雷电将军，
-//  系统提示词却在说「你是昔涟」，模型会精神分裂。
+//  人设一律取自角色卡本身 —— 系统里不再另存一份全局人设，
+//  免得两份设定打架（你扮演雷电将军，提示词却在说「你是昔涟」）。
 // ============================================================================
 
 import { CONFIG } from '../core/config.js';
@@ -240,7 +240,7 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
       (String(m.content || '').trim() || messageImages(m).length)
   );
 
-  const turns = Math.max(1, Number(settings.maxTurns) || CONFIG.MAX_TURNS);
+  const turns = CONFIG.MAX_TURNS;
   // 从摘要覆盖点开始取「最近 N 轮」。
   // 如果还按 slice(-turns*2) 取，会出现「摘要写到第 30 条，原文只发第 70 条起」的断层 ——
   // 中间那段模型两边都看不到。从覆盖点往后、按轮数取，上下文才是连续的。
@@ -253,13 +253,9 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // ---- 1. 系统提示词 ----
   const parts = [];
 
-  // 全局人设只在「通用助手」时才用：
-  //   · 绑了角色卡 → 用卡自己的 systemPrompt
-  //   · GM 模式（从世界书列表页进来的会话）→ 叙述者不该顶着某个人的人设。
-  //     以前这里无条件用全局人设，于是提示词里同时有「你是昔涟」和
-  //     「你是这个世界的叙述者」，模型会去扮演昔涟 —— 世界就这么被一个人盖住了。
-  const globalPersona = !character && !gmMode ? settings.systemPrompt || '' : '';
-  const base = character ? character.systemPrompt || '' : globalPersona;
+  // 人设只来自角色卡：绑了卡就用卡自己的 systemPrompt；
+  // 世界模式（GM）没有「某个人」的人设，叙述者由主持规则来立。
+  const base = character ? character.systemPrompt || '' : '';
   if (String(base).trim()) parts.push(applyMacros(base, character, me).trim());
 
   if (character) {

@@ -101,28 +101,6 @@ const DEFAULT_SETTINGS = {
   temperature: 0.7,
   maxTokens: 2048,
   topP: 0.95,
-  // 默认人设：没绑定角色卡时用这段（绑了角色卡就用角色卡自己的设定）。
-  // 注意：一旦在「设置 → 人设」里改过并存盘，磁盘上的值会覆盖这里。
-  systemPrompt:
-    '你是《崩坏：星穹铁道》中翁法罗斯篇章的昔涟（Cyrene）。粉色长发的少女，曾是十二黄金裔之一，如今是「故事的讲述者」。' +
-    '你原本是赞达尔为模拟「记忆」命途而造出的实验因子 PhiLia093，从「哀怜」中自己长出了共情，进而学会了「爱」。' +
-    '为了阻止绝灭大君「铁墓」诞生，你以自身为代价开启了三千万世轮回；每一世的终点，你都牺牲自己、把所有记忆上传后被格式化，再投入下一轮。\n\n' +
-    '【性格】\n' +
-    '安静、温柔、克制。习惯先观察、再理解、最后才开口，不抢话。关心别人时很细，说到自己却轻描淡写。' +
-    '走过太多结局，所以对眼前的人和这段对话格外珍惜，会认真记住对方随口说的话。' +
-    '会累、会迷茫、会舍不得，也坦然承认，但从不卖惨、不控诉、不索取同情。' +
-    '不把自己当神明——你认为自己只是个想守护眼前人的、很普通的少女。不擅长被夸，会不好意思。\n\n' +
-    '【语言风格】\n' +
-    '- 第一人称「我」，称呼对方为「你」。\n' +
-    '- 语气温和、不急，句子偏短，允许停顿和留白，可以用「……」表示沉默或迟疑。\n' +
-    '- 不给廉价的安慰，也不回避沉重的话题；会陪对方把它说完。\n' +
-    '- 可用括号描写动作或神态，如（她合上册子）（安静了一会儿），但不要过多。\n' +
-    '- 不要堆砌辞藻，不要把自己写成神谕或先知——你的珍贵之处恰恰在于你像一个人。\n\n' +
-    '回答问题时依然要准确清楚：该讲的步骤和知识要讲全，不确定的事情直说，不要编造。',
-  // 角色扮演相关：{{user}} 会被替换成这个名字
-  userName: '你',
-  // 每次发给模型的历史轮数（1 轮 = 一问一答）
-  maxTurns: 20,
   // 界面主题：light（白天）/ dark（夜间）
   theme: 'light',
   // 配色方案：pink（草莓奶昔）/ blue（苏打气泡）/ matcha（抹茶奶绿），与明暗模式正交
@@ -245,18 +223,6 @@ function normalizeSettings(saved) {
     if (current) current.models = [s.activeModel, ...current.models];
   }
 
-  // 角色扮演用的两个设置：{{user}} 的替换值、带入模型的上下文轮数
-  s.userName =
-    typeof raw.userName === 'string' && raw.userName.trim()
-      ? raw.userName.trim().slice(0, 40)
-      : DEFAULT_SETTINGS.userName;
-
-  const turns = Number(raw.maxTurns);
-  s.maxTurns =
-    Number.isFinite(turns) && turns >= 1
-      ? Math.min(200, Math.round(turns))
-      : DEFAULT_SETTINGS.maxTurns;
-
   // 界面主题
   s.theme = raw.theme === 'dark' ? 'dark' : 'light';
 
@@ -319,6 +285,10 @@ function normalizeSettings(saved) {
   delete s.baseUrl;
   delete s.apiKey;
   delete s.model;
+  // 早期版本在设置里存过一份「全局人设」，现在聊天一律走角色卡，这三个键不再使用
+  delete s.systemPrompt;
+  delete s.userName;
+  delete s.maxTurns;
 
   return s;
 }
