@@ -15,6 +15,9 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const {
+  userDataFile,
+  writeJson,
+  loadJsonWithFallback,
   loadConversations,
   saveConversations,
   loadCharacters,
@@ -82,6 +85,72 @@ const IMAGE_MIME = {
 const MAX_EMBED_PER_CALL = 32;
 // 一次请求最多多少条文本（查询 + 补索引共用）
 const MAX_EMBED_INPUTS = 64;
+
+// ---------------------------------------------------------------------------
+//  文件选择框的「上次位置」
+//
+//  系统弹框不带 defaultPath 时，每次都会回到默认目录，用户得反复点进文件夹。
+//  这里把上一次选中的目录记下来，下次弹框作为 defaultPath 传进去。目录存在
+//  userData\dialog-state.json，重开 App 也还在。
+//  导入 / 选图 / 保存共用同一份记忆 —— 「上次在哪，这次就从哪开」最符合直觉。
+// ---------------------------------------------------------------------------
+
+let lastDialogDir = '';
+let lastDialogDirLoaded = false;
+
+function dialogStateFile() {
+  return userDataFile('dialog-state.json');
+}
+
+/** 目录还存在吗？被删/被移走后不能再拿来当默认位置 */
+function isUsableDir(dir) {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch (err) {
+    return false;
+  }
+}
+
+/** 取上次用过的目录（懒加载一次，读到的目录要还在才用） */
+function lastDirForDialog() {
+  if (!lastDialogDirLoaded) {
+    lastDialogDirLoaded = true;
+    try {
+      const data = loadJsonWithFallback(dialogStateFile());
+      const dir = data && typeof data.lastDir === 'string' ? data.lastDir : '';
+      if (dir && isUsableDir(dir)) lastDialogDir = dir;
+    } catch (err) {
+      // 记不住位置不是致命问题：静默退回系统默认目录
+    }
+  }
+  return lastDialogDir;
+}
+
+/** 记住这次选中的路径所在目录（给下一次弹框用） */
+function rememberDialogDir(chosenPath) {
+  const dir = chosenPath ? path.dirname(chosenPath) : '';
+  if (!dir || dir === lastDialogDir || !isUsableDir(dir)) return;
+  lastDialogDir = dir;
+  lastDialogDirLoaded = true;
+  try {
+    writeJson(dialogStateFile(), { lastDir: dir });
+  } catch (err) {
+    // 落盘失败只影响「下次记不住」，不影响本次结果
+  }
+}
+
+/** 弹框的默认目录（没记录过就返回 undefined，交给系统默认） */
+function dialogDefaultDir() {
+  return lastDirForDialog() || undefined;
+}
+
+/** 保存框的默认路径：上次目录 + 文件名（fileName 已是绝对路径就直接用） */
+function dialogDefaultSavePath(fileName) {
+  const base = String(fileName || 'export');
+  if (path.isAbsolute(base)) return base;
+  const dir = dialogDefaultDir();
+  return dir ? path.join(dir, base) : base;
+}
 
 /** 调一次 /embeddings，返回向量数组（顺序和输入一一对应） */
 async function embedTexts(endpoint, texts) {
@@ -260,6 +329,7 @@ function registerIpc() {
     const result = await dialog.showOpenDialog(getMainWindow(), {
       title: '选择预设文件',
       buttonLabel: '导入',
+      defaultPath: dialogDefaultDir(),
       properties: ['openFile', 'multiSelections'],
       filters: [
         { name: '预设文件（JSON）', extensions: ['json'] },
@@ -270,6 +340,7 @@ function registerIpc() {
     if (result.canceled || !result.filePaths.length) {
       return { canceled: true, presets: [], errors: [] };
     }
+    rememberDialogDir(result.filePaths[0]);
 
     const out = [];
     const errors = [];
@@ -385,6 +456,7 @@ function registerIpc() {
     const result = await dialog.showOpenDialog(getMainWindow(), {
       title: '选择角色卡或世界书',
       buttonLabel: '导入',
+      defaultPath: dialogDefaultDir(),
       properties: ['openFile', 'multiSelections'],
       filters: [
         { name: '角色卡 / 世界书（PNG / JSON）', extensions: ['png', 'json'] },
@@ -396,6 +468,7 @@ function registerIpc() {
     if (result.canceled || !result.filePaths.length) {
       return { canceled: true, characters: [], worldbooks: [], errors: [] };
     }
+    rememberDialogDir(result.filePaths[0]);
 
     const imported = importFiles({
       paths: result.filePaths,
@@ -423,6 +496,7 @@ function registerIpc() {
     const result = await dialog.showOpenDialog(getMainWindow(), {
       title: opts.title || '选择图片',
       buttonLabel: '使用这张',
+      defaultPath: dialogDefaultDir(),
       properties: ['openFile'],
       filters: [{ name: '图片', extensions: Object.keys(IMAGE_MIME).map((e) => e.slice(1)) }]
     });
@@ -430,6 +504,7 @@ function registerIpc() {
     if (result.canceled || !result.filePaths.length) {
       return { canceled: true, dataUrl: '', error: '' };
     }
+    rememberDialogDir(result.filePaths[0]);
 
     const file = result.filePaths[0];
     const ext = path.extname(file).toLowerCase();
@@ -464,6 +539,7 @@ function registerIpc() {
     const result = await dialog.showOpenDialog(getMainWindow(), {
       title: opts.title || (useDirectory ? '选择图片文件夹' : '选择图片（可多选）'),
       buttonLabel: '导入',
+      defaultPath: dialogDefaultDir(),
       properties: useDirectory ? ['openDirectory'] : ['openFile', 'multiSelections'],
       ...(useDirectory
         ? {}
@@ -475,6 +551,7 @@ function registerIpc() {
     });
 
     if (result.canceled || !result.filePaths.length) return { canceled: true, files: [] };
+    rememberDialogDir(result.filePaths[0]);
 
     let paths = [];
     if (useDirectory) {
@@ -641,11 +718,12 @@ function registerIpc() {
     const request = payload || {};
     const result = await dialog.showSaveDialog(getMainWindow(), {
       title: request.title || '保存',
-      defaultPath: request.fileName || 'export',
+      defaultPath: dialogDefaultSavePath(request.fileName),
       filters: Array.isArray(request.filters) ? request.filters : []
     });
 
     if (result.canceled || !result.filePath) return { canceled: true };
+    rememberDialogDir(result.filePath);
 
     const ext = path.extname(result.filePath).toLowerCase();
     try {
