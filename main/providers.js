@@ -99,7 +99,9 @@ const DEFAULT_SETTINGS = {
   activeProviderId: DEFAULT_PROVIDER_ID,
   activeModel: DEFAULT_MODEL,
   temperature: 0.7,
-  maxTokens: 2048,
+  // 回复上限。推理模型（如 deepseek-flash/v4-pro）的**思考过程也计入这个额度**，
+  // 设小了会出现「思考还没写完、正文一个字没出」的截断，所以默认给得宽一些。
+  maxTokens: 8192,
   topP: 0.95,
   // 界面主题：light（白天）/ dark（夜间）
   theme: 'light',

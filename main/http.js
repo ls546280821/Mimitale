@@ -272,7 +272,7 @@ function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
       messages,
       stream: true,
       temperature: Number(settings.temperature),
-      max_tokens: Math.max(1, Number(settings.maxTokens) || 2048)
+      max_tokens: Math.max(1, Number(settings.maxTokens) || 8192)
     };
     // 有些服务商不接受 top_p 与 temperature 同时出现，这里仅在显式设置时附带
     if (settings.topP !== undefined && settings.topP !== null && settings.topP !== '') {
@@ -440,7 +440,7 @@ function bridgeChat({ settings, messages, characterContext, noImage, signal, tim
     const body = {
       messages,
       temperature: Number(settings.temperature),
-      max_tokens: Math.max(1, Number(settings.maxTokens) || 2048)
+      max_tokens: Math.max(1, Number(settings.maxTokens) || 8192)
     };
     // 只要文字：改打桥接的 /chat 端点 —— 那条不做出图判定，省掉「判断该不该画」
     // 那一步（命中出图时整轮要多等几十秒，还要卸模型腾显存）。
