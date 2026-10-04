@@ -542,7 +542,23 @@ async function init() {
     }
   });
 
-  const config = await api.getSettings();
+  // ---- 启动数据：五份互不依赖，并行去取 ----
+  // 以前是五个 await 排队，每次都要等上一个跨进程往返回来才发下一个；
+  // 并行后总耗时从「五次往返相加」压到「最慢那一份」。
+  // 世界书 / 预设读失败不该拦住启动（但要记住没读到，各自 catch 里见），
+  // 所以这两份单独包一层、失败也 resolve；其余三份失败 = 启动失败，语义同前。
+  const soft = (p) => p.then(
+    (r) => ({ ok: true, r }),
+    (err) => ({ ok: false, err })
+  );
+  const [config, storedChars, books, presets, stored] = await Promise.all([
+    api.getSettings(),
+    api.getCharacters(),
+    soft(api.getWorldbooks()),
+    soft(api.getPresets()),
+    api.getConversations()
+  ]);
+
   state.settings = config.settings;
   state.presets = asArray(config.presets);
   setEditingProvider(state.settings.activeProviderId);
@@ -553,31 +569,27 @@ async function init() {
   applyAccent(state.settings.accent);
   applyChatAppearance();
 
-  const storedChars = await api.getCharacters();
   state.characters = asArray(storedChars && storedChars.characters);
 
   // 世界书读不到不该拦住启动，但**必须记住没读到** ——
   // 否则之后随便存一次角色，就会把 worldbooks.json 覆盖成空文件。
-  try {
-    const storedBooks = await api.getWorldbooks();
-    state.worldbooks = asArray(storedBooks && storedBooks.worldbooks);
+  if (books.ok) {
+    state.worldbooks = asArray(books.r && books.r.worldbooks);
     markWorldbooksLoaded();
-  } catch (err) {
-    console.error('读取世界书失败', err);
+  } else {
+    console.error('读取世界书失败', books.err);
     showToast('世界书没能读出来，本次不会写回它（重启试试）', 'error');
   }
 
   // 预设同理：读失败要记住，否则之后存一次预设就把文件写空了
-  try {
-    const storedPresets = await api.getPresets();
-    state.dialoguePresets = asArray(storedPresets && storedPresets.presets);
+  if (presets.ok) {
+    state.dialoguePresets = asArray(presets.r && presets.r.presets);
     markPresetsLoaded();
-  } catch (err) {
-    console.error('读取预设失败', err);
+  } else {
+    console.error('读取预设失败', presets.err);
     showToast('预设没能读出来，本次不会写回它（重启试试）', 'error');
   }
 
-  const stored = await api.getConversations();
   state.conversations = asArray(stored.conversations);
   state.activeId = stored.activeId || null;
 

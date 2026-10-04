@@ -35,6 +35,36 @@ import { openStateCard } from './stateCard.js';
 /** 正在生成开局的那个会话 id；同一时间只允许一个 */
 let openingBusyId = null;
 
+// ---- Markdown 渲染缓存 ----
+// renderAll 在每次发消息 / 收流结束 / 编辑 / 切候选 / 配图完成后都会整棵重建
+// 消息列表，长会话下几百条 assistant 消息每条都要重跑一遍 renderMarkdown
+// 的十几条正则 —— 而其中只有最后几条是新的。一条消息的渲染结果只取决于
+// 三个输入：正文、面板字段名、分组名，用 WeakMap 以消息对象为键缓存结果，
+// 输入没变就直接复用上次的 HTML。
+// 编辑消息 / 切换候选会换掉 content，sig 对不上自然重算，无需手动失效；
+// 消息对象被丢弃（删消息 / 换会话）时 WeakMap 自动跟着释放。
+const markdownCache = new WeakMap();
+
+function cachedMarkdown(message, ctx) {
+  const hit = markdownCache.get(message);
+  if (
+    hit &&
+    hit.content === message.content &&
+    hit.fieldsKey === ctx.fieldsKey &&
+    hit.groupsKey === ctx.groupsKey
+  ) {
+    return hit.html;
+  }
+  const html = renderMarkdown(cleanAssistantText(message.content, ctx.panelFields, ctx.panelGroups));
+  markdownCache.set(message, {
+    content: message.content,
+    fieldsKey: ctx.fieldsKey,
+    groupsKey: ctx.groupsKey,
+    html
+  });
+  return html;
+}
+
 /** 由 views/worldPlay.js 在「按世界设定生成开局」前后设置 */
 export function setOpeningBusy(id) {
   openingBusyId = id;
@@ -256,9 +286,8 @@ function messageNode(message, index, character, labels, ctx) {
     //   · 状态值已经由面板权威持有并在顶部常驻显示，正文里再来一份是重复的；
     //   · 选项已经变成可点的按钮了，原文留着只会吵。
     // （换候选时靠面板里的输入框看当前值，不靠正文。）
-    content.innerHTML = renderMarkdown(
-      cleanAssistantText(message.content, ctx.panelFields, ctx.panelGroups)
-    );
+    // 渲染结果走上面的缓存 —— 长会话整棵重建时，没改过的消息不重跑正则。
+    content.innerHTML = cachedMarkdown(message, ctx);
   }
 
   // 图片放在文字上面 —— 先看图再看说话，跟聊天软件的习惯一致
@@ -455,16 +484,26 @@ export function renderMessages(options) {
     lastMsg.role === 'assistant' &&
     Array.isArray(convo.options) &&
     convo.options.length > 0;
+  const panelFields = convoFieldDisplayNames(convo);
+  const panelGroups = [...panelGroupNames(convo)];
   const ctx = {
-    panelFields: convoFieldDisplayNames(convo),
-    panelGroups: [...panelGroupNames(convo)],
+    panelFields,
+    panelGroups,
+    // 缓存签名用的两把钥匙：字段名 / 分组名变了（比如编辑面板定义），
+    // 旧消息的剥离结果就该跟着变 —— 拼成一串字符串参与比对，改一个字都能对不上
+    fieldsKey: panelFields.join('\u0000'),
+    groupsKey: panelGroups.join('\u0000'),
     lastIndex: convo.messages.length - 1,
     options: showOptions ? convo.options : null
   };
 
+  // 先攒进 fragment 再一次性挂上去：逐条往已挂载的列表里 append，
+  // 每条都可能让样式失效一次；几百条时攒一批明显更稳
+  const frag = document.createDocumentFragment();
   convo.messages.forEach((message, index) => {
-    el.messages.appendChild(messageNode(message, index, character, labels, ctx));
+    frag.appendChild(messageNode(message, index, character, labels, ctx));
   });
+  el.messages.appendChild(frag);
 
   scrollToBottom(!!opts.forceScroll);
 }
