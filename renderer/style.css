@@ -234,7 +234,9 @@
   --border-hover: #3f3a45;
   --text: #eceaf0;
   --text-dim: #a49fa9;
-  --text-faint: #76717c;
+  /* 卡片底（#1f1e25）上 4.5:1。原值是 #76717c，实测只有 3.5:1 —— 比浅色那套
+     4.7:1 弱一截，同样是「说明文字」，两套主题的观感对不齐。 */
+  --text-faint: #89848f;
   --accent: #fb4d74;         /* 暗色下略调亮一点，保证对比度 */
   --accent-hover: #fc7492;
   --accent-pressed: #e0385e;
@@ -3042,7 +3044,12 @@ body {
 .char-text-section { display: flex; flex-direction: column; }
 
 /* 上传列：头像（1:1 圆）和形象（2:3 竖版）并排，各自下面一行小标签 + 清除。
-   两个框的**形状就是存下来的形状** —— 裁剪时框住哪块，这里、列表卡上看到的就是哪块。 */
+   两个框的**形状就是存下来的形状** —— 裁剪时框住哪块，这里、列表卡上看到的就是哪块。
+
+   两列的形状不同（92px 圆 vs 162px 竖版），所以图区高度**固定成形象框那档**、
+   图片在区内垂直居中：不这么做的话，「标签 + 清除」会各跟着自己的图高往下走，
+   两列的文字差出 70px（头像那列整个浮在中间），看着就散了。
+   ⚠️ 162px 要和下面 .char-portrait 的 height 保持一致。 */
 .char-avatar-col {
   display: flex;
   flex-direction: row;
@@ -3051,11 +3058,15 @@ body {
   margin-bottom: 14px;
 }
 
+/* 每列三行：图区（固定高）/ 标签 / 清除。
+   grid 的 align-items 管行内垂直方向（图片在 162px 的图区里居中），
+   justify-items 管水平方向（图、标签、按钮都居中）。 */
 .char-media-item {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 162px auto auto;
+  justify-items: center;
   align-items: center;
-  gap: 6px;
+  row-gap: 6px;
 }
 
 .char-media-label { font-size: 11px; color: var(--text-faint); }
@@ -3347,6 +3358,10 @@ body {
   display: grid;
   grid-template-columns: 152px minmax(0, 1fr);
   align-items: start;
+  /* 行从顶排，多余空间留底部。不写这条时 align-content 默认 stretch，
+     一旦外层把字段拉高（.field-grid 里两格等高），内容不满的那个字段
+     会把隐式行均匀撑开 —— 输入框就被顶下去了，左右两格的框对不齐。 */
+  align-content: start;
   column-gap: 16px;
   row-gap: 6px;
   margin-bottom: 20px;
