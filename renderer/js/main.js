@@ -22,7 +22,8 @@
 //            viewSwitch.js 视图切换、characterList.js 角色列表页、
 //            charAttributes.js 角色属性编辑器、characterEditor.js 角色编辑器弹窗、
 //            characterImport.js 导入角色卡通道、
-//            worldbookList.js 世界书列表页、worldbook.js 世界书编辑器）
+//            worldbookList.js 世界书列表页、worldbook.js 世界书编辑器、
+//            help.js 帮助页的「复制优化提示词」）
 //  这个文件只剩入口层的编排：把事件接到各模块身上、把启动流程串起来，
 //  以及两处刻意留在这里的跨视图动作（导入世界书、Esc 的关闭顺序）。
 //
@@ -90,6 +91,7 @@ import { streamPainter, initStreamFollow } from './views/stream.js';
 import { initChatImages, addImageFiles } from './views/chatImages.js';
 import { initSuggestionsUi, pickOption } from './views/suggestionsUi.js';
 import { showView, refreshLibraryPage, initViewSwitch } from './views/viewSwitch.js';
+import { initHelp } from './views/help.js';
 import { initCharacterList, renderCharacterPage } from './views/characterList.js';
 import {
   initWorldbook,
@@ -500,8 +502,10 @@ async function init() {
   initSuggestionsUi({
     send: sendMessage
   });
-  // 侧边栏的「角色库 / 世界书」两个入口自己绑（切屏是 viewSwitch 自己的事）。
+  // 侧边栏的「角色库 / 世界书 / 帮助」几个入口自己绑（切屏是 viewSwitch 自己的事）。
   initViewSwitch();
+  // 帮助页只有一颗「复制优化提示词」，内容本身是静态 HTML，不用重绘。
+  initHelp();
   // 角色卡上的三个按钮都跨分区（编辑要开编辑器、聊天要建会话并切屏、删除要解绑会话），
   // 所以由这里把动作交给列表页。
   initCharacterList({

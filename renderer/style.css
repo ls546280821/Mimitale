@@ -4956,3 +4956,306 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   .check > input[type="checkbox"],
   .check > input[type="checkbox"]::after { transition: none; }
 }
+
+/* ------------------------------ 帮助页 ------------------------------
+   帮助页是一整篇静态长文，样式全收在这一个块里：正文限宽保证行长好读，
+   标题 / 对照框 / 清单 / 尺度条各一套。颜色只用主题变量，浅色与夜间都成立。
+
+   ⚠️ 组件规则一律写成 `.help-doc .xxx`（两层）—— 因为 `.help-doc p`
+   是「一层类 + 一层元素」，直接写 `.help-box` 会被它压过去。 */
+
+.help-doc {
+  max-width: 780px;
+  margin: 0 auto;
+  font-size: 13.5px;
+  line-height: 1.95;
+  color: var(--text-dim);
+}
+
+.help-doc p { margin: 0 0 12px; }
+.help-doc p:last-child { margin-bottom: 0; }
+.help-doc b { color: var(--text); font-weight: 600; }
+
+/* 开头那句总纲 —— 全文最要紧的一句，给它一块底 */
+.help-doc .help-lead {
+  margin: 0 0 22px;
+  padding: 14px 18px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.9;
+}
+.help-doc .help-lead b { color: var(--accent); }
+
+/* 目录：标题一行，下面条目自动换行 */
+.help-doc .help-toc {
+  display: block;
+  margin: 0 0 28px;
+  padding: 14px 18px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-side);
+  border: 1px solid var(--border);
+}
+.help-doc .help-toc-title {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+}
+.help-doc .help-toc ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.help-doc .help-toc li { font-size: 12.5px; }
+.help-doc .help-toc a { color: var(--accent); text-decoration: none; }
+.help-doc .help-toc a:hover { text-decoration: underline; }
+
+/* 小节 */
+.help-doc .help-sec { margin: 0 0 34px; scroll-margin-top: 14px; }
+.help-doc .help-sec:last-of-type { margin-bottom: 18px; }
+.help-doc .help-h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-size: 16.5px;
+  font-weight: 700;
+  color: var(--text);
+}
+.help-doc .help-num {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 7px;
+  background: var(--accent-soft-strong);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.help-doc .help-h3 {
+  margin: 20px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 对照框：草料 / 一栋房子，描述 / 示范 …… 左右两栏 */
+.help-doc .help-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 14px 0 16px;
+}
+.help-doc .help-box {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.help-doc .help-box > p { margin: 0; font-size: 13px; line-height: 1.85; }
+.help-doc .help-box-head {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.help-doc .help-bad { background: var(--pre-bg); }
+.help-doc .help-bad .help-box-head { color: var(--danger); }
+.help-doc .help-good { border-color: var(--accent-border-soft); }
+.help-doc .help-good .help-box-head { color: var(--accent); }
+.help-doc .help-plain .help-box-head { color: var(--text-dim); }
+/* 单栏的示例框（07 / 08 / 09 直接用 .help-box，外面没有对照栏） */
+.help-doc .help-plain, .help-doc .help-sec > .help-box { margin: 14px 0 16px; }
+
+/* 关键词那一行比正文淡一档，用三层类压过 `.help-box > p` 的 margin:0 */
+.help-doc .help-box .help-keys { margin: 0 0 8px; font-size: 12px; color: var(--text-faint); }
+.help-doc .help-box .help-keys b { margin-right: 6px; }
+
+/* 编号步骤清单（自己画序号，所以不要浏览器的 list-style） */
+.help-doc .help-steps {
+  margin: 12px 0 16px;
+  padding: 0 0 0 4px;
+  list-style: none;
+  counter-reset: helpstep;
+}
+.help-doc .help-steps > li { position: relative; padding: 0 0 0 34px; margin-bottom: 10px; }
+.help-doc .help-steps > li::before {
+  counter-increment: helpstep;
+  content: counter(helpstep);
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent-soft-strong);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.help-doc .help-steps > li:last-child { margin-bottom: 0; }
+
+/* 圆点清单 */
+.help-doc .help-list { margin: 12px 0 16px; padding: 0; list-style: none; }
+.help-doc .help-list > li { position: relative; padding: 0 0 0 20px; margin-bottom: 8px; }
+.help-doc .help-list > li::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 0.72em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.55;
+}
+.help-doc .help-list > li:last-child { margin-bottom: 0; }
+/* 「这些别再写了」：整条压暗一档，点换成红色 */
+.help-doc .help-list-bad > li { color: var(--text-faint); }
+.help-doc .help-list-bad > li::before { background: var(--danger); opacity: 0.6; }
+/* 发布前清单：点换成对勾 */
+.help-doc .help-list-check > li::before {
+  content: '\2713';
+  left: 2px;
+  top: 0;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* 分工表：一行一类，配一枚小标签 */
+.help-doc .help-tags { margin: 12px 0 16px; padding: 0; list-style: none; }
+.help-doc .help-tags > li {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-side);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.help-doc .help-tags > li:last-child { margin-bottom: 0; }
+.help-doc .help-tag {
+  display: inline-block;
+  margin: 0 6px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--accent-soft-strong);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* 引文（三个问题下面那几句示例回答） */
+.help-doc .help-quote {
+  margin: 10px 0 14px;
+  padding: 8px 14px;
+  border-left: 3px solid var(--accent-border);
+  background: var(--accent-wash);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+/* 问答式笔记（05 节 Marek 那段） */
+.help-doc .help-qa { margin: 0; }
+.help-doc .help-qa dt { margin-top: 10px; font-size: 12.5px; font-weight: 600; color: var(--text-faint); }
+.help-doc .help-qa dt:first-child { margin-top: 0; }
+.help-doc .help-qa dd {
+  margin: 4px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  font-size: 13px;
+}
+
+/* 长度尺度条：绿到红的那条渐变 + 一个「甜区」框 */
+.help-doc .help-scale { margin: 12px 0 10px; }
+.help-doc .help-scale-track {
+  position: relative;
+  height: 8px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--border) 0%, var(--accent-soft-strong) 40%, var(--accent-border-soft) 72%, var(--accent) 100%);
+  opacity: 0.85;
+}
+.help-doc .help-scale-band {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: 30%;
+  width: 24%;
+  border-radius: 99px;
+  border: 2px solid var(--accent);
+  background: var(--accent-soft-strong);
+}
+.help-doc .help-scale-band-wide { left: 26%; width: 40%; }
+.help-doc .help-scale-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.help-doc .help-scale-sweet { color: var(--accent); font-weight: 600; }
+
+/* 出问题对照（症状 → 为什么 → 怎么办） */
+.help-doc .help-trouble { display: grid; gap: 10px; margin: 14px 0 0; }
+.help-doc .help-trouble-item {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.help-doc .help-trouble-sym {
+  margin-bottom: 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.help-doc .help-trouble-item p { margin: 0 0 6px; font-size: 12.5px; line-height: 1.85; }
+.help-doc .help-trouble-item p:last-child { margin-bottom: 0; }
+.help-doc .help-why,
+.help-doc .help-fix {
+  display: inline-block;
+  min-width: 44px;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+.help-doc .help-why { background: var(--pre-bg); color: var(--text-faint); }
+.help-doc .help-fix { background: var(--accent-soft-strong); color: var(--accent); }
+
+/* 出处 */
+.help-doc .help-credit {
+  margin-top: 30px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  line-height: 1.9;
+  color: var(--text-faint);
+}
+.help-doc .help-credit p { margin: 0 0 6px; }

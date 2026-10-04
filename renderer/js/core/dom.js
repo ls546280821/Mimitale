@@ -33,6 +33,8 @@ export const el = {
   btnChars: $('btn-chars'),
   btnWorldbooks: $('btn-worldbooks'),
   btnPresets: $('btn-presets'),
+  // 帮助页（内容是静态文本，没有 render 函数，只靠 viewSwitch 显隐）
+  btnHelp: $('btn-help'),
   btnTheme: $('btn-theme'),
   btnAccent: $('btn-accent'),
   modal: $('settings-modal'),
@@ -112,11 +114,14 @@ export const el = {
   charsModal: $('chars-modal'),
   charsTitle: $('chars-title'),
   charsSub: $('chars-sub'),
-  // 主区域的四个视图：聊天 / 角色列表页 / 世界书列表页 / 预设列表页
+  // 主区域的五个视图：聊天 / 角色列表页 / 世界书列表页 / 预设列表页 / 帮助页
   viewChat: $('view-chat'),
   viewChars: $('view-chars'),
   viewWorldbooks: $('view-worldbooks'),
   viewPresets: $('view-presets'),
+  viewHelp: $('view-help'),
+  // 帮助页右上角「复制优化提示词」（文本在 views/help.js）
+  btnCopyHelpPrompt: $('btn-copy-help-prompt'),
   charsPageSub: $('chars-page-sub'),
   charPageGrid: $('char-page-grid'),
   charPageEmpty: $('char-page-empty'),

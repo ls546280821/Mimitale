@@ -2887,6 +2887,14 @@ app.whenReady().then(async () => {
         chars: `
           document.querySelector('#btn-chars')?.click();
           await new Promise(r => setTimeout(r, 500));`,
+        // 帮助页：一整篇静态长文，「对照框 / 清单 / 尺度条」的排版只靠 DOM
+        // 断言看不出来，得截一张。滚回顶部，不然可能停在上次滚到的位置。
+        help: `
+          document.querySelector('#btn-help')?.click();
+          await new Promise(r => setTimeout(r, 500));
+          const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
+          const body = document.querySelector('#view-help .page-body');
+          if (body) body.scrollTop = 0;`,
         // 角色库：卡片上铺的是**角色形象**（2:3 竖版立绘），点开还能看大图。
         // 测试里的角色都没有图（上传那条路被 images:pick 的桩挡着），
         // 所以这里给每张卡塞一个 2:3 的 SVG 占位立绘 —— 只为看清裁切和排版；

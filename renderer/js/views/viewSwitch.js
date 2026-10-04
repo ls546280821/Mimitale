@@ -23,14 +23,16 @@ import { renderPresetPage } from './presetList.js';
 /** 当前主区域显示的是哪个视图 */
 let currentView = 'chat';
 
-const VIEWS = ['chat', 'chars', 'worldbooks', 'presets'];
+const VIEWS = ['chat', 'chars', 'worldbooks', 'presets', 'help'];
 
 /** 「哪一屏对应哪个容器、哪个侧栏按钮」—— 加视图只要往这张表里加一行 */
 const VIEW_PARTS = [
   { name: 'chat', view: 'viewChat', btn: null },
   { name: 'chars', view: 'viewChars', btn: 'btnChars' },
   { name: 'worldbooks', view: 'viewWorldbooks', btn: 'btnWorldbooks' },
-  { name: 'presets', view: 'viewPresets', btn: 'btnPresets' }
+  { name: 'presets', view: 'viewPresets', btn: 'btnPresets' },
+  // 帮助页是纯静态文本，没有 render 函数，只在这里登记显隐和高亮
+  { name: 'help', view: 'viewHelp', btn: 'btnHelp' }
 ];
 
 export function showView(name) {
@@ -48,7 +50,8 @@ export function showView(name) {
   if (name === 'chars') renderCharacterPage();
   else if (name === 'worldbooks') renderWorldbookPage();
   else if (name === 'presets') renderPresetPage();
-  else el.input.focus();
+  // help 是静态页，切过去不用做任何事；只有回到聊天才把光标放回输入框
+  else if (name === 'chat') el.input.focus();
 }
 
 /** 停在图书区那几个列表页时也要跟着刷新（改名、删除、导入都会走到这里） */
@@ -66,4 +69,6 @@ export function initViewSwitch() {
   el.btnWorldbooks.addEventListener('click', () => showView('worldbooks'));
   // 预设 → 切到预设列表页
   if (el.btnPresets) el.btnPresets.addEventListener('click', () => showView('presets'));
+  // 帮助 → 切到帮助页（静态内容）
+  if (el.btnHelp) el.btnHelp.addEventListener('click', () => showView('help'));
 }

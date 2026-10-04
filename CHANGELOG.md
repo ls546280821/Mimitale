@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-10-05 帮助页：写角色的完整指南 + 「故事优化提示词」
+
+左下角多了一颗 **「帮助」**，切开是一整页写角色的指南（译改自 Character Tavern
+的《Mastering Character Cards》），11 个小节：三个问题、摩擦与细节、角色描述怎么写、
+开场白、世界书要不要、出问题时的症状对照表、发布前清单。
+
+页面右上角 **「复制优化提示词」** 把这份指南变成一份可直接投喂的提示词 ——
+粘给任意 AI、再贴上自己写的角色卡或故事，它就会逐条挑问题并给出改好的句子。
+同一份提示词另存了一份仓库根的 `故事优化提示词.md`（后半页是速查版）。
+
+- `renderer/index.html`：侧栏底部加「帮助」（排在「预设」和「设置」之间，2 列 3 行）；
+  新增 `#view-help` —— 内容是静态 HTML，所以这一屏没有 render 函数，viewSwitch 只显隐。
+- `renderer/js/views/help.js`（新）：`STORY_REVIEW_PROMPT` 那份提示词 + `initHelp()` 绑按钮。
+- `renderer/js/views/viewSwitch.js`：`VIEWS` / `VIEW_PARTS` 各加一行；
+  `showView` 收尾从「其余一律 focus 输入框」改成**只有回到聊天才 focus**。
+- `renderer/js/ui/icons.js`：加 `help` 图标（问号圆圈）。
+- `renderer/js/core/dom.js`、`renderer/js/main.js`：接线。
+- `renderer/style.css`：帮助页排版（正文限宽 780、对照框、编号清单、对勾清单、
+  长度尺度条、症状卡）。⚠️ 组件规则一律写成 `.help-doc .xxx` 两层 —— `.help-doc p`
+  会把单层类压过去。
+- `tools/smoke-renderer.js`：新增「帮助：切页、正文与复制提示词」场景（7 条断言，
+  含「目录锚点是否都命中真实小节」——改正文时最容易忘了同步目录 id）。
+- `tools/smoke-test.js`：截图场景加 `--shot=help`。
+- `使用说明.md`：功能表加一行、新增「帮助」一节、文件树加 `故事优化提示词.md`。
+
+冒烟 1014 → **1021/1021** 全绿、0 控制台报错。
+
+---
+
 ## 2026-10-04 样式巡检：头像/形象两列对齐 + 暗色次要文字对比度
 
 系统过了一遍 21 个界面截图（角色编辑器各态 / 属性面板各态 / 世界书 / 角色库 /

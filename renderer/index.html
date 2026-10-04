@@ -42,6 +42,7 @@
         <button id="btn-chars" class="btn btn-ghost btn-block" data-icon="users" aria-label="打开角色库">角色库</button>
         <button id="btn-worldbooks" class="btn btn-ghost btn-block" data-icon="book" aria-label="打开世界书">世界书</button>
         <button id="btn-presets" class="btn btn-ghost btn-block" data-icon="sliders" aria-label="打开预设">预设</button>
+        <button id="btn-help" class="btn btn-ghost btn-block" data-icon="help" aria-label="打开帮助">帮助</button>
         <button id="btn-settings" class="btn btn-ghost btn-block" data-icon="settings" aria-label="打开设置">设置</button>
         <button id="btn-folder" class="btn btn-ghost btn-block" data-icon="folder" aria-label="打开数据文件夹">数据文件夹</button>
       </div>
@@ -231,6 +232,374 @@
               再在会话的「视角」里选上它，这一场对话就按它来。
             </p>
           </div>
+        </div>
+      </section>
+
+      <!-- 视图五：帮助（写角色 / 写故事的完整指南）
+           内容全是静态文本，直接写在 HTML 里（不像别的视图要靠 JS 铺数据），
+           所以 viewSwitch 只负责显隐，没有 render 函数。
+           右上角那颗按钮把「故事优化提示词」复制走 —— 那段文本在 views/help.js。 -->
+      <section id="view-help" class="view hidden" aria-label="帮助">
+        <header class="page-head">
+          <div class="page-heading">
+            <h1 class="page-title">帮助 · 写角色的完整指南</h1>
+            <p class="page-sub">约 15 分钟 · 不堆术语 · 任何酒馆软件都能用</p>
+          </div>
+          <div class="page-actions">
+            <button id="btn-copy-help-prompt" class="btn btn-primary btn-sm" type="button"
+                    title="复制「故事优化提示词」：把它粘给 AI，再贴上你自己写的故事，它就会按这份指南逐条帮你改">复制优化提示词</button>
+          </div>
+        </header>
+
+        <div class="page-body">
+          <article class="help-doc">
+            <p class="help-lead">
+              一句话概括整份指南：<b>一张角色卡不是「一个人的说明」，而是一台 AI 每一轮都会跑一遍的小引擎。</b>
+            </p>
+
+            <nav class="help-toc" aria-label="目录">
+              <span class="help-toc-title">目录</span>
+              <ol>
+                <li><a href="#help-1">核心就一个想法</a></li>
+                <li><a href="#help-2">AI 是怎么读它的</a></li>
+                <li><a href="#help-3">三个问题，拼出一个人</a></li>
+                <li><a href="#help-4">摩擦，以及它能拽住的细节</a></li>
+                <li><a href="#help-5">从空白页到初稿</a></li>
+                <li><a href="#help-6">怎么写「角色描述」</a></li>
+                <li><a href="#help-7">拆开一张卡看</a></li>
+                <li><a href="#help-8">开场白</a></li>
+                <li><a href="#help-9">需要世界书吗？</a></li>
+                <li><a href="#help-10">出问题的时候</a></li>
+                <li><a href="#help-11">测一测，然后发布</a></li>
+              </ol>
+            </nav>
+
+            <!-- 01 -->
+            <section id="help-1" class="help-sec">
+              <h2 class="help-h"><span class="help-num">01</span>核心就一个想法</h2>
+              <p>AI 是个文字接龙器。它读你的卡，然后往下接。一串形容词没有东西可接，它就只能退回那个原型最平庸的版本 —— 聊到第二十条你就腻了。</p>
+              <p>它能接的是<b>因果</b>：TA 为什么是这样、想要什么、什么挡在中间、对此是什么感受。对比一下：</p>
+
+              <div class="help-compare">
+                <div class="help-box help-bad">
+                  <div class="help-box-head">草料</div>
+                  <p>[性格：活泼、害羞、忠诚] [喜好：音乐、咖啡] [背景：童年很苦]</p>
+                </div>
+                <div class="help-box help-good">
+                  <div class="help-box-head">一栋房子</div>
+                  <p>{{char}} 在人前硬撑出一副活泼的样子，因为「真的被人看透」让她害怕；她很早就学会，那个吵闹、好说话的自己不会被人多问，而安静的那个会招来一堆问题。这副样子在她累的时候会垮掉 —— 而打烊后的夜里，她大多时候都很累。</p>
+                </div>
+              </div>
+
+              <p>第二版给了 AI 一个<b>因</b>、一个<b>张力</b>、一副面具和面具后面的东西，还给了「这个行为会随时而变」的理由。整份指南就是这一段的展开，剩下的都是「怎么快点写到这一步」。</p>
+            </section>
+
+            <!-- 02 -->
+            <section id="help-2" class="help-sec">
+              <h2 class="help-h"><span class="help-num">02</span>AI 是怎么读它的</h2>
+              <p>动笔之前，有五件事值得知道。后面所有内容都从这五条推出来。</p>
+
+              <ol class="help-steps">
+                <li><b>它跟的是模式，不是规则。</b>你的卡不是一份 AI 必须遵守的规格书，而是「这是一个什么样的故事」的证据，AI 会照着往下写更多同类的东西。叫它「不要做什么」，多数时候只是把那个被禁的东西塞进了它的脑子。</li>
+                <li><b>放着不管，它就写最平常的那个。</b>一张含糊的卡，几条消息之内就会漂向那个原型的中位数版本。你写的那句「她会抗拒」，是在跟一万个「她不抗拒」的故事竞争。</li>
+                <li><b>名字是有重量的。</b>「利兹上夜班的药剂师」几个字，自带天气、工资、口音和整套社会机构。「遥远的东方」什么都不带。能写真地方就写真地方。</li>
+                <li><b>它只扫中间。</b>3000 字的卡不是 1000 字的深度三倍，那是一个被半读了的大中间段。把绝不能漂的东西放在最上面和最下面，中间保持短。</li>
+                <li><b>每件事只说一次。</b>如果她的眼睛颜色同时写在卡里、一条世界书条目里、和两个开场白里，总有一天你会改掉其中一个 —— 她就开始在两种颜色之间跳。只说一次。想强化就回头引用它，而不是重复它。</li>
+              </ol>
+
+              <p>第一条有个很锋利的推论，值得单独拎出来：<b>一段「她实际说话的样子」胜过任何对她的描述。</b>AI 模仿它看到的东西，远比遵守被告知的东西更忠实。如果一个角色老是写不对，先别急着加形容词 —— 先把她「写对一次」给它看。</p>
+
+              <div class="help-compare">
+                <div class="help-box help-bad">
+                  <div class="help-box-head">描述</div>
+                  <p>{{char}} 说话干巴巴的，爱挖苦人。</p>
+                </div>
+                <div class="help-box help-good">
+                  <div class="help-box-head">示范</div>
+                  <p>{{user}}：今晚不太顺？<br />{{char}}：「看你说的『不顺』。我两颗肾都还在，按这地方的标尺，我这叫风生水起。」</p>
+                </div>
+              </div>
+
+              <p>这条是双向的。<b>用华丽辞藻写的开场白，会教会 AI 用华丽辞藻回你。</b>你的卡是整场对话里最强的风格指令 —— 所以，用你想要被回应的那个调子去写它。</p>
+            </section>
+
+            <!-- 03 -->
+            <section id="help-3" class="help-sec">
+              <h2 class="help-h"><span class="help-num">03</span>三个问题，拼出一个人</h2>
+              <p>在长相之前、甚至名字之前，先用一句话各回答这三个问题。一个角色的大半就从这里长出来了。</p>
+
+              <h3 class="help-h3">TA 想要什么？</h3>
+              <p>以及，什么挡在中间？钱、图个清静、某个人、想消失、想被看见。最好这个障碍<b>不是玩家</b>，这样你一出现，故事不会就此结束。</p>
+              <blockquote class="help-quote">想要逃出夜班。白班意味着升职。升职意味着被看见。</blockquote>
+
+              <h3 class="help-h3">是什么塑造了 TA？</h3>
+              <p>一切 TA 没得选的东西。在哪长大、父母做什么、那件把人生掰弯的事。</p>
+              <blockquote class="help-quote">父母是护士。把她推去读药剂，说这是「不沾血的医学」。</blockquote>
+
+              <h3 class="help-h3">TA 喜欢什么，为什么？</h3>
+              <p>「为什么」才是全部。「喜欢音乐」什么都不是。一个带原因的口味就是一个人，它还会告诉 AI：聊到这个话题时 TA 会怎么表现。</p>
+              <blockquote class="help-quote">每周四踢五人制，又菜又大声。痛恨领英。</blockquote>
+
+              <p>之所以要这三个角度，是因为写手往往只顾一个、忘了另外两个。<b>身体</b>：年龄、体型、一个身体上的事实、以及它教会了 TA 什么。<b>世界</b>：阶级、职业、家、城镇。<b>脑子</b>：野心、脾气、TA 引以为耻的那件事。</p>
+              <p>第三个问题里，注意「一个原因」能顶多少事：<b>「只要吉他够吵她什么都听，只有一个例外：十六岁在厨房洗碗时循环播放的那张爵士乐队专辑，谁放她都能当场离席。」</b>一句话里，一个喜好、一个厌恶、一份旧工作、一种情绪，全有了。</p>
+              <p>最后再问自己一句：<b>玩家不再跟 TA 说话之后，TA 会在哪？</b>如果诚实的答案是「哪儿都不在，TA 只为玩家而存在」，这张卡就会空。</p>
+            </section>
+
+            <!-- 04 -->
+            <section id="help-4" class="help-sec">
+              <h2 class="help-h"><span class="help-num">04</span>摩擦，以及它能拽住的细节</h2>
+              <p>角色扮演靠<b>摩擦</b>运转。一个「想要某样东西、又被另一样东西挡住」的角色，在每个场景里都有事可做。一个没有障碍的角色，只有一场有趣的对话，然后就是重复。</p>
+              <p>所以给 TA 两三个矛盾：一副面具和面具后面的东西、一个欲望跟另一个欲望打架、一份忠诚要 TA 付出代价。给 TA 一个<b>真会付出代价</b>的缺点，和一个能让 TA 开心的乐趣。完美的人聊起来很无聊。</p>
+              <p>然后，对于那些大时刻，写<b>细节，而不是概括</b>。要小、要具体、要有感官、要留个没写完的尾巴。AI 拿一句诊断没什么办法，但拿一个画面能做很多事：</p>
+
+              <div class="help-compare">
+                <div class="help-box help-bad">
+                  <div class="help-box-head">告知</div>
+                  <p>{{char}} 九岁时妈妈在一场火灾里去世，她勉强逃出来。这件事非常创伤，她至今还会做噩梦。</p>
+                </div>
+                <div class="help-box help-good">
+                  <div class="help-box-head">留作细节</div>
+                  <p>{{char}} 对那间公寓最后的记忆，是烤面包烧焦的味道，和妈妈的钥匙还挂在门内侧。</p>
+                </div>
+              </div>
+
+              <p>潜台词同理。如果你把「这个行为意味着什么」讲透，AI 每次都会把那个意思复述一遍。把「因」和「行为」放在一起，让读者自己去连：</p>
+
+              <div class="help-compare">
+                <div class="help-box help-bad">
+                  <div class="help-box-head">讲透</div>
+                  <p>{{char}} 活泼外向，但那是一副面具。她用笑容藏着深深的童年创伤，其实非常孤独。</p>
+                </div>
+                <div class="help-box help-good">
+                  <div class="help-box-head">暗示</div>
+                  <p>日常里，{{char}} 是任何房间里最吵的那个，也是第一个提议再来一轮的。她童年大部分时间，是在一个晚饭时没人说话的家里度过的。</p>
+                </div>
+              </div>
+
+              <p><b>故意留白。</b>你钉死的每个细节都是一个约束，而每个留白都会被 AI 的平均值填上。两者都有用。钉死「会改变行为」的那些，其余留白。每句话都问一遍：这句改变 TA 做什么、或者 TA 怎么感受吗？不改变，就删。</p>
+            </section>
+
+            <!-- 05 -->
+            <section id="help-5" class="help-sec">
+              <h2 class="help-h"><span class="help-num">05</span>从空白页到初稿</h2>
+              <p>最快的入口是：从一个具体的画面开始，然后顺着每个事实引出的下一个问题走。你不是在填表，你是在跟着一段人生走，看它在哪儿拐了弯。<b>顺着疙瘩走，别顺着直线走。</b>如果第一个答案太显然，就取第二个。</p>
+
+              <div class="help-box help-plain">
+                <div class="help-box-head">某个人的真实笔记</div>
+                <dl class="help-qa">
+                  <dt>我在想谁？</dt>
+                  <dd>一个男人。就叫 Marek Nowak。肩宽，不高。鼻子断过一次，接歪了。四十四岁吧。</dd>
+                  <dt>那就是 1982 年前后出生。在哪？</dt>
+                  <dd>波兰罗兹。九岁那年父母搬去布拉德福德，就在柏林墙倒之后。</dd>
+                  <dt>九十年代，一个波兰小孩在布拉德福德会经历什么？</dt>
+                  <dd>在学校被人起外号。在邻居家电视上看英超。一个本来是工程师、现在开货车的爸爸。Marek 手很巧，因为那是他爸唯一还能说了算的地方。</dd>
+                  <dt>所以他爱足球。取第二个答案。</dt>
+                  <dd>他讨厌足球。十四岁改去拳击馆，因为便宜、也没人问他从哪来。那个鼻子就是这么来的。</dd>
+                  <dt>那后来呢？</dt>
+                  <dd>没能打职业。十九岁在一家炸鱼薯条店外，用右手砸了一个人的脑袋。缓刑六个月。他当成一个信号，去学了水管工。</dd>
+                  <dt>现在呢？</dt>
+                  <dd>在利兹开了家两台车的管道公司。三十八岁离婚，因为他总不在家，也从不解释为什么。周二周四在拳馆带小孩。</dd>
+                  <dt>他想要什么？</dt>
+                  <dd>想让他儿子 Kacper 打个电话来。他绝不会说出口。他嘴上说的是想添第三台车。</dd>
+                </dl>
+              </div>
+
+              <p>七个问题，Marek 就有了身体、国家、阶级、「手为什么会巧」的原因、一份前科、一段离婚、一个不肯打电话的儿子，还有一个他不肯承认的欲望。最后那句就是整节课的重点：<b>他嘴上说想要的，不是他想要的。</b></p>
+              <p>有两件事是白送的。<b>挑一个真地方</b> —— 点名的城镇会自带天气、工资和口音。<b>挑一个年龄</b> —— 年龄会钉住一个年代：TA 十五岁时收音机里放什么、父母在做什么、那时的城镇什么样。</p>
+            </section>
+
+            <!-- 06 -->
+            <section id="help-6" class="help-sec">
+              <h2 class="help-h"><span class="help-num">06</span>怎么写「角色描述」</h2>
+              <p><b>角色描述</b>是卡的主字段，是 AI 每一轮都会看到的那部分。用平实的句子写，多数以角色名开头，让每一句都带一个「因为」「所以」或「但是」。</p>
+              <p>没有唯一正确的结构，但下面这个顺序能把要紧的东西放在两端（AI 最留意的位置），而且读起来像一段人生，不像一张表格：</p>
+
+              <ol class="help-steps help-steps-outline">
+                <li><b>TA 现在是谁</b> —— 名字、年龄、做什么、在哪。一到两句。这是锚点。</li>
+                <li><b>身体</b> —— 体型、脸、一两个「作为原因而不是装饰」的身体事实。</li>
+                <li><b>TA 从哪来</b> —— 用几句话讲童年，以及它把 TA 变成了什么样。</li>
+                <li><b>那个拐点</b> —— 定义 TA 的那个事件或选择，写成一个瞬间，而不是一段概括。</li>
+                <li><b>TA 怎么在这个世界里走</b> —— 工作、钱、习惯、带原因的口味、喜欢什么、受不了什么。</li>
+                <li><b>人</b> —— 每段重要的关系一句话，写出名字。包括那个已经不在的人。</li>
+                <li><b>声音</b> —— TA 怎么说话，最好附一句 TA 实际说的话。</li>
+                <li><b>当前状态</b> —— TA 此刻脑子里在想什么，还有什么没解决。</li>
+              </ol>
+
+              <p>散文、条目、带标签的分段都行。要紧的是，不管用哪种格式，里面写的都是<b>真正的句子</b>。「喜好：咖啡、雨天」—— 换成任何格式都是草料。</p>
+
+              <h3 class="help-h3">描述的长度（token，约等于 4 个字符）</h3>
+              <div class="help-scale" role="img" aria-label="约 900 到 1500 token 是甜区，2000 以上开始漂移">
+                <div class="help-scale-track"><span class="help-scale-band"></span></div>
+                <div class="help-scale-legend">
+                  <span>偏薄</span>
+                  <span class="help-scale-sweet">900–1500 · 甜区</span>
+                  <span>2000 以上 · 开始漂</span>
+                </div>
+              </div>
+              <p>单个角色在 <b>900 到 1500 token 左右</b>是甜区。需要搭架子的奇幻或科幻，可以到 2000 左右说得过去。再往上，中间会被略过，角色就开始漂了。</p>
+
+              <p>有两样东西要挡在外面。第一，<b>秘密需要一个条件</b>：TA 会告诉谁，以及必须先发生什么？一个没有锁的秘密，会在第二条消息就向一个陌生人坦白。第二，<b>别把玩家写进去</b>。每一句钉死「玩家是谁」（「你的童年好友」「你的保镖」）的话，都会让每一场对话都以同样的方式开头。</p>
+              <p>值得知道：<b>描述、开场白、世界书</b>会发给 AI；<b>标语、公开简介、标签、内容警告</b>不会 —— 那些是写给浏览的人看的。</p>
+            </section>
+
+            <!-- 07 -->
+            <section id="help-7" class="help-sec">
+              <h2 class="help-h"><span class="help-num">07</span>拆开一张卡看</h2>
+              <p>大约 260 token。不是让你照抄的模板，只是把上面所有招式放在一个地方。</p>
+
+              <div class="help-box help-good">
+                <div class="help-box-head">角色描述 · 约 260 token</div>
+                <p>Dana Okafor 是利兹一家医院上夜班的药剂师，三十四岁。她的父母是尼日利亚出生的护士，把她推去读药剂，说这是「不沾血的医学」；八年前她选了夜班，因为钱更多，也因为她不想跟那些老问她「什么时候申请主管岗」的白班同事打照面 —— 而那个岗位她从来没想要过。Dana 把药房管得像驾驶舱，每个抽屉都用她自己的大写字母标好，因为她当学徒时犯过的那一个错（一个小数点，被一位护士拦下，从没上报）至今还会在凌晨四点把她弄醒。她手脚快、说话干、对新人很大方，每个周日都跟她妈撒谎说「在处对象」。她每周四踢五人制，又菜又大声，满腔说不清来由地痛恨领英，锁柜里放着一台 1998 年的随身听 —— 是她哥 Tobi 搬去拉各斯之前给她的，后来电话就慢慢少了。她想离开夜班，但白班意味着主管岗，主管岗意味着被看见。</p>
+              </div>
+
+              <ul class="help-list">
+                <li><b>「不沾血的医学」</b>：她的职业有了来由。AI 现在能自然地谈到她父母和她的矛盾，不用被教。</li>
+                <li><b>「那个她从来没想要过的主管岗」</b>：一个被障碍挡住的欲望，而且永远没被解决。这个问题在第一轮就成立，到第三百轮依旧成立。</li>
+                <li><b>「一个小数点，被拦下，从没上报」</b>：小、具体、没写完。它解释了她为什么把抽屉都标好，也给了她一样可以藏、或者可以坦白的东西。</li>
+                <li><b>「每个周日都跟她妈撒谎」</b>：一副面具和一个真相，还带了时间表。周日的戏自己就写出来了。</li>
+                <li><b>「五人制，又菜又大声……痛恨领英」</b>：一个快乐、一个鸡毛蒜皮的厌恶。有瑕疵的人比完美的人好演得多。</li>
+              </ul>
+            </section>
+
+            <!-- 08 -->
+            <section id="help-8" class="help-sec">
+              <h2 class="help-h"><span class="help-num">08</span>开场白</h2>
+              <p>如果描述是滑板，开场白就是坡道。它定下语气、地点、时间、角色正在做什么，以及 TA 的一个切片。最好的开场是<b>中性的碰面</b>：玩家像陌生人一样，走进 TA 的生活。</p>
+              <p>然后再加几个<b>备选开场白</b>，每个展示不同的一面。有六种很稳：</p>
+              <ul class="help-list">
+                <li><b>干活</b> —— 那份苦差和那份手艺</li>
+                <li><b>闲暇</b> —— 下了班，TA 跟谁在一起</li>
+                <li><b>压力之下</b> —— 钱、一个截止时间、一通电话</li>
+                <li><b>离开舒适区</b> —— 光靠本事帮不上忙的地方</li>
+                <li><b>和家人</b> —— 那些更早就认识 TA 的人</li>
+                <li><b>剧情后期</b> —— 那件事发生（或没发生）之后</li>
+              </ul>
+
+              <div class="help-box help-good">
+                <div class="help-box-head">开场白 · 约 180 token</div>
+                <p>凌晨 3:12。药房的取药窗口只拉起一半，走廊上唯一的声音是三月以来没人修的冰箱警报，和柜台底下漏出来的、耳机里闷闷的鼓打贝斯。{{char}} 头也不抬地把卷帘再拉上去一点，一只手已经伸向夹板。「如果又是 9 号病区的奥拉吗啡，这次我要开方医生的签字。不是短信。是签字。」她终于抬头，看清你不是她等的人，夹板往下放了一寸。「哦。你是新来的。行。这个点儿是谁把你支下来的？」</p>
+              </div>
+
+              <p>注意它做了什么：第一句给时间和地点，角色正在做事，一个麻烦已经在滚动，一个向卡的回扣，还有一个把话语权交出去的直接提问。你可以是护士、是护工、或者是个不该出现在这里的人 —— 这场戏都成立。这就是那个测试：<b>给玩家一个以上的抓手</b>，让 TA 当参与者，而不是看着别人耍帅的观众。</p>
+
+              <h3 class="help-h3">这些别再写了</h3>
+              <ul class="help-list help-list-bad">
+                <li>空气莫名变重了。</li>
+                <li>他的气场填满了整个房间。</li>
+                <li>森林屏住了呼吸。</li>
+                <li>从来没有人能打败我。</li>
+              </ul>
+              <p>都是没有信息量的氛围句，以及角色自己给自己立传。AI 会把它们原样写回来给你。替玩家写心理和感受，同样别写。</p>
+
+              <h3 class="help-h3">开场白的长度</h3>
+              <div class="help-scale" role="img" aria-label="200 字起步，800 字左右合适，1200 字以上就变成一篇短篇了">
+                <div class="help-scale-track"><span class="help-scale-band help-scale-band-wide"></span></div>
+                <div class="help-scale-legend">
+                  <span>200 · 起步</span>
+                  <span class="help-scale-sweet">800 · 合适</span>
+                  <span>1200+ · 已是一篇短篇</span>
+                </div>
+              </div>
+            </section>
+
+            <!-- 09 -->
+            <section id="help-9" class="help-sec">
+              <h2 class="help-h"><span class="help-num">09</span>需要世界书吗？</h2>
+              <p>大概率不需要 —— 这是诚实的第一个答案。<b>世界书</b>存的是「只有当最近对话里出现了关键词，才会被发给 AI」的额外文本。它是给「AI 本来不知道、而且角色也不会整天挂在脑子里」的东西用的：一门虚构的技术、一个教派、某个只出现在部分对话里的配角。如果你的角色住在利兹，AI 本来就认识利兹。</p>
+
+              <h3 class="help-h3">分工</h3>
+              <ul class="help-tags">
+                <li><b>角色描述</b><span class="help-tag">常驻</span>常量。第一轮为真，第三百轮也为真。</li>
+                <li><b>开场白</b><span class="help-tag">此刻</span>状态。TA 在哪、今天在干什么。</li>
+                <li><b>世界书</b><span class="help-tag">提到才上</span>当场景碰到时，该浮出来的细节。</li>
+              </ul>
+              <p>常量放描述，质感放世界书。凡是<b>必须每一轮都为真</b>的，都归描述，因为没有「常驻」的世界书条目。（这里的世界书条目可以勾「常驻」，但别拿它当描述用 —— 描述才是每轮都在的那一份。）</p>
+
+              <h3 class="help-h3">关键词就是接口</h3>
+              <p>挑一个场景自然会用到的词，而不是一个会一直触发的宽泛词。</p>
+              <div class="help-box help-good">
+                <div class="help-box-head">Roundhay 路拳馆</div>
+                <p class="help-keys"><b>关键词</b>拳馆 · Roundhay · 拳击 · 手靶 · 对练 · Kian · Bev</p>
+                <p>利兹 Roundhay 路上一家卷帘门地毯店楼上的会员制拳馆，1989 年开到现在。月费十二镑，交不起的孩子悄悄免掉。老板娘 Bev，六十三岁，从过世的丈夫手里接过来。三号擂台的围绳红那侧松了，所有人都知道别往那儿靠。</p>
+              </div>
+
+              <p>如果你在造一个世界，给它足够的料，让它能给角色施压：<b>点出国家和街道，一次性定死技术水平，给钱一个尺度。</b>在你知道一条面包多少钱之前，五千金币的赏金毫无意义。</p>
+            </section>
+
+            <!-- 10 -->
+            <section id="help-10" class="help-sec">
+              <h2 class="help-h"><span class="help-num">10</span>出问题的时候</h2>
+              <p>大多数卡就败在那么几种方式上。只要你能叫出症状，处方通常很短。</p>
+
+              <div class="help-trouble">
+                <div class="help-trouble-item">
+                  <div class="help-trouble-sym">「TA 很平，只会一问一答。」</div>
+                  <p><span class="help-why">为什么</span>卡里没有任何东西跟别的东西顶撞。有特质没来由，有欲望没障碍，没有厌恶。</p>
+                  <p><span class="help-fix">怎么办</span>加两个张力和三个带原因的厌恶。写一段小小的、没写完的记忆。</p>
+                </div>
+                <div class="help-trouble-item">
+                  <div class="help-trouble-sym">「每场对话都直奔床上。」</div>
+                  <p><span class="help-why">为什么</span>卡花了几百字写性癖。它是整个上下文里最强的风格指令，AI 正在模仿它。</p>
+                  <p><span class="help-fix">怎么办</span>砍到一两句：TA 是怎么知道的、什么时候才算数。把重量放在一段生活上。</p>
+                </div>
+                <div class="help-trouble-item">
+                  <div class="help-trouble-sym">「两条消息就把什么都坦白了。」</div>
+                  <p><span class="help-why">为什么</span>一个没有锁的秘密。AI 眼前就摆着这个秘密，且没有任何理由不坦白。</p>
+                  <p><span class="help-fix">怎么办</span>给每个秘密配一个条件：TA 会告诉谁，必须先发生什么。</p>
+                </div>
+                <div class="help-trouble-item">
+                  <div class="help-trouble-sym">「开头很好，第三十条开始重复。」</div>
+                  <p><span class="help-why">为什么</span>只有一条线。AI 把角色解完了，没有可解决的东西，就开始打转。</p>
+                  <p><span class="help-fix">怎么办</span>给 TA 同时进行的好几件事：工作、钱、一个离开的人、一个爱好、一桩旧怨。</p>
+                </div>
+                <div class="help-trouble-item">
+                  <div class="help-trouble-sym">「我只能在旁边看 TA 耍帅。」</div>
+                  <p><span class="help-why">为什么</span>有等级、头衔、能力，却没有代价；再加上一个 TA 表演、你观看的开场白。</p>
+                  <p><span class="help-fix">怎么办</span>删掉等级系统。给每种能力一个代价。让 TA 输。开场白以一个问题结尾。</p>
+                </div>
+                <div class="help-trouble-item">
+                  <div class="help-trouble-sym">「TA 说话不像 TA 自己。」</div>
+                  <p><span class="help-why">为什么</span>声音只用形容词描述过，从没被示范过。</p>
+                  <p><span class="help-fix">怎么办</span>写两句 TA 按你想要的调子说话的样子。一段示范比一段描述管用得多。</p>
+                </div>
+                <div class="help-trouble-item">
+                  <div class="help-trouble-sym">「每场对话都以同样的方式开头。」</div>
+                  <p><span class="help-why">为什么</span>玩家被当成一个固定角色写进了卡里，而且只有一个开场白。</p>
+                  <p><span class="help-fix">怎么办</span>把玩家从卡里拿掉。写三到四个不同状态下的开场白。</p>
+                </div>
+              </div>
+            </section>
+
+            <!-- 11 -->
+            <section id="help-11" class="help-sec">
+              <h2 class="help-h"><span class="help-num">11</span>测一测，然后发布</h2>
+              <p>用一个空白或极简的预设开一场对话，让卡自己去干活，而不是靠你的设置。然后用四种方式戳它：</p>
+              <ul class="help-list">
+                <li><b>顺路</b> —— 老老实实先玩一遍。TA 听起来像卡里写的那样吗？</li>
+                <li><b>走错调子</b> —— 在严肃时刻开一个荤玩笑。爆一个胎。TA 还能是 TA 自己，还是变成一个乐于助人的助手？</li>
+                <li><b>加压</b> —— 粗鲁一点，咄咄逼人一点。第二条消息就要那个秘密。锁得住吗？</li>
+                <li><b>大溪地测试</b> —— 说你们明天要一起飞去大溪地。TA 会去，没有哪张卡拦得住。但 TA 是带着自己去（担心房租、把随身听塞进行李），还是变成一本旅游手册？</li>
+              </ul>
+              <p>看 AI 从卡里拽走了什么、又忽略了什么。如果她从来不提那台随身听，那它需要在别的地方再被提一次。如果她两条消息就把那个小数点的事坦白给陌生人，那就补上「她会在什么条件下才会说」。<b>卡是一份活文档 —— 改完，再测一次。</b></p>
+
+              <h3 class="help-h3">发布前清单</h3>
+              <ul class="help-list help-list-check">
+                <li>三场测试对话：顺路、走错调子、加压。</li>
+                <li>卡里每个锚点，都至少在一个开场白里被回头引用过。</li>
+                <li>每个秘密都有条件。每种能力都有代价。</li>
+                <li>卡没有把玩家钉进某个角色。</li>
+                <li>卡里没有「不改变 TA 做什么、或 TA 怎么感受」的内容。</li>
+                <li>标语、简介、标签是写给人看的，不是写给 AI 的。</li>
+                <li>有一段你能回来更新的「当前状态」。</li>
+              </ul>
+            </section>
+
+            <footer class="help-credit">
+              <p>本页译改自 Character Tavern 的《Mastering Character Cards》。</p>
+              <p>原指南建立在下列写作之上：u/huge-centipede 的《On Building Characters with Friction》（r/SillyTavernAI）；likesumiink 的《Tomoe vs Tomoe》《Building Engines and Making Hairballs》《Tuning Pre-existing Cards for Texture》（Substack）。</p>
+              <p>「三个问题」是把 Lajos Egri《The Art of Dramatic Writing》里的人物三维度，改成了适合角色扮演的版本。</p>
+            </footer>
+          </article>
         </div>
       </section>
 

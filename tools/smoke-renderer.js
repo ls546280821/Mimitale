@@ -6711,4 +6711,34 @@ await scenario('开聊前先定「你是谁」', async () => {
   await sleep(60);
 });
 
+// 帮助页：纯静态内容，只验「切得过去、小节齐全、目录锚点对得上、复制按钮接对了」。
+// 目录锚点那条不是客套 —— 改正文时最容易忘了同步目录里的 id，
+// 点一下发现跳不动才发现，有了这条能在跑测试时就拦住。
+await scenario('帮助：切页、正文与复制提示词', async () => {
+  click('#btn-help');
+  await waitFor('切到帮助页', () => shown('#view-help'));
+  check('侧栏「帮助」高亮', byId('btn-help').classList.contains('active'));
+  check('切走后聊天视图让位', !shown('#view-chat'));
+
+  const sections = $$('#view-help .help-sec');
+  check('帮助正文有 11 个小节', sections.length === 11, `实际 ${sections.length} 节`);
+
+  const lead = $('#view-help .help-lead');
+  check('页首那句总纲在', !!lead && /小引擎/.test(lead.textContent));
+
+  const anchors = $$('#view-help .help-toc a').map((a) => a.getAttribute('href'));
+  check('目录条目数与小节数一致', anchors.length === sections.length, `目录 ${anchors.length} 条`);
+  const missing = anchors.filter((h) => !h || !document.querySelector(`#view-help ${h}`));
+  check('目录锚点全部命中真实小节', missing.length === 0, missing.join(' '));
+
+  // 复制：点完要弹提示。提示里带「故事优化提示词」才说明按钮真接到了那段文本
+  // （不是空点一下），剪贴板本身走的是 util:copy 那条桥，页面里看不到。
+  click('#btn-copy-help-prompt');
+  await waitFor(
+    '复制后弹出提示',
+    () => shown('#toast') && /故事优化提示词/.test(byId('toast').textContent)
+  );
+  check('复制按钮弹出了对的提示', /故事优化提示词/.test(byId('toast').textContent), byId('toast').textContent);
+});
+
 return { results, notes, hoverProbe };

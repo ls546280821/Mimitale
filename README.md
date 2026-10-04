@@ -84,6 +84,9 @@
 - **给 AI 看图**（模型得支持视觉）、**给剧情配插画**（单独配一组生图服务商）。
 - **导出**：角色卡存成 PNG 卡（酒馆能直接导入）/ JSON，世界书存成 lorebook JSON，  
   对话存成 Markdown。
+- **内置帮助页**：左下角「帮助」是一整页写角色的指南（11 节）；右上角「复制优化提示词」
+  把它变成一份提示词 —— 粘给任意 AI、再贴上自己写的角色卡或故事，它就会逐条挑问题
+  并给出改好的句子。同一份提示词也存成仓库根的 `故事优化提示词.md`。
 - 断点安全的本地存储：每次写入前自动留一份 `.backup`。
 
 ---
@@ -169,23 +172,25 @@ mimitale/
 │   └── vectors.js         向量 / 余弦相似度 / 排序
 ├── preload.js       contextBridge 安全桥，把主进程能力暴露给页面
 ├── package.json
+├── 故事优化提示词.md  给 AI 的「帮我改角色卡 / 故事」提示词（帮助页那颗按钮复制的是同一份）
 ├── renderer/        前端（Chromium 页面）
 │   ├── index.html
 │   ├── style.css
 │   └── js/          界面逻辑（ES module，不需要打包器）
-│       ├── main.js      入口层 · 只剩启动流程 + 事件绑定 + 跨视图编排（482 行）
+│       ├── main.js      入口层 · 只剩启动流程 + 事件绑定 + 跨视图编排（653 行）
 │       ├── core/        常量 / 状态 / DOM 引用 / preload 桥 / 工具 / 面板字段桥
 │       ├── ui/          提示条 / 确认框 / 主题 / Markdown / 建 DOM 的小工具
 │       ├── data/        纯逻辑地基：服务商模型 / 角色库 / 状态面板 / 叙述规则 /
 │       │                记忆摘要 / 持久化 / 导出收尾 / 演出阵容 / 消息 / 语义检索 /
-│       │                剧情选项 / 会话骨架
-│       └── views/       一个功能一块，共 28 个模块（refresh 总线 / redraw 门面 /
+│       │                剧情选项 / 会话骨架（14 个文件）
+│       └── views/       一个功能一块，共 33 个模块（refresh 总线 / redraw 门面 /
 │                        header / perspectiveUi / panelUi / worldbookList / worldbook /
-│                        presetList / preset / settings / appearance / player / memoryUi /
-│                        viewSwitch / characterList / characterEditor / charAttributes /
-│                        characterImport / stream / chatImages / suggestionsUi /
-│                        convoActions / summarize / composer / chatMessages /
-│                        chatList / chatExport / worldPlay）
+│                        presetList / preset / presetIO / settings / appearance / player /
+│                        memoryUi / viewSwitch / characterList / characterEditor /
+│                        charAttributes / charExpressions / characterImport / aiGen /
+│                        stream / chatImages / suggestionsUi / stateCard / convoActions /
+│                        summarize / composer / chatMessages / chatList / chatExport /
+│                        worldPlay / help）
 └── tools/           冒烟测试脚手架（假后端，不动你的真实数据）
 ```
 
@@ -193,13 +198,13 @@ mimitale/
 > `require` **同一份代码**去验，而不是在测试里另写一套 —— 「内嵌世界书被丢掉」  
 > 「导入后绑定指向不存在的书」这两个 bug 就是这么做才被抓住的。
 >
-> `renderer/js/main.js` 的重构**已经收尾**：从峰值 **7902 行**降到 **621 行**，  
+> `renderer/js/main.js` 的重构**已经收尾**：从峰值 **7902 行**降到 **653 行**，  
 > 只剩入口层编排 —— 启动流程（`init()`）、事件绑定（`bindEvents()`，含 Esc 的  
 > 有序关闭链和 `api.onChunk / onReasoning` 全局监听）、刷新接线板  
 > （`registerRefreshListeners()`）、以及跨视图编排（`importWorldbooks()`）。
 >
-> 功能代码按 `core ← ui ← data ← views ← 入口` 单向分层：**data 13 个文件**  
-> 放纯逻辑，**views 28 个模块**一个功能一块，刷新走 `views/refresh.js` 总线，  
+> 功能代码按 `core ← ui ← data ← views ← 入口` 单向分层：**data 14 个文件**  
+> 放纯逻辑，**views 33 个模块**一个功能一块，刷新走 `views/refresh.js` 总线，  
 > 全量重绘统一走 `views/redraw.js` 门面。视图要用入口层的动作时，由入口层  
 > `initXxx({ action })` 注入，视图不向上 import —— 这条是防循环依赖的铁律。
 >
