@@ -26,6 +26,15 @@ let writeQueue = Promise.resolve();
  * 真正落盘的同步实现：先备份旧文件，再写入新内容。
  * 同步是故意的 —— 关窗口时的「最后一次保存」必须在这一个事件循环里写完，
  * 否则程序可能在微任务执行前就退出了。
+ *
+ * ⚠️ 失败时**必须抛**，不能只 return false：
+ *   以前这里 return false，writeJson 把 false 当结果 resolve，
+ *   而 save* 那几个函数返回的是自己那份 payload、根本不看写没写成功 ——
+ *   于是一路成功到界面，用户看到「已保存」，磁盘上却还是旧文件
+ *   （renderer/js/data/persist.js 里那几个「保存失败，请检查磁盘空间」的
+ *   提示因此全是死代码）。下次启动读回旧数据，中间改的全没了。
+ *   最常见的触发条件不是「磁盘满」，而是安全软件锁住 userData 里的文件 ——
+ *   main.js 开头记着的那种机器就是这个状态。
  */
 function writeJsonNow(file, data) {
   try {
@@ -46,14 +55,32 @@ function writeJsonNow(file, data) {
     return true;
   } catch (err) {
     console.error('[store] 写入失败:', file, err.message);
-    return false;
+    // 顺手清掉可能留下的半截临时文件，别让它挡住下次写入
+    try {
+      fs.unlinkSync(file + '.tmp');
+    } catch (cleanupErr) {
+      /* 没有就算了 */
+    }
+    throw new Error(`写入失败（${path.basename(file)}）：${err.message}`);
   }
 }
 
-/** 排队写入：把并发的保存请求串起来，避免互相覆盖。 */
+/**
+ * 排队写入：把并发的保存请求串起来，避免互相覆盖。失败会 reject。
+ *
+ * ⚠️ 队尾必须自己把异常吃掉（写成 .then(ok, err) 的**两个**处理函数），
+ *    否则一次失败会把 writeQueue 永久钉在 rejected 状态：之后每次
+ *    writeQueue.then(...) 都直接跳过成功回调、原样继续拒绝 ——
+ *    等于「写坏一次，从此以后所有保存都静默不写」，比原来的吞异常还糟。
+ *    这里把错误「复制」一份给调用方，队尾本身恢复成正常状态。
+ */
 function writeJson(file, data) {
-  writeQueue = writeQueue.then(() => writeJsonNow(file, data));
-  return writeQueue;
+  const result = writeQueue.then(() => writeJsonNow(file, data));
+  writeQueue = result.then(
+    () => undefined,
+    () => undefined
+  );
+  return result;
 }
 
 function loadJsonWithFallback(file) {

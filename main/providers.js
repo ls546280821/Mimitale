@@ -332,7 +332,7 @@ function normalizeSettings(saved) {
   //   · 键（模型名）为空 / 超长的丢掉；
   //   · 名字和人设**都为空**的条目直接丢弃 —— 那是一条没意义的空壳，
   //     留着只会在 config.json 里越积越多；
-  //   · 只有人设没名字是合法的（显示时用内置默认名兜底）。
+  //   · 只有人设没名字是合法的（按「不留假名」的口径处理，见 data/cast.js 的 assistantName）。
   // 「人设留空」本身也是合法状态（= 不扮演角色），所以这里不做「空就填默认」。
   const personas = {};
   const rawPersonas = raw.assistantPersonas;
@@ -374,10 +374,15 @@ function normalizeSettings(saved) {
   delete s.model;
   // 早期版本在设置里存过一份「全局人设」（键名 systemPrompt / userName），那时的语义是
   // 「所有会话的人设」。现在的人设只走角色卡，没绑卡的会话则由上面的
-  // assistantName / assistantPersona 兜底 —— 两者不是一回事，留着会在文件里积两套数据。
+  // assistantPersonas 兜底 —— 两者不是一回事，留着会在文件里积两套数据。
+  //
+  // ⚠️ 这里**不能**再 delete s.maxTurns：它以前是上面的扁平字段（那会儿确实是废键），
+  //    但 2026-10-07 起 maxTurns 已经变成真正的设置项（见 DEFAULT_SETTINGS 和上面的
+  //    归一化）。留着这一行会把刚归一化好的值当场删掉，症状是「设置里改对话轮数
+  //    怎么改都不生效、一存就变回 20」—— 而且因为键还在 DEFAULT_SETTINGS 里，
+  //    保存白名单也拦不住，整条链路一声不响。
   delete s.systemPrompt;
   delete s.userName;
-  delete s.maxTurns;
 
   return s;
 }

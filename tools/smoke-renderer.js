@@ -1676,6 +1676,77 @@ await scenario('消息：重新生成候选', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  回归：摘要覆盖点越界时，不能把用户刚说的话从上下文里切掉
+//
+//  真 bug：buildApiMessages 里 `covered` 是在 convoContextMessages()（只认正文非空）
+//  上数出来的下标，却拿去 slice 另一个数组 history（它多留「只带图不打字」的消息）。
+//  两个数组一旦不等长，covered 就越界，slice 回来是空数组 ——
+//  整轮请求只剩摘要 + 人设，**用户刚打的那句话都不会发出去**，模型照着旧摘要答，
+//  表现得像完全没看见你说了什么。
+//
+//  最容易撞上的路径：一个已经被自动摘要过的老会话 → 「清空对话」→ 重新开聊。
+//  消息清空了，convo.summaries 还原封不动留着，covered 就成了一个巨大的下标。
+//
+//  这里不依赖任何界面状态，直接用真模块算一遍。
+// ---------------------------------------------------------------------------
+await scenario('摘要：覆盖点越界也不能吞掉当前对话', async () => {
+  let messagesMod = null;
+  let stateMod = null;
+  try {
+    messagesMod = await import(new URL('js/data/messages.js', document.baseURI).href);
+    stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+    check('上下文拼装模块能加载', typeof messagesMod.buildApiMessages === 'function');
+  } catch (err) {
+    check('上下文拼装模块能加载', false, (err && err.message) || String(err));
+  }
+
+  if (!messagesMod || typeof messagesMod.buildApiMessages !== 'function') return;
+
+  const savedSettings = stateMod.state.settings;
+  stateMod.state.settings = { ...(savedSettings || {}), maxTurns: 20 };
+
+  // 「清空对话」之后的现场：摘要还留着（覆盖到第 28 条），消息只剩三条，
+  // 其中两条是「只带图不打字」（它们正是让两个数组长度不一致的原因）。
+  const convo = {
+    id: 'smoke-stale-summary',
+    messages: [
+      { role: 'user', content: '', images: ['data:image/png;base64,AAA'] },
+      { role: 'user', content: '', images: ['data:image/png;base64,BBB'] },
+      { role: 'user', content: '刚打的一句话' },
+      { role: 'assistant', content: '' }
+    ],
+    summaries: [{ start: 0, end: 28, title: '第 1 段', text: '以前的剧情…' }]
+  };
+
+  const out = messagesMod.buildApiMessages(convo, '', '', '');
+  const dialogue = out.filter((m) => m.role === 'user' || m.role === 'assistant');
+  // 带图的用户消息会发成多模态数组（content 是 parts 数组），纯文字的才是字符串
+  const hasImagePart = (m) =>
+    Array.isArray(m.content) && m.content.some((p) => p && p.type === 'image_url');
+  const textOf = (m) => (Array.isArray(m.content) ? '' : String(m.content || ''));
+  const texts = dialogue.map(textOf);
+
+  check('越界的摘要覆盖点不会把对话切空', dialogue.length > 0, `对话消息 ${dialogue.length} 条`);
+  check(
+    '用户刚打的那句话还在发给模型的请求里',
+    texts.some((t) => t.includes('刚打的一句话')),
+    JSON.stringify(texts.map((t) => t.slice(0, 16)))
+  );
+  check(
+    '只带图的那条也没被切掉（仍然发成多模态数组）',
+    dialogue.some(hasImagePart),
+    `含图消息 ${dialogue.filter(hasImagePart).length} 条`
+  );
+  check(
+    '摘要仍然照常注入（该省的历史没白省）',
+    out.some((m) => String(m.content || '').includes('以前的剧情')),
+    ''
+  );
+
+  stateMod.state.settings = savedSettings;
+});
+
+// ---------------------------------------------------------------------------
 //  场景 13：给 AI 看图（加图 / 粘贴 / 发出去）
 // ---------------------------------------------------------------------------
 await scenario('给 AI 看图', async () => {

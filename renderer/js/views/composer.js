@@ -521,8 +521,22 @@ async function requestCompletion(convo, options) {
     // 主进程可能会把模型名规范化，以它返回的为准
     if (response.model) assistant.model = response.model;
 
-    assistant.content = response.content || assistant.content;
-    assistant.reasoning = response.reasoning || assistant.reasoning;
+    // 落盘 / 上屏的正文以「攒起来的流式分片」为准（onChunk 一路追加进 assistant.content），
+    // 只有一片都没攒到时才用整段返回值兜底。
+    //
+    // ⚠️ 别写成 `assistant.content = response.content || assistant.content` ——
+    //    那是「响应体优先」，会把已经攒好的分片**覆盖**掉。而且这里必须认「没攒到」
+    //    这种情况：分片是主进程 send 过来的异步消息，完全可能比 invoke 的回执后到
+    //    （回执先到、finally 里 state.requestId 就清了，随后到达的分片会被
+    //    main.js 的 `requestId !== state.requestId` 直接丢掉）。那样正文就是空的，
+    //    气泡会一直停在「正在思考」。续写那条路径（extendAssistantMessage）本来就是
+    //    这么兜的，这里跟上，别让主路径比它脆。
+    if (!String(assistant.content || '').trim() && String(response.content || '').trim()) {
+      assistant.content = response.content;
+    }
+    if (!String(assistant.reasoning || '').trim() && String(response.reasoning || '').trim()) {
+      assistant.reasoning = response.reasoning;
+    }
 
     // 本机桥接：出图是夹在对话响应里一起回来的（base64 PNG 或 null）。
     // 有图就压一档挂到这条消息上，气泡会自动显示。

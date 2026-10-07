@@ -271,7 +271,23 @@ export function buildApiMessages(convo, worldbookSection, ragSection, searchSect
   // 从摘要覆盖点开始取「最近 N 轮」。
   // 如果还按 slice(-turns*2) 取，会出现「摘要写到第 30 条，原文只发第 70 条起」的断层 ——
   // 中间那段模型两边都看不到。从覆盖点往后、按轮数取，上下文才是连续的。
-  const covered = summarizedCount(convo);
+  //
+  // ⚠️ 两个坑，都踩过：
+  //  1. covered 是在 convoContextMessages()（memory.js，只认「正文非空」）上数出来的，
+  //     而这里 slice 的是上面那个 history —— 它多留了「只带图不打字」的用户消息。
+  //     两个数组不等长时下标就偏了。
+  //  2. 更狠的一种：摘要还在、消息已经没了。摘要覆盖点是**按当时的消息条数**记下来的，
+  //     而消息随时可能变少 ——「清空对话」只清 messages、不碰 summaries（convoActions），
+  //     删消息 / 重新生成也一样。这时 covered 会远大于 history.length，
+  //     slice 回来是空数组：整轮请求只剩摘要 + 人设，**用户刚打的那句话都不会发出去**，
+  //     模型照着一份过期摘要自说自话，表现得像完全没看见你说了什么。
+  //
+  //     所以不能只做 Math.min(covered, history.length) ——那刚好把最后几条也切掉。
+  //     只要「摘要覆盖点已经够不着这段历史了」（covered >= history.length），
+  //     就当摘要没覆盖到原文，老老实实发最近 N 轮。宁可多带一点，
+  //     也绝不能把用户当下说的话漏掉。
+  const summarized = summarizedCount(convo);
+  const covered = summarized >= history.length ? 0 : summarized;
   const uncovered = covered > 0 ? history.slice(covered) : history;
   const recent = uncovered.slice(-turns * 2);
 

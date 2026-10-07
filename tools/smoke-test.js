@@ -28,6 +28,12 @@ app.disableHardwareAcceleration();
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+
+// 设置落盘归一化：和 main.js 的 settings:save 跑的是同一份。
+// 假后端以前只做 Object.assign，等于**跳过**了归一化 —— 归一化里删错一个键
+// （maxTurns 就被 `delete s.maxTurns` 删过）测试照样全绿，真机上却怎么改都不生效。
+const { DEFAULT_SETTINGS, normalizeSettings } = require('../main/providers.js');
 
 // 关键：用**主进程真正在用的**归一化，而不是自己糊一套。
 // 角色「属性」丢过一次，就是因为假后端只做存取、不做归一化 ——
@@ -105,7 +111,15 @@ const clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
 // ---------------------------------------------------------------------------
 function makeStore() {
   return {
+    // 设置的起点 = 真默认值 + 下面这几项测试专用的值（服务商、模型、采样参数…）。
+    // **不要**把这里写成一份「只有测试用得到的那几个键」的小对象：
+    // 假后端的保存路径要过真正的 normalizeSettings（见 settings:save），
+    // 而它的白名单是「DEFAULT_SETTINGS 里有 or 磁盘上本来就有」。少一个键，
+    // 那条设置就会被静默丢掉 —— 于是测试全绿，真机上却怎么改都不生效。
+    // maxTurns 就是这么漏过去的：探针能证明「存 42 读回来还是 42」，
+    // 而这份 store 里没有这个键时，同一件事在测试里永远是绿的。
     settings: {
+      ...DEFAULT_SETTINGS,
       providers: [
         {
           id: 'p-test',
@@ -269,6 +283,10 @@ function makeStore() {
 }
 
 const store = makeStore();
+
+// 起点也过一遍真归一化：这样 store.settings 的形状和主进程 loadSettings() 出来的
+// 完全一致（每个默认键都在），后面 settings:save 的白名单才有东西可比。
+store.settings = normalizeSettings(store.settings);
 
 // 给截图用的种子角色 / 世界书。**只在 --shot-only 下灌**，结构照着断言场景里
 // 那批卡来（属性、分组、标签都有），这样出图看到的就是真实布局该有的样子。
@@ -439,9 +457,18 @@ function registerStubs() {
     models: [],
     presets: []
   }));
+  // 保存路径照抄 main/ipc.js → providers.saveSettings 的两道闸：
+  //   1. 白名单（默认设置里有 or 磁盘上本来就有）；
+  //   2. 真正的 normalizeSettings。
+  // 少一道，测试就只证明「界面把值递出去了」，证明不了「它活了下来」。
   ipcMain.handle('settings:save', (_event, patch) => {
     remember('settings:save', patch);
-    Object.assign(store.settings, patch || {});
+    const current = store.settings || {};
+    const clean = {};
+    for (const [key, value] of Object.entries(patch && typeof patch === 'object' ? patch : {})) {
+      if (key in DEFAULT_SETTINGS || key in current) clean[key] = value;
+    }
+    store.settings = normalizeSettings({ ...current, ...clone(clean) });
     return clone(store.settings);
   });
   ipcMain.handle('settings:test', () => ({ ok: true, models: ['test-model'] }));
@@ -2821,6 +2848,104 @@ function probeAssistantPersona(result) {
 }
 
 /**
+ * 写盘失败必须浮上来（真 bug 的回归测试）。
+ *
+ * 以前 store.js 的 writeJsonNow 出错只 `return false`，writeJson 把 false 当结果
+ * resolve，而 saveConversations 这些函数返回的是自己那份 payload、根本不看写没写成功。
+ * 于是一路「成功」到界面：用户看到「已保存」，磁盘上还是旧文件，
+ * 下次启动读回旧数据，中间改的全没了 —— renderer/js/data/persist.js 里那几个
+ * 「保存失败，请检查磁盘空间」的提示因此全是死代码。
+ *
+ * 这里在**临时 userData** 里制造一次必然失败的写入（把目标路径占成一个目录），
+ * 验三件事：同步路径要抛、排队路径要 reject、失败之后队列还得能用。
+ * 最后那条是防「修一个坑挖一个新坑」：如果队尾被 rejection 钉住，
+ * 一次失败就会让**之后所有**保存静默不写，比原来还糟。
+ */
+async function probeStoreWriteFailure(result) {
+  const push = (name, pass, detail) =>
+    result.results.push({ name, pass: !!pass, detail: detail || '' });
+
+  const realUserData = app.getPath('userData');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'mimitale-smoke-store-'));
+  app.setPath('userData', tmp);
+
+  try {
+    const { writeJson, writeJsonNow, saveConversations } = require('../main/store.js');
+
+    // 正常路径：先证明这套工具本身是好的
+    const okFile = path.join(tmp, 'ok.json');
+    writeJsonNow(okFile, { a: 1 });
+    push('写盘探针：正常写入成功', fs.existsSync(okFile));
+
+    // 把目标路径占成一个目录 —— 写入必然失败（EISDIR / EPERM）
+    const blocked = path.join(tmp, 'blocked.json');
+    fs.mkdirSync(blocked);
+
+    let syncDetail = '';
+    try {
+      writeJsonNow(blocked, { a: 1 });
+      syncDetail = '没抛 —— 还是被吞了';
+    } catch (err) {
+      syncDetail = '抛了：' + ((err && err.message) || err);
+    }
+    push(
+      '写盘失败：同步路径会抛（不再只 return false）',
+      syncDetail.startsWith('抛了'),
+      syncDetail
+    );
+
+    // 排队路径要 reject —— 界面那几个「保存失败」的提示全靠它
+    let queuedDetail = '';
+    try {
+      await writeJson(blocked, { a: 1 });
+      queuedDetail = '没 reject —— 还是被吞了';
+    } catch (err) {
+      queuedDetail = 'reject 了：' + ((err && err.message) || err);
+    }
+    push(
+      '写盘失败：排队路径会 reject（界面才收得到）',
+      queuedDetail.startsWith('reject'),
+      queuedDetail
+    );
+
+    // immediate 路径（关窗口前那次保存）同样要抛
+    let immediateDetail = '';
+    try {
+      // 目标文件占成目录，写入必然失败
+      fs.mkdirSync(path.join(tmp, 'conversations.json.tmp'));
+      saveConversations({ conversations: [{ id: 'x' }], activeId: 'x' }, { immediate: true });
+      immediateDetail = '没抛';
+    } catch (err) {
+      immediateDetail = '抛了：' + ((err && err.message) || err);
+    }
+    push(
+      '写盘失败：saveConversations({immediate:true}) 会抛',
+      immediateDetail.startsWith('抛了'),
+      immediateDetail
+    );
+
+    // 失败之后队列不能被钉死：下一次写入必须真的落地
+    const afterFile = path.join(tmp, 'after.json');
+    await writeJson(afterFile, { b: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    push(
+      '写盘失败之后，队列没被钉死（后续写入仍落地）',
+      fs.existsSync(afterFile),
+      afterFile
+    );
+  } catch (err) {
+    push('写盘探针能跑起来', false, (err && err.message) || String(err));
+  } finally {
+    try {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } catch (err) {
+      /* ignore */
+    }
+    app.setPath('userData', realUserData);
+  }
+}
+
+/**
  * 请求记录（顶栏「⋯」→ 请求记录）。
  *
  * 这个功能的落点是「把真正发出去的那一份留下」，而**留下来的到底对不对**
@@ -2984,6 +3109,7 @@ app.whenReady().then(async () => {
       probeAssistantPersona(result);
       await probeRequestLog(result);
       probeSettingsWhitelist(result);
+      await probeStoreWriteFailure(result);
       await probeAiGenParse(win, result);
       await probeHover(win, result);
       await probeLightboxClick(win, result);
