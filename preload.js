@@ -72,9 +72,17 @@ contextBridge.exposeInMainWorld('mimitale', {
   drawBridgeProgress: (payload) => ipcRenderer.invoke('bridge:drawProgress', payload),
   ragRecall: (payload) => ipcRenderer.invoke('rag:recall', payload),
 
+  // --- 联网搜索（博查）---
+  // 搜一次网页；Key 加密存在主进程，页面这边只递查询词。
+  webSearch: (payload) => ipcRenderer.invoke('search:web', payload),
+  testSearch: (payload) => ipcRenderer.invoke('search:test', payload),
+
   // --- 对话 ---
   sendChat: (payload) => ipcRenderer.invoke('chat:send', payload),
   stopChat: () => ipcRenderer.invoke('chat:stop'),
+  // 「请求记录」：最近几次实际发出去的请求（只在内存里，重启即空）
+  requestLog: () => ipcRenderer.invoke('chat:requests'),
+  clearRequestLog: () => ipcRenderer.invoke('chat:requests:clear'),
 
   // --- 流式增量（打字机效果） ---
   onChunk: (handler) => {
@@ -91,5 +99,7 @@ contextBridge.exposeInMainWorld('mimitale', {
   // --- 杂项 ---
   copyText: (text) => ipcRenderer.invoke('util:copy', text),
   saveFile: (payload) => ipcRenderer.invoke('util:saveFile', payload),
-  openDataFolder: (which) => ipcRenderer.invoke('util:openPath', which)
+  openDataFolder: (which) => ipcRenderer.invoke('util:openPath', which),
+  // 用系统浏览器打开链接（只放行 http/https，判断在主进程）
+  openExternal: (url) => ipcRenderer.invoke('util:openExternal', url)
 });

@@ -67,6 +67,10 @@ const { normalizePreset } = require('./presets.js');
 const { pngWithTextChunk } = require('./png.js');
 // 记忆检索的向量与排序，纯函数，同样为了可测而独立成模块。
 const { encodeVector, decodeVector, rankBySimilarity, collectCandidates } = require('./vectors.js');
+// 联网搜索：博查 Web Search，独立成模块便于单独试。
+const { webSearch } = require('./search.js');
+// 「这一轮到底发出去了什么」—— 只存内存的环形缓冲，见 main/request-log.js
+const { recordRequest, listRequests, clearRequests, MAX_ENTRIES: MAX_LOGGED_REQUESTS } = require('./request-log.js');
 
 let activeController = null; // 用于「停止生成」
 
@@ -683,6 +687,15 @@ function registerIpc() {
         settings: endpoint,
         messages,
         signal,
+        // 留一份「发出去的原文」（顶栏「⋯」→ 请求记录）。
+        // 回调由 http.js 在拼好 body 之后触发，所以这份就是服务端收到的原样内容。
+        onRequest: (body, url) =>
+          recordRequest({
+            requestId,
+            providerName: endpoint.providerName,
+            url,
+            body
+          }),
         onDelta: (text) => sendToRenderer('chat:chunk', { requestId, text }),
         onReasoning: (text) => sendToRenderer('chat:reasoning', { requestId, text })
       });
@@ -701,6 +714,22 @@ function registerIpc() {
         activeController = null;
       }
     }
+  });
+
+  /**
+   * 请求记录：把最近几次**实际发出去**的请求读给界面看。
+   *
+   * 只读内存（main/request-log.js），所以随时可清、也不涉及任何落盘。
+   * 它不是配置项，不进 settings；重启就空 —— 界面上的文案也如实这么写。
+   */
+  ipcMain.handle('chat:requests', () => ({
+    entries: listRequests(),
+    max: MAX_LOGGED_REQUESTS
+  }));
+
+  ipcMain.handle('chat:requests:clear', () => {
+    clearRequests();
+    return true;
   });
 
   ipcMain.handle('util:copy', (_event, text) => {
@@ -813,6 +842,80 @@ function registerIpc() {
       };
     } catch (err) {
       return { ok: false, error: (err && err.message) || '语义检索失败' };
+    }
+  });
+
+  /**
+   * 联网搜索。
+   *
+   * 为什么必须由主进程去搜：Key 加密存在这边（渲染层拿不到明文），
+   * 而且页面被 CSP 挡着发不了跨域请求。
+   *
+   * 返回 { ok, query, count, items }，item = { title, url, site, date, text }。
+   * 搜不到结果不算失败 —— ok:true + 空 items，调用方照常聊天。
+   */
+  ipcMain.handle('search:web', async (_event, payload) => {
+    const request = payload || {};
+    const settings = loadSettings();
+
+    if (settings.searchEnabled !== true) {
+      return { ok: false, error: '还没有开启联网搜索，请到「设置 → 联网搜索」里打开。' };
+    }
+    if (!settings.searchApiKey) {
+      return { ok: false, error: '还没有填写博查的 API Key，请到「设置 → 联网搜索」里填。' };
+    }
+
+    try {
+      const result = await webSearch({
+        apiKey: settings.searchApiKey,
+        query: request.query,
+        count: request.count || settings.searchCount,
+        freshness: request.freshness || settings.searchFreshness
+      });
+      return { ok: true, ...result };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || '联网搜索失败' };
+    }
+  });
+
+  /**
+   * 设置页那个「测试」按钮：用**当前填在框里的** Key 试搜一次。
+   * 优先用传进来的 Key —— 用户还没点保存就想先试试，没必要逼他先存一遍。
+   */
+  ipcMain.handle('search:test', async (_event, payload) => {
+    const request = payload || {};
+    const saved = loadSettings();
+    const apiKey = String(request.apiKey || '').trim() || saved.searchApiKey;
+    if (!apiKey) return { ok: false, error: '请先填写博查的 API Key。' };
+
+    try {
+      const result = await webSearch({
+        apiKey,
+        query: String(request.query || '').trim() || '今天有什么新闻',
+        // 测试只取几条，少花点钱
+        count: 3,
+        freshness: request.freshness || saved.searchFreshness
+      });
+      return { ok: true, ...result };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || '联网搜索测试失败' };
+    }
+  });
+
+  /**
+   * 用系统浏览器打开一个链接（搜索结果里的来源点进去就走这里）。
+   *
+   * 只放行 http / https：别的协议（file:、javascript: 之类）一律不开，
+   * 否则这条通道就成了任意启动器 —— 页面里塞什么就能拉起什么。
+   */
+  ipcMain.handle('util:openExternal', async (_event, url) => {
+    const target = String(url || '').trim();
+    if (!/^https?:\/\//i.test(target)) return { ok: false, error: '只支持打开 http / https 链接' };
+    try {
+      await shell.openExternal(target);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err && err.message) || '打开链接失败' };
     }
   });
 

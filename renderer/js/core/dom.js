@@ -25,6 +25,8 @@ export const el = {
   btnSend: $('btn-send'),
   btnAttach: $('btn-attach'),
   attachStrip: $('attach-strip'),
+  // 联网搜索：输入框左边那颗开关（按会话记，状态画在 aria-pressed 上）
+  btnWebSearch: $('btn-web-search'),
   btnStop: $('btn-stop'),
   btnClear: $('btn-clear'),
   btnCopyAll: $('btn-copy-all'),
@@ -77,6 +79,8 @@ export const el = {
   // 顶栏「⋯」菜单：记忆 / 复制全文 / 导出 / 清空对话 都收在里面（见 ui/menu.js）
   btnMore: $('btn-more'),
   moreMenu: $('topbar-more'),
+  // 「⋯」里的「纯对话视图」开关（开合逻辑在 js/ui/plainView.js）
+  btnPlainView: $('btn-plain-view'),
   // 「⋯」上的小圆点：菜单里藏着东西（比如有记忆摘要）时提示一下，不然收起来就看不见了
   moreDot: $('more-dot'),
   // 「帮我想想」的建议条
@@ -225,14 +229,45 @@ export const el = {
     showUsage: $('s-showusage'),
     autoContinue: $('s-autocontinue'),
     wbDepth: $('s-wb-depth'),
+    maxTurns: $('s-max-turns'),
     imageProvider: $('s-image-provider'),
     imageModel: $('s-image-model'),
     imageSize: $('s-image-size'),
     ragEnabled: $('s-rag-enabled'),
     embeddingProvider: $('s-embedding-provider'),
     embeddingModel: $('s-embedding-model'),
-    commonAttrs: $('s-commonattrs')
+    commonAttrs: $('s-commonattrs'),
+    // 联网搜索（博查）：总闸 + Key + 条数 + 时间范围
+    searchEnabled: $('s-search-enabled'),
+    searchKey: $('s-search-key'),
+    searchCount: $('s-search-count'),
+    searchFreshness: $('s-search-freshness')
   },
+  btnTestSearch: $('btn-test-search'),
+  // 默认人设：设置里只留一行入口（按钮 + 当前状态），正文在弹窗里编辑
+  btnAssistantPersona: $('btn-assistant-persona'),
+  assistantHint: $('s-assistant-hint'),
+  personaModal: $('persona-modal'),
+  btnClosePersona: $('btn-close-persona'),
+  btnCancelPersona: $('btn-cancel-persona'),
+  btnSavePersona: $('btn-save-persona'),
+  btnPersonaTemplate: $('btn-persona-template'),
+  persona: {
+    name: $('persona-name'),
+    text: $('persona-text'),
+    model: $('persona-model'),
+    hint: $('persona-foot-hint')
+  },
+  // 请求记录（顶栏「⋯」里进）：最近几次实际发出去的请求，只在内存里
+  btnRequestLog: $('btn-request-log'),
+  requestsModal: $('requests-modal'),
+  btnCloseRequests: $('btn-close-requests'),
+  btnCopyRequest: $('btn-copy-request'),
+  btnClearRequests: $('btn-clear-requests'),
+  requestsMax: $('requests-max'),
+  requestsList: $('requests-list'),
+  requestsSummary: $('requests-summary'),
+  requestsJson: $('requests-json'),
   p: {
     name: $('p-name'),
     baseUrl: $('p-baseurl'),

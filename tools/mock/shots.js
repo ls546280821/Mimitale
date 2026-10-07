@@ -8,7 +8,7 @@
 //  整个视口 —— 于是截出来的图就是「这个页面在真窗口里的样子」，不是缩略图。
 //
 //  用法（本机默认带 ELECTRON_RUN_AS_NODE，必须 unset）：
-//    cd E:/工作/Mimitale
+//    cd <项目根目录>（有 package.json 的那一层）
 //    export MSYS_NO_PATHCONV=1 && unset ELECTRON_RUN_AS_NODE
 //    ./node_modules/electron/dist/electron.exe --no-sandbox tools/mock/shots.js
 //

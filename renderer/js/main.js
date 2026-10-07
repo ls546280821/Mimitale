@@ -48,6 +48,7 @@ import { esc } from './ui/markdown.js';
 import { applyFieldIcons } from './ui/icons.js';
 import { initMoreMenu } from './ui/menu.js';
 import { initModelMenu } from './ui/modelMenu.js';
+import { initPlainView, applyPlainView } from './ui/plainView.js';
 
 import { persistCharacters, persistLibrary, persistPresets, markWorldbooksLoaded, markPresetsLoaded } from './data/persist.js';
 import { currentEndpoint, isBridgeProvider } from './data/providers.js';
@@ -68,6 +69,7 @@ import { createConvo } from './data/conversations.js';
 import { onRefresh } from './views/refresh.js';
 import { initHeader } from './views/header.js';
 import { initPerspectiveUi, closePerspectiveModal } from './views/perspectiveUi.js';
+import { initRequestLog, closeRequestLog } from './views/requestLog.js';
 import { closePlayerModal, applyPlayerCharChoice } from './views/player.js';
 import { initMemoryUi, closeMemoryModal } from './views/memoryUi.js';
 import { initPanelUi } from './views/panelUi.js';
@@ -85,7 +87,7 @@ import {
   deletePresetById,
   closePresetEditor
 } from './views/preset.js';
-import { initSettings, setEditingProvider, openSettings, closeSettings } from './views/settings.js';
+import { initSettings, setEditingProvider, openSettings, closeSettings, closePersonaDialog } from './views/settings.js';
 import { initAppearance, applyChatAppearance, closeAppearanceModal } from './views/appearance.js';
 import { streamPainter, initStreamFollow } from './views/stream.js';
 import { initChatImages, addImageFiles } from './views/chatImages.js';
@@ -120,7 +122,7 @@ import { initAiGen, openAiGenModal } from './views/aiGen.js';
 import { renderAll } from './views/redraw.js';
 import { renderConvoList, renderModelSwitch, applyModelChoice } from './views/chatList.js';
 import { renderMessages } from './views/chatMessages.js';
-import { sendMessage, autoGrowInput, stopGenerating } from './views/composer.js';
+import { sendMessage, autoGrowInput, stopGenerating, toggleWebSearch, renderWebSearchToggle } from './views/composer.js';
 import { clearConvo } from './views/convoActions.js';
 import { summarizeNow } from './views/summarize.js';
 import { exportCharacter, exportConversation } from './views/chatExport.js';
@@ -149,6 +151,9 @@ function registerRefreshListeners() {
   initPanelUi(); // → onRefresh(renderPanel)
   initMemoryUi(); // → onRefresh(renderMemoryIndicator)
   onRefresh(renderMessages);
+  // 输入框左边那颗「联网」开关。它读的是当前会话（convo.webSearch）+ 设置里的总闸，
+  // 换会话就得跟着变，所以也挂到刷新总线上。
+  onRefresh(renderWebSearchToggle);
   // 浮动状态卡（点「我」/角色的头像打开）。登记在消息之后：它读的是同一份面板数据，
   // 顺序不影响结果，跟着消息后面画一遍即可。
   initStateCards(); // → onRefresh(renderStateCards)
@@ -190,6 +195,9 @@ function bindEvents() {
     sendMessage(text);
   });
 
+  // 输入框左边的「联网」开关：纯显示 + 会话状态，落盘在 composer 里做
+  el.btnWebSearch.addEventListener('click', toggleWebSearch);
+
   // 粘贴：截图之后 Ctrl+V 直接贴进来，比存文件再选快得多
   el.input.addEventListener('paste', (event) => {
     const files = event.clipboardData && event.clipboardData.files;
@@ -229,8 +237,9 @@ function bindEvents() {
       showToast('当前会话是空的');
       return;
     }
-    // 导出时用和界面一致的称呼：你 = 玩家角色名，对方 = 角色名 / 世界名
-    const assistantLabel = speakerName(convo);
+    // 导出时用和界面一致的称呼：你 = 玩家角色名，对方 = 角色名 / 世界名。
+    // 通用助手没填名字时 speakerName 是空串，这里得有个称呼顶着
+    const assistantLabel = speakerName(convo) || 'AI';
     const meLabel = convoUserName(convo);
     const text = convo.messages
       .map((m) => `${m.role === 'user' ? meLabel : m.role === 'error' ? '错误' : assistantLabel}：${m.content}`)
@@ -313,6 +322,10 @@ function bindEvents() {
     if (event.key !== 'Escape') return;
     // 确认弹窗开着的时候，Esc 只关确认框，不要把手底下的弹窗一起关掉
     if (!el.confirmModal.classList.contains('hidden')) return;
+    if (!el.requestsModal.classList.contains('hidden')) {
+      closeRequestLog();
+      return;
+    }
     if (!el.playerModal.classList.contains('hidden')) {
       closePlayerModal();
       return;
@@ -329,6 +342,12 @@ function bindEvents() {
     }
     if (!el.charsModal.classList.contains('hidden')) {
       closeCharsModal();
+      return;
+    }
+    // 人设弹窗是从设置里开的、压在设置之上，所以先关它 ——
+    // 不然按一下 Esc 会把底下的设置弹窗也一起关掉
+    if (!el.personaModal.classList.contains('hidden')) {
+      closePersonaDialog();
       return;
     }
     if (!el.modal.classList.contains('hidden')) {
@@ -484,10 +503,24 @@ async function init() {
   // 只绑事件、不参与整体重绘的模块
   // 顶栏「⋯」下拉菜单：纯开关，菜单里的功能各有各的归属（见 ui/menu.js）
   initMoreMenu();
+  // 「⋯」里的「纯对话视图」：只切一个 body 类，具体藏什么写在 style.css 里。
+  // 状态存进设置（plainChatView）—— 存设置是跨进程的活，所以由这里注入。
+  initPlainView({
+    onChange: async (on) => {
+      try {
+        state.settings = await api.saveSettings({ plainChatView: on });
+      } catch (err) {
+        showToast((err && err.message) || '这个开关没记住，下次启动会退回原来的样子', 'error');
+      }
+    }
+  });
   // 顶栏「切换模型」弹层：同上，纯开关。列表内容由 renderModelSwitch 铺，
   // 选中之后干什么这边接给 applyModelChoice —— 它俩不互相认识，免得绕出 import 环。
   initModelMenu({ onPick: applyModelChoice });
   initPerspectiveUi();
+  // 「请求记录」：只读主进程内存里的最近几次请求，打开时现拉一次。
+  // 它不碰 state、不落盘，所以没有要注入的动作。
+  initRequestLog();
   // 外观弹窗同理：改完即时生效 + 落盘，没有需要整体重绘的 DOM。
   initAppearance();
   // 「用户在看历史就别自动跟随」挂在消息区上，自己绑自己。
@@ -571,6 +604,8 @@ async function init() {
   applyTheme(state.settings.theme);
   // 配色方案同理（粉色默认，蓝色按设置；preload 已先打标记）
   applyAccent(state.settings.accent);
+  // 纯对话视图：只是给 body 挂个类，所以放在这里一次到位
+  applyPlainView(state.settings.plainChatView);
   applyChatAppearance();
 
   state.characters = asArray(storedChars && storedChars.characters);

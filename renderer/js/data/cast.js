@@ -14,6 +14,7 @@
 // ============================================================================
 
 import { api } from '../core/api.js';
+import { state } from '../core/state.js';
 import { asArray } from '../core/util.js';
 import {
   characterForConvo,
@@ -30,6 +31,53 @@ import { convoPanelFields, panelFieldOwner } from './panel.js';
 /** {{user}} 的替换值（默认名；世界会话用玩家角色名覆盖） */
 export function userName() {
   return '你';
+}
+
+/**
+ * 「默认人设」是按**模型**各存一份的，所以先要确定用哪一份。
+ *
+ * 口径：会话自己用的模型优先（每个会话都记着自己的模型），没有会话
+ * （比如空状态页）才退回设置里的当前模型。都没配就返回空串 —— 调用方
+ * 拿空串去查表，查不到自然落到内置默认。
+ *
+ * 纯读，不改 convo —— 别在这儿调 ensureConvoEndpoint()：那会就地补全会话对象，
+ * 而这一层（data/cast.js）只做「把数据读成谁是谁」，不该产生副作用。
+ */
+function assistantModelKey(convo) {
+  const own = convo && String(convo.model || '').trim();
+  if (own) return own;
+  const s = state.settings || {};
+  return String(s.activeModel || '').trim();
+}
+
+/** 某个模型的默认人设条目（没配过就是 null） */
+function assistantPersonaEntry(convo) {
+  const s = state.settings || {};
+  const map = s.assistantPersonas;
+  if (!map || typeof map !== 'object') return null;
+  const entry = map[assistantModelKey(convo)];
+  return entry && typeof entry === 'object' ? entry : null;
+}
+
+/**
+ * 通用助手的名字 —— 没绑定角色卡的会话里，AI 那一侧是谁。
+ * 按会话当前用的模型取「默认人设」那一份。
+ *
+ * **没写名字就是空串**：这里不兜任何内置假名，空名字怎么显示由上层自己决定
+ * —— 气泡和导出用「AI」，空状态标题则干脆不提名字（「开始聊天吧～」）。
+ */
+export function assistantName(convo) {
+  const entry = assistantPersonaEntry(convo);
+  return String((entry && entry.name) || '').trim();
+}
+
+/**
+ * 通用助手的设定正文，同样是按模型取。
+ * 空串是**正常状态**：这个模型没配人设 = 不扮演任何角色，跟以前一样。
+ */
+export function assistantPersona(convo) {
+  const entry = assistantPersonaEntry(convo);
+  return String((entry && entry.persona) || '').trim();
 }
 
 /**
@@ -240,7 +288,7 @@ export function panelEntities(convo) {
  * 助手那一侧显示成谁：
  *   · 绑了角色卡 → 角色名
  *   · 进了世界 → 世界名（那个世界里的所有 NPC 都算它说的）
- *   · 都没有 → 通用助手，用全局人设那个名字
+ *   · 都没有 → 通用助手，用设置里「默认人设」那个名字
  */
 export function speakerName(convo) {
   const character = characterForConvo(convo);
@@ -251,7 +299,7 @@ export function speakerName(convo) {
     .find(Boolean);
   if (book) return book.name;
 
-  return '昔涟';
+  return assistantName(convo);
 }
 
 // 名单太长会吃掉上下文，给个总预算；单个 NPC 的描述也截一下

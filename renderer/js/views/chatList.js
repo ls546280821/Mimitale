@@ -349,6 +349,9 @@ export function applyModelChoice(value) {
   // 以前这里是原生 select，它自己会把选中的那项显出来；现在是自绘的按钮 + 弹层，
   // 按钮上那行字和列表里的勾都得自己重画一遍。
   renderModelSwitch();
+  // 「默认人设」是按模型存的，换了模型，气泡上的名字和空状态标题都要跟着换 ——
+  // 所以顺带把消息区重画一次（上面已经确认不在流式状态，重画是安全的）。
+  renderAll();
   persistConversations(0);
 
   api

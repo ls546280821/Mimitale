@@ -49,6 +49,12 @@ const { createWorldbookNormalizer } = require('../main/worldbook-store.js');
 // 「描述是给人看的、正文是给模型看的」这条规则只在归一层，假后端只 clone
 // 的话，「导入来的预设正文住在 metadata.systemPromptContent」就测不出来了。
 const { normalizePreset } = require('../main/presets.js');
+// 「请求记录」用的两样真东西：
+//   · request-log.js —— 环形缓冲本身（假后端记进去、页面侧读到、上限也由它管）
+//   · http.js 的 streamChat —— onRequest 是不是在请求发出去**之前**就触发了。
+//     这条只能在这儿验：页面看不到真正发出去的东西，而假后端根本不发网络请求。
+const { recordRequest, listRequests, clearRequests, MAX_ENTRIES: MAX_LOGGED_REQUESTS } = require('../main/request-log.js');
+const { streamChat } = require('../main/http.js');
 // 面板字段的类型/范围/变化规则/分组：主进程和渲染层共用的那一份
 const {
   clampFieldValue,
@@ -651,6 +657,12 @@ function registerStubs() {
 
   // --- 聊天：假装模型回了一句话，并且真的走一遍流式通道 ---
   ipcMain.handle('chat:stop', () => true);
+  // 「请求记录」：读/清都走真模块（main/request-log.js），只是没真的发网络请求
+  ipcMain.handle('chat:requests', () => ({ entries: listRequests(), max: MAX_LOGGED_REQUESTS }));
+  ipcMain.handle('chat:requests:clear', () => {
+    clearRequests();
+    return true;
+  });
   // 每次回复带个序号 —— 不然「重新生成」出来的候选和原来那条一模一样，
   // 测不出「到底是哪一条」
   let replySeq = 0;
@@ -660,6 +672,22 @@ function registerStubs() {
     chatPayloads.push(clone((payload && payload.messages) || []));
     const requestId = (payload && payload.requestId) || 'req-smoke';
     const model = (payload && payload.model) || 'test-model';
+
+    // 真 handler 是在 main/http.js 的 onRequest 里留这一份的（见 probeRequestLog）。
+    // 假后端不发网络请求，所以照着那个形状补一条，页面侧的「请求记录」弹窗才有料可看。
+    recordRequest({
+      requestId,
+      providerName: '冒烟假后端',
+      url: 'https://example.invalid/v1/chat/completions',
+      body: {
+        model,
+        messages: clone((payload && payload.messages) || []),
+        stream: true,
+        temperature: 0.7,
+        max_tokens: 8192,
+        top_p: 0.95
+      }
+    });
 
     // ⚠️ 判定必须只看「当前这一轮」，不能扫整段历史 ——
     // 这几个场景共用同一个会话，扫历史的话，前一个场景留下的关键词会污染
@@ -1461,16 +1489,25 @@ function probePresets(result) {
   // 「没配过就跟随全局」和「配过了就按配的来」是两回事，搞混的话
   // 用户永远关不掉某条全局预设，这正是这套设计要解决的问题。
   //
-  // ⚠️ 只看**最后一次**发送，不能扫全部 payload —— 这一轮之前还有几十次
-  // 发送发生在别的会话上，那些会话「没配过」时带上全局预设是**对的**。
-  // 扫全场会把正确行为当 bug。
-  const lastBlob = blobs.length ? blobs[blobs.length - 1] : '';
-  const globalLeaked =
-    lastBlob.includes('【预设 · 全局通用预设】') || lastBlob.includes('这场对话默认带上这一条。');
+  // ⚠️ 别扫全部 payload：几十次发送发生在别的会话上，那些会话「没配过」时
+  // 带上全局预设是**对的**。也**别只看最后一次** —— 这句话从前写在这里，但
+  // 它是靠「预设那一轮正好是最后发的」这个巧合成立的：后来加了「请求记录」
+  // 场景，它在末尾新建会话再发一条（那条会带上全局预设，完全正确），
+  // 于是这条断言就误报了。**改用内容认领**：凡是被拼进了「带条目的预设」
+  // 的那些请求，就是那个手动配过的会话发出去的，一条都不许夹带全局预设。
+  const presetBound = blobs.filter((b) => b.includes('【预设 · 带条目的预设】'));
+  const globalLeaked = presetBound.some(
+    (b) => b.includes('【预设 · 全局通用预设】') || b.includes('这场对话默认带上这一条。')
+  );
   result.results.push({
     name: '预设：手动配过的会话不受「可全局」预设影响',
-    pass: !globalLeaked,
-    detail: globalLeaked ? '会话只勾了一条，可全局的预设还是被带上了' : ''
+    // 认领不到任何请求也算失败：否则这段变成空跑，等于这条断言被悄悄取消
+    pass: presetBound.length > 0 && !globalLeaked,
+    detail: globalLeaked
+      ? `会话只勾了一条，可全局的预设还是被带上了（查了 ${presetBound.length} 次请求）`
+      : presetBound.length
+        ? ''
+        : '没有任何请求带上「带条目的预设」—— 这条断言没法判断了'
   });
 
   // 采样参数：预设没设过就不该覆盖全局。这里只在「没设过」的方向断言
@@ -2701,10 +2738,14 @@ function probeSettingsWhitelist(result) {
     // settings.js 的表单
     'providers', 'activeProviderId', 'activeModel', 'temperature', 'maxTokens',
     'sendOnEnter', 'showDate', 'showUsage',
-    'autoContinue', 'worldbookRecursiveDepth',
+    'autoContinue', 'worldbookRecursiveDepth', 'maxTurns',
     'imageProviderId', 'imageModel', 'imageSize',
     'ragEnabled', 'embeddingProviderId', 'embeddingModel',
     'commonAttributes',
+    'assistantPersonas',
+    'searchEnabled', 'searchApiKey', 'searchCount', 'searchFreshness',
+    // ui/plainView.js（顶栏「⋯」里的显示开关）
+    'plainChatView',
     // appearance.js / theme.js
     'chatFontSize', 'chatBoldColor', 'chatBackground', 'theme', 'accent'
   ];
@@ -2729,6 +2770,144 @@ function probeSettingsWhitelist(result) {
   const unknown = ['__definitely_not_a_setting__'];
   const leaked = unknown.filter((key) => key in defaults);
   push('设置白名单：没见过的键确实不在默认表里', leaked.length === 0, leaked.join(', '));
+}
+
+/**
+ * 默认人设（设置 → 默认人设）：管的是**没绑角色卡**的会话，而且按模型各存一份。
+ *
+ * 页面侧只能验「表单读写得对、标题跟着变」，这里补上真正的效果 ——
+ * 那段人设有没有被拼进发给模型的消息。
+ *
+ * ⚠️ 这里同时守着一条设计：默认对话是「跟 AI 模型聊天」，**不是**扮演酒馆角色，
+ * 所以只该带用户自己写的人设，不能再叠一层【扮演规则】—— 那份人设是自足的，
+ * 多一层规则只会跟它打架（这条是 2026-10-07 用户明确要求的）。
+ */
+function probeAssistantPersona(result) {
+  if (!result) return;
+  const push = (name, pass, detail) =>
+    result.results.push({ name, pass: !!pass, detail: detail || '' });
+
+  // 认这句特征串（smoke-renderer 里配的那段人设）
+  const MARK = '你是一只叫团子的猫';
+  const blobs = chatPayloads.map((msgs) =>
+    msgs.map((m) => String((m && m.content) || '')).join('\n')
+  );
+
+  const hit = blobs.filter((b) => b.includes(MARK));
+  push(
+    '默认人设：配了人设的通用对话把它拼进了系统提示词',
+    hit.length >= 1,
+    hit.length ? '' : `翻了 ${blobs.length} 次请求都没找到那段人设`
+  );
+
+  const plain = hit.length > 0 && hit.every((b) => !b.includes('【扮演规则】') && !b.includes('【主持规则】'));
+  push(
+    '默认对话：只带人设，不再注入酒馆的扮演规则',
+    plain,
+    plain ? '' : '默认对话里混进了扮演/主持规则 —— 那会和用户自己写的人设打架'
+  );
+
+  // 「不是酒馆会话」不止扮演规则那一条。世界 NPC 名单 / 玩家角色 / 叙述模式这三段
+  // 是 buildApiMessages **自己从 convo 里读**的（不像世界书那样由参数传进来），
+  // 所以最容易被漏掉：漏了不报错，只是悄悄混进提示词。这里一起守着。
+  // （叙述模式默认就是「标准」档、文案非空，只要没挡就必定出现。）
+  const TAVERN_MARKS = ['【扮演规则】', '【主持规则】', '【叙述要求】', '【这个世界的人】', '【玩家角色'];
+  const leaked = hit.length ? TAVERN_MARKS.filter((mark) => hit.some((b) => b.includes(mark))) : [];
+  push(
+    '默认对话：叙述模式 / 玩家角色 / NPC 名单也没混进来',
+    hit.length > 0 && leaked.length === 0,
+    leaked.length ? `混进了：${leaked.join('、')}` : `翻了 ${blobs.length} 次请求都没找到那段人设`
+  );
+}
+
+/**
+ * 请求记录（顶栏「⋯」→ 请求记录）。
+ *
+ * 这个功能的落点是「把真正发出去的那一份留下」，而**留下来的到底对不对**
+ * 页面里看不到 —— 所以两条关键断言在宿主侧：
+ *
+ *   1. main/http.js 是不是在请求**发出去之前**就把定稿的 body 交给 onRequest。
+ *      用 127.0.0.1:1（保留端口，必连不上）也够 —— 回调在建立连接之前就触发了，
+ *      我们要的是那份 body，不是响应。
+ *   2. 环形缓冲是不是真的在转、上限认不认。塞满再塞，看最旧的有没有被挤掉。
+ *
+ * ⚠️ 这里会清空缓冲。渲染层那边的场景**已经跑完了**（场景全部跑完才轮到宿主侧 probe），
+ *    所以不会影响它。
+ */
+async function probeRequestLog(result) {
+  const push = (name, pass, detail) =>
+    result.results.push({ name, pass: !!pass, detail: detail || '' });
+
+  // --- 1) http.js 的 onRequest 接线 ---
+  // 关键：streamChat 的函数体是 `return new Promise((resolve,reject)=>{...})`，
+  // **executor 是同步跑的** —— 所以 onRequest 在 streamChat() 这一下里就触发了，
+  // 不用等 socket。后面那句 race 只是让连接错误走完、别把句柄留着，
+  // 顺手给它 2 秒上限，万一这个环境不立刻 ECONNREFUSED 也不会拖住整个测试。
+  let seen = null;
+  const pending = streamChat({
+    settings: {
+      baseUrl: 'http://127.0.0.1:1',
+      model: 'smoke-request-log',
+      apiKey: 'smoke-key',
+      temperature: 0.31,
+      maxTokens: 1234,
+      topP: 0.87
+    },
+    messages: [{ role: 'user', content: '记录我' }],
+    onRequest: (body, url) => {
+      seen = { body, url };
+    }
+  }).catch(() => {
+    // 连不上正是这条用例的预期：要看的是 seen，不是响应
+  });
+  await Promise.race([pending, new Promise((resolve) => setTimeout(resolve, 2000))]);
+
+  push(
+    '请求记录：发出去之前就把定稿的 body 交了出来',
+    !!(seen && seen.body),
+    seen ? '' : 'onRequest 没被调用 —— 弹窗里会是空的'
+  );
+  push(
+    '请求记录：交出来的就是最终要发的那份（模型 + 三个采样参数）',
+    !!seen &&
+      seen.body.model === 'smoke-request-log' &&
+      seen.body.temperature === 0.31 &&
+      seen.body.max_tokens === 1234 &&
+      seen.body.top_p === 0.87 &&
+      seen.body.stream === true,
+    seen
+      ? JSON.stringify({
+          model: seen.body.model,
+          temperature: seen.body.temperature,
+          max_tokens: seen.body.max_tokens,
+          top_p: seen.body.top_p
+        })
+      : '没有拿到 body'
+  );
+
+  // --- 2) 环形缓冲 ---
+  clearRequests();
+  for (let i = 0; i < MAX_LOGGED_REQUESTS + 5; i += 1) {
+    recordRequest({
+      requestId: `smoke-${i}`,
+      providerName: 'smoke',
+      url: 'http://x/v1/chat/completions',
+      body: { model: `m${i}` }
+    });
+  }
+  const list = listRequests();
+  const newest = list[0] && list[0].body && list[0].body.model;
+  const oldest = list[list.length - 1] && list[list.length - 1].body && list[list.length - 1].body.model;
+  push(
+    `请求记录：最多留 ${MAX_LOGGED_REQUESTS} 条，超了挤掉最旧的`,
+    list.length === MAX_LOGGED_REQUESTS &&
+      newest === `m${MAX_LOGGED_REQUESTS + 4}` &&
+      oldest === 'm5',
+    `长度 ${list.length}，最新 ${newest}，最旧 ${oldest}`
+  );
+
+  clearRequests();
+  push('请求记录：能清空', listRequests().length === 0, String(listRequests().length));
 }
 
 app.whenReady().then(async () => {
@@ -2802,6 +2981,8 @@ app.whenReady().then(async () => {
       probeVectors(result);
       probeRag(result);
       probeAttrModeWording(result);
+      probeAssistantPersona(result);
+      await probeRequestLog(result);
       probeSettingsWhitelist(result);
       await probeAiGenParse(win, result);
       await probeHover(win, result);

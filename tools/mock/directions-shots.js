@@ -10,7 +10,7 @@
 //    2) 逐元素检查有没有被「最近的裁剪祖先」切掉（只看 frame 边界会漏）
 //
 //  用法（默认出 directions.html）：
-//    cd E:/工作/Mimitale
+//    cd <项目根目录>（有 package.json 的那一层）
 //    export MSYS_NO_PATHCONV=1 && unset ELECTRON_RUN_AS_NODE
 //    ./node_modules/electron/dist/electron.exe --no-sandbox tools/mock/directions-shots.js
 //

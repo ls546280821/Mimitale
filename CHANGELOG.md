@@ -4,6 +4,397 @@
 
 ---
 
+## 2026-10-07 仓库不再自带样例卡：`角色卡/` 从版本库里移除
+
+原先 `角色卡/` 里放过几张样例卡，而 `.gitignore` 写的是 `角色卡/*.json` ——
+**只挡顶层、不挡子目录**。现在口径改成**仓库里不放任何卡**：
+
+- 目录下那几张已从工作区移除，`.gitignore` 收紧成 `角色卡/`（**整目录忽略**，
+  子目录一起罩住），注释里也写清了新口径。
+- **不影响任何东西**：全仓库 grep 过，**没有一处代码读这个目录**。所有读盘都是
+  「用户点导入 → 文件对话框 → 他选的路径」（`main/ipc.js`），冒烟测试全用内存里的假夹具
+  （`importFiles({ readFile: () => cardPng })`）。App 照常跑、冒烟照常绿。
+- **也不影响你自己的卡**：源卡在项目之外（另有多份带日期的备份），
+  被移除的只是项目里的那份副本。
+- README / `使用说明.md` 里没有任何「自带样例卡」的说法，所以没有文案需要跟着改。
+
+> 顺带校正了 README 里几处过期的小数字：`renderer/js/main.js` 653 → **689 行**、
+> `js/data/` 14 → **15 个文件**、`js/views/` 33 → **35 个模块**，
+> 并把本次新增的 `main/search.js`、`main/request-log.js`、`views/requestLog.js`、
+> `views/settingsCatalog.js` 补进了结构树。
+
+---
+
+## 2026-10-07 整理：`views/settings.js` 拆分 —— 内置目录兜底搬去 `settingsCatalog.js`
+
+`views/settings.js` 涨到 **1106 行**，是仓库里最长的几个文件之一。这一轮拆掉它最独立的一块。
+
+新文件 `renderer/js/views/settingsCatalog.js`（**228 行**）—— 「服务商没提供模型列表接口时
+拿什么顶上」这件事的完整实现：
+
+- **数据**：`MODEL_CATALOG`（按接口域名匹配的内置模型清单，含各自的生图模型）、
+  `IMAGE_SIZE_RULES`（各生图模型的合法尺寸 —— 智谱 glm-image 只认固定 7 个，
+  早期一律发 1024x1024 会被接口拒掉）、`DEFAULT_IMAGE_SIZES`
+- **查询**：`catalogForBaseUrl` / `imageCatalogModels` / `imageSizeRule` /
+  `sizesForImageModel` / `isValidImageSize`
+- **判断**：`looksLikeUnsupportedModelList` —— 失败原因是不是「这家压根没有这个接口」
+- **铺进界面**：`preferImageModel`（有内置生图目录就把生图模型主动切过去）、
+  `fillImageSizeOptions`（按模型重建尺寸下拉，并纠正该模型不支持的旧尺寸）
+
+**没有搬的**：`applyCatalogModels`。它要用 `settings.js` 的 `stashProviderForm()` 和入口层
+注入的 `refreshModelSwitch()`，搬走就得把内部实现 export 出去，反而更糟。划的这条线是
+「**规则与查询放 catalog，往服务商表单里写字留在 settings**」。
+
+`settings.js` **1106 → 924 行**。顺带补齐分区横幅 —— 原来本地只有 3 处（联网搜索 /
+服务商编辑 / 保存），而**最大的两块「默认人设」231 行和「模型目录 + 生图尺寸」216 行
+都没有**，`tools/analyze.js` 按横幅分区，会把它们并进上一节、fan-in 统计就废了。
+现在本地横幅是：默认人设 / 填表单 / 联网搜索 / 服务商编辑 / 保存 / 内置目录兜底导入 / 网络动作。
+
+⚠️ 一处顺带修掉的隐患：`isValidImageSize` 里原来写 `const [w, h] = value.split('x')...`
+—— `h` 恰好是本模块从 `ui/build.js` import 进来的 DOM 构造函数，靠「函数体里没用到 `h()`」
+才没出事。搬过去时改名 `hgt`，这个坑不再是坑。
+
+> 纯 `renderer/` 改动，刷新即生效，不用重启。
+> 冒烟：纯搬移，没增删任何断言，断言数字应原样不动。
+
+### 顺带修：`tools/check-imports.js` 的根目录写死成了旧盘符
+
+那个脚本第 18 行是 `const root = 'E:/工作/Mimitale/renderer/js'` —— 仓库搬过盘之后它跑起来
+直接 ENOENT，等于**这个「导入了但对面没导出」检查器一直是个哑炮**（而它防的正是
+「一个名字对不上就让整个模块图链接失败、页面白掉」这种事故）。改成从脚本自身位置推：
+`path.join(__dirname, '..', 'renderer', 'js')`。
+
+`tools/mock/shots.js` 和 `tools/mock/directions-shots.js` 用法注释里的 `cd E:/工作/Mimitale`
+也一并换掉，不再写死盘符。
+
+另配了个双击入口 **`tools/check-imports.cmd`**（7 行、纯 ASCII）—— 不用自己敲命令。
+它刻意不 `cd`：脚本既然改成从 `__dirname` 推根目录，从哪个目录双击都应该能跑。
+
+> ⚠️ 这组「双击入口」（`tools/check-imports.cmd`、
+> `tools/run-smoke.cmd` + `.ps1` + `messages-utf8.txt`）**都不进版本库**，已写进 `.gitignore`。
+> 它们只是**把命令跑起来的外壳**，不属于项目内容 —— 公开仓库里一个都不多。
+>
+> 后来清掉了一个：`tools/git-status.cmd` 只是把 `git status` 套了层 `.cmd` 包装，
+> 价值太低，已删除（看改动直接用 git 本身）。
+
+> ⚠️ 本次拆分**没法自己跑 `check-imports`**（会话内没有命令执行工具），改成人工核对：
+> `settings.js` 的 import 清单（5 个）与 `settingsCatalog.js` 的 `export function`（5 个）
+> 逐字一一对应；新文件那 4 条 import 的路径和名字与 `settings.js` 里原有的完全一致。
+> 建议跑一次 `node tools/check-imports.js`，输出「(无)」即通过。
+
+---
+
+## 2026-10-07 修：「在设置里换另一个模型的默认人设，显示的却还是之前那份」
+
+用户报的现象是切到另一个模型的默认人设，弹窗里还是旧内容。追下去发现**根因不是回填写错，
+而是根本没有「换的目标」这个东西**：
+
+- `views/settings.js` 的编辑对象只有一个来源 ——「当前生效的那个模型」
+  （会话自己的 `model` 优先，没有会话才退回 `settings.activeModel`，口径同 `data/cast.js`）。
+- 而**设置弹窗里没有任何地方能改这个模型**：`#p-models` 只是「这个服务商有哪些模型」的清单，
+  切服务商标签只换 `editingProviderId`，`readSettingsForm` 又刻意原样带回
+  `activeModel`（它不负责切模型，那是顶栏的活）。
+- 于是弹窗永远只呈现出会话那一个模型的那一份，用户想把人设配给另一个模型时，
+  不管在设置里怎么翻，看到的都还是同一份 —— 就是「显示的还是之前的人设」。
+
+修法：把「**这份人设生效时取哪一条**」和「**弹窗现在编辑哪一条**」拆成两件事。
+
+- 新增 `#persona-model` 下拉框（=`el.persona.model`，从 `<b>` 换成 `<select>`），
+  放在人设弹窗最上面「给哪个模型」。可选项**就等于顶栏切换模型时能选到的那些**
+  （按服务商分组、同名去重），两处说的是同一件事。
+- `defaultAssistantModel()` = 生效口径（原来的逻辑，口径不变，`data/cast.js` 那边一个字没动）；
+  `editingAssistantModel()` = 下拉框说了算。`readSettingsForm` 写回时用后者，
+  所以「给谁存的」由界面显式决定，不再靠猜。
+- 会话在用一个「已从服务商列表里删掉、但历史会话还记着」的模型时，它会被**单独塞进选项最前面**
+  —— 否则下拉框会静默落到别的模型上，等于编辑错了对象。
+- 打开设置时把编辑对象**强制拨回当前在用的那个模型**（上次翻看过的不算数）；
+  打开人设弹窗前先 `stashProviderForm()`，这样刚在「可用模型」里敲进去、还没保存的新模型名
+  也能在下拉框里选到。
+- 换编辑对象时，字段里那份草稿只活在字段里（没有按模型分别暂存），所以**有未保存改动时先问一句**
+  再切；取消则把下拉框退回原处，草稿不动。（`personaShownModel` 记着字段里这份草稿属于谁 ——
+  `change` 事件触发时下拉框已经是新值了，那时再问「编辑的是哪个模型」会问到新模型头上。）
+- 入口那行摘要说的仍是「当前在用的那个模型」，并在**还存着别人的**时候缀一句
+  「· 另有 N 个模型配过」—— 用户当初就是误以为人设跟当前模型绑死才来报的。
+
+改动文件：`renderer/index.html`（弹窗标题去掉「当前模型 X」，正文加下拉框）、
+`renderer/js/views/settings.js`（拆函数 + 换对象确认 + 摘要尾巴）、
+`tools/smoke-renderer.js`（原两条 `textContent` 断言改成 `.value`，并新增一节
+「弹窗里能直接换编辑对象」：列出的选项、换过去字段跟着换、换回来、跨服务商挑一个存下去、
+两份互不覆盖、摘要不跟着编辑对象跑）。
+
+> 纯 `renderer/` 改动，刷新即生效，不用重启。
+
+> 冒烟：**1078/1078 全绿**，控制台报错 0 条。中途跑出过一次 **1076/1078**，2 条失败
+> **全在测试侧**（一条是菜单项数写死了旧值、一条是预设断言偷看「最后一次请求」）——
+> 两条都只是换写法、没增删断言，根因写在下面那条的末尾。
+> 这一轮新增的 8 条断言（下拉框选项、换过去/换回来、跨服务商挑一个存、两份互不覆盖、
+> 摘要不跟着编辑对象跑、有草稿时换对象先确认）**当场全绿**。
+
+---
+
+## 2026-10-07 「为什么和网页版回复不一样」→ 四件配套的改动
+
+起于一个问题：同一个 DeepSeek，在 chat.deepseek.com 和在软件里回复不一样。
+
+逐行读了 `main/http.js` 的 `streamChat`，我们实际发出去的 body 就是：
+
+```json
+{ "model": "...", "messages": [...], "stream": true,
+  "temperature": 0.7, "max_tokens": 7360, "top_p": 0.95 }
+```
+
+差异按影响排序：**① API 是裸的**，system 里只有用户自己写的人设，拿不到官方网页版那层
+「友好、自然、有温度」的预置提示词；**② 上下文**只发最近 20 轮；**③ 思考 token 计入
+`max_tokens`**，网页版的深度思考另有预算；**④ 日期拼在 system 末尾**；⑤ 联网 / 文件解析
+在网页版是前端做的。这一轮把其中**能改的三件**做掉了，外加一件「以后不用再猜」的工具。
+
+### 1. 对话轮数从代码里挪进设置
+
+`CONFIG.MAX_TURNS = 20` 原来**写死在 `renderer/js/core/config.js`** 里 ——
+但「AI 记得多久以前的事」是用户最能直接感觉到的项，藏在代码里等于不给改。
+
+- `main/providers.js`：`DEFAULT_SETTINGS.maxTurns = 20` + `normalizeSettings`（1–200，越界退回默认）。
+- `renderer/js/data/messages.js`：改读 `state.settings.maxTurns`，**不再 import CONFIG**
+  （那个文件里只有这一处在用它）。兜底 20，和默认值一致。
+- `renderer/js/core/config.js`：删掉 `MAX_TURNS`（避免两处真值）。
+- 设置界面「行为」一节新增「对话轮数」，`core/dom.js` / `views/settings.js` 接线，
+  `tools/smoke-test.js` 的设置白名单补 `maxTurns`。
+
+> 上限给到 200 而不是 50：这是用户自己的选择，拦太死反而像 bug；只管住下限和「不是个数」。
+
+### 2. 默认人设弹窗加「套用聊天风格模板」
+
+既然 API 拿不到官方那层语气设定，就只能用户自己写 —— 但「不知道写什么」是真实的门槛。
+
+- `#persona-modal` 里加一颗 `#btn-persona-template`，点一下把一段模板填进人设框。
+- 模板**只讲「怎么说话」、不设定人格**（人格留给第一行那个空位），所以它和用户自己的
+  角色设定不冲突，也没有打破「留空 = 通用助手」的原则 —— 它只是个起点。
+- 已有内容时先走 `ui/confirm.js` 问一句再覆盖：程序改 `textarea.value` 会清掉浏览器
+  自己的撤销栈，**Ctrl+Z 救不回来**，所以不能默默盖掉。
+
+### 3. 「请求记录」：把实际发出去的原文摊开
+
+新增 `main/request-log.js` —— 一个**只存内存**的环形缓冲（最近 20 次）。
+
+- 记录点在 `main/http.js` 的 `streamChat`：body 拼好、**建立连接之前**回调
+  `onRequest(body, url)` 交出来。放这儿是因为只有这里才权威 —— 让上层各自照着重拼一遍，
+  参数一多迟早走样。
+- `main/ipc.js`：`chat:send` 把回调接上 `recordRequest`；新增 `chat:requests` /
+  `chat:requests:clear`。`preload.js` 暴露 `requestLog` / `clearRequestLog`。
+- `renderer/js/views/requestLog.js`（新）+ `#requests-modal`：左边列表（时间 / 模型 /
+  我问的那句 / 带了几条 + 三个采样参数），右边 `pre.json` 原文 + 复制。入口在顶栏「⋯」。
+- **不落盘**：一次请求几十 KB，落盘会让 userData 多一个越滚越大的文件，还要牵扯
+  「读失败要不要守卫」；而它的用途是即时排查，不是档案。界面上的文案也如实这么写。
+
+### 4. `plainChat` 补漏：三条会话级注入没挡住
+
+复查 `buildApiMessages` 时发现，上一轮给「默认对话」加的 `plainChat` **只挡了「由参数传进来」
+的那几段**（世界书 / RAG / 搜索），**函数自己从 `convo` 里读**的三段全漏了：
+叙述模式（`narrationInstruction`，默认档文案非空，**必定注入**）、玩家角色（`convoPlayer`）、
+世界 NPC 名单（`worldbookCast`）。最刺眼的是不一致：`worldbookSection` 挡住了，
+`worldbookCast` 却没挡。三条已全部补上判断。
+
+> 📌 教训：给 `buildApiMessages` 加「某种会话不要注入」的开关时，别只盯着函数参数，
+> 要把整个 `parts` 数组从头到尾过一遍 —— 注入项分两类，后者没有参数提示，最容易漏。
+
+### 关键改动清单
+
+- 新增：`main/request-log.js`、`renderer/js/views/requestLog.js`。
+- `main/http.js`：`streamChat` 多收 `onRequest`（默认不传也不影响任何行为）。
+- `main/providers.js`：`maxTurns` 进默认表和归一化。
+- `main/ipc.js` / `preload.js`：请求记录接线。
+- `renderer/index.html`：设置「行为」加「对话轮数」；人设弹窗加模板按钮；顶栏「⋯」加
+  「请求记录」；新增 `#requests-modal`。
+- `renderer/style.css`：`.persona-template-row` / `.persona-template-hint`、一整套 `.requests-*`。
+- `renderer/js/views/settings.js`：`PERSONA_TEMPLATE` + `applyPersonaTemplate()`；轮数读写。
+- `tools/smoke-test.js`：白名单补 `maxTurns`；`chat:send` 假后端补记一条请求记录；
+  新增 `probeRequestLog`（验 onRequest 接线 + 环形缓冲上限）。
+- `tools/smoke-renderer.js`：设置场景验「对话轮数」落盘并还原；默认人设场景验模板
+  （空框直接填 / 有内容先确认 / 取消不改字）；新增场景「请求记录：列表、原文 JSON、清空」。
+
+> ✅ **冒烟已跑**：这一轮的改动后来跑过一次 `npm run smoke` —— **1076/1078**，
+> 2 条失败全部查清并修掉（两条都在测试侧，产品代码没有问题）：
+>
+> 1. `菜单里装了四项` ← 实际 6 项。顶栏「⋯」在这一轮加了「纯对话视图」和「请求记录」，
+>    没人改这条断言。已改成**按 DOM 顺序列出 6 个 id 比一次** —— 下次再动菜单，
+>    报错会直说是多了谁、少了谁（光数数字说不清）。
+> 2. `预设：手动配过的会话不受「可全局」预设影响`。这条断言原先偷懒看「**最后一次**发送」，
+>    而它是靠「预设那一轮恰好是最后发出去的」这个巧合成立的 —— 这一轮新增的
+>    「请求记录」场景排在末尾、又会新建会话发一条（那条带上全局预设是**对的**），
+>    巧合就没了。已改成**按内容认领**：凡是被拼进「带条目的预设」的请求，就是那个
+>    手动配过的会话发的，一条都不许夹带全局预设（另加「一条都没认领到 = 失败」，
+>    防止它变成空跑）。
+>
+> 修完**已再跑一次：1078/1078 全绿**，控制台报错 0 条 —— 冒烟门禁通过。
+> 跑法：双击 `tools\run-smoke.cmd`（App 记得先关掉）。
+
+---
+
+## 2026-10-07 默认对话 = 跟 AI 模型聊天（不再是扮演酒馆角色）+ 联网搜索 + 纯对话视图
+
+这一轮的前提是用户把「默认对话」说清楚了：**没选角色卡的对话不是扮演酒馆里的某个角色，
+而是像跟 AI 模型聊天**。人设（设置 → 模型服务 → 默认人设）是**自足的** —— 自己规定了
+角色、语气、要维护什么变量。所以应用不该再往上面叠酒馆那一套。
+
+### 1. 默认对话按「纯聊天」组装提示词
+
+`data/messages.js` 的 `buildApiMessages` 新增 `plainChat = !character && !gmMode`。
+`plainChat` 时**不再注入**：
+
+- 【扮演规则】（`roleplayRuleText`）—— 以前通用助手配了人设就会带上，现在不带了。
+  那段规则是给「扮演某个角色」用的，和用户自己写的人设正面对撞。
+- 世界书命中段（`worldbookSection`）、语义检索段（`ragSection`）
+- 世界 NPC 名单（`worldbookCast`）、玩家角色段（`convoPlayer` / `playerProfileForPrompt`）
+- 叙述模式（`narrationInstruction`）—— 它默认读「标准」档，而那一档要求
+  「不要写成一份动作 + 台词的对话记录」「不要把整段动作括在括号里」，是给写小说的。
+- 状态面板段 + 末尾的面板提醒（`formatPanelForPrompt` / `PANEL_PROMPT_REMINDER`）
+- 剧情选项指令（`optionsInstruction`）
+- 表情标签指令（`expressionInstruction`）
+
+> NPC 名单 / 玩家角色 / 叙述模式这三条是这一轮**自查时补上的**：它们都读会话自己的
+> 状态，所以一个「没绑卡」的会话只要挂过世界书、定过「我是谁」，就会照样漏进去，
+> 而世界书正文段却是挡住的 —— 前后不一致。既然口径是「默认对话只带人设 + 聊天记录 +
+> 日期 + 联网结果」，这几段就得一起挡。
+
+仍然保留：**人设正文**、**当天日期**、**预设**（会话自己挂的那层指令，谁挂谁生效）、
+**分段记忆摘要**（属于「聊天记录」的压缩），以及下面第 2 条的**联网搜索结果**。
+绑了角色卡、以及世界模式（GM）的会话**完全不受影响**，走的是原来那条路。
+
+### 2. 联网搜索（博查 Bocha）
+
+跟聊天 / 生图 / 向量一样，是**独立的一组配置**（一个 Key 走天下）：
+
+- `main/search.js`（新）—— 调 `POST https://api.bochaai.com/v1/web-search`，
+  复用 `main/http.js` 的 `requestJson`（含错误翻译），不引第三方库。
+  请求体 `{ query, count, summary:false, freshness }`；响应认 `data.webPages.value[]`
+  （博查字段和 Bing Search API 对齐，也兼容不带外层 `data` 的包法）。
+  查询词、条数（1–10）、时间范围都在这一层再闸一次。
+- 设置项：`searchEnabled`（**默认关**，搜索按次单独计费）、`searchApiKey`
+  （和别的 Key 一样走 `encryptApiKey` / `decryptApiKey`，落盘加密、内存明文）、
+  `searchCount`、`searchFreshness`。四样都进了 `DEFAULT_SETTINGS` + `normalizeSettings`，
+  也在 `tools/smoke-test.js` 的设置白名单里。
+- `main/ipc.js`：新增 `search:web`（真搜）、`search:test`（拿框里**当前填的** Key 试搜，
+  不必先保存）、`util:openExternal`（**只放行 http/https**，供来源链接点开）。
+- `preload.js`：暴露 `webSearch` / `testSearch` / `openExternal`。
+- `data/search.js`（新）—— 判断这一局要不要搜（**总闸 + 会话开关都开**才搜）、
+  用最近几条用户消息拼查询词（太短的往前凑，免得「嗯」单独拿去搜）、
+  拼成 `【联网搜索结果】` 注入段（带 `[1][2]` 序号，要求正文引用时报序号）。
+  **搜不到 / 搜失败只是没有搜索结果，绝不拦着聊天**（和 `data/rag.js` 同一个原则）。
+- `views/composer.js`：发送前多取一段 `searchSection`，传给 `buildApiMessages` 的第四个参数；
+  来源存到 `assistant.sources` 上。
+- `views/chatMessages.js`：气泡下面列出来源（序号与注入的 `[1][2]` 对齐，点击走系统浏览器）。
+- 输入框左边新增一颗**「联网」开关**（`#btn-web-search`），状态记在**会话**上
+  （`convo.webSearch`）—— 这一局要不要联网是这一局的事，换会话不该被上一条带跑。
+  总闸没开时点它不点亮，直接弹一句说明并把人送进设置。
+
+### 3. 纯对话视图（顶栏「⋯」里）
+
+只留对话本身，**纯显示开关**，不影响任何提示词：
+
+- 藏掉状态卡入口条（`#panel-box`）和剧情选项（`.msg-options`）。
+- 消息上的操作按钮平时**完全不露头**（普通视图里它们本来就是悬停才浮出的），
+  改成一颗常驻的「⋯」，点开才展开。
+- 侧栏、输入区、顶栏都不动 —— 是「少看几样东西」，不是另一个界面。
+- 实现只在 `ui/plainView.js`（新）里给 `<body>` 挂 / 摘一个 `plain-view` 类，
+  藏什么全写在 `style.css` 里，所以它不必认识任何视图模块。状态存 `plainChatView`。
+
+### 关键改动清单
+
+- `main/search.js`、`renderer/js/data/search.js`、`renderer/js/ui/plainView.js` —— 三个新模块。
+- `renderer/js/data/messages.js`：`buildApiMessages` 加 `plainChat` 判断（本轮改动的核心），
+  多收第四个参数「联网搜索结果」。
+- `main/providers.js`：加 `searchEnabled` / `searchApiKey` / `searchCount` / `searchFreshness` /
+  `plainChatView`；`loadSettings` 解密、`saveSettings` 加密搜索 Key。
+- `main/ipc.js`、`preload.js`、`core/dom.js`：接线。
+- `renderer/index.html`：设置里加「联网搜索」一节（总闸 + Key + 条数 + 时间范围 + 测试按钮）；
+  输入框左边加「联网」；「⋯」里加「纯对话视图」。
+- `renderer/style.css`：`.web-search-btn`、`.msg-sources`（来源胶囊）、
+  `body.plain-view` 那一组规则、开关型菜单项的勾。
+- `tools/smoke-renderer.js`：新增场景「纯对话视图 + 联网开关」；
+  `tools/smoke-test.js`：`probeAssistantPersona` 的第二条断言**反过来了** ——
+  从「扮演规则一起注入了」改成「**不该**注入扮演规则」，并**加了一条**把
+  【叙述要求】/【这个世界的人】/【玩家角色】也一起守住（这三段是 `plainChat` 自查时
+  补挡的，正是最容易被漏的那类）；设置白名单补四个搜索键 + `plainChatView`。
+
+> ✅ **冒烟已补跑**：写这一条时本会话没有命令执行能力、跑不了 Electron；这一轮的改动后来
+> 一并包含在 **1078/1078 全绿、控制台报错 0 条**的那次 `npm run smoke` 里。
+> 那轮新增与改写的断言见下面「修：默认人设弹窗没法换编辑对象」一节的结尾。
+
+---
+
+## 2026-10-07 去掉默认人设的内置名「昔涟」
+
+通用助手以前有个**写死的兜底名**「昔涟」—— 设置里没填名字时，气泡、空状态标题、
+导出、提示词里一律显示它。现在**没填名字就是没名字**：
+
+- `data/cast.js`：删掉 `DEFAULT_ASSISTANT_NAME`，`assistantName()` 没配名字时返回**空串**。
+- `views/chatMessages.js`：空状态标题改成「开始聊天吧～」，不再硬套一个假名。
+- `data/narration.js`：`roleplayRuleText` 在没名字时改用「照上面那段设定来演」的措辞，
+  不然会拼出「你现在要扮演「」」。
+- `js/main.js`、`views/chatExport.js`：复制 / 导出整段对话时空名字退回「AI」。
+  （气泡本身早就有这层兜底 —— `messageNode` 里 `labels.assistant || 'AI'`。）
+- 文案顺手同步：人设弹窗的名字框（placeholder 与说明）、`使用说明.md` 里的两处例子，
+  以及角色编辑器那个「例如 昔涟」的占位示例（跟默认人设无关，但没必要再留着这个名字）。
+
+---
+
+## 2026-10-07 默认人设搬回设置：没选角色卡时「AI 是谁」可编辑，而且跟着模型走
+
+不绑角色卡的对话以前只有一个**写死的名字**「昔涟」（散在 `data/cast.js`、
+`data/messages.js`、`views/chatMessages.js` 三处硬编码），**没有任何人设内容** ——
+早年的「全局人设」在「人设只住角色卡」那一版里被 `delete s.systemPrompt / userName` 清掉了。
+
+现在它作为 **「设置 → 模型服务」最下面的一行入口** 搬回来，并且可编辑：
+
+- **入口是一行，不是一整个表单**：「默认人设 · 当前状态 · 编辑…」。人设正文往往是一整段
+  设定（很长），所以设置页只留入口，真正编辑在**独立弹窗**里 —— 名字（可选）+ 人设，
+  **留空 = 通用助手**（不扮演任何角色），行为跟改动前一致。
+- **按模型各存一份**（`assistantPersonas: { 模型名: { name, persona } }`）：顶栏切模型之后，
+  入口那行的状态和弹窗内容都换成那个模型的那一套，通用对话注入的也是**当前模型**那一份。
+  典型用法是一个模型日常闲聊、另一个写长文，两边需要的助手不是同一个。
+- **只对没绑角色卡的会话生效**：一旦在某张卡上点了「聊天」，默认人设完全不参与，
+  免得和卡自己的设定打架。
+  （⚠️ 这条当天晚些时候又改了：配了人设时**不再**一并注入【扮演规则】—— 默认对话
+  按「跟 AI 模型聊天」处理，详见上面 2026-10-07 「默认对话 = 跟 AI 模型聊天」那条。）
+- **关弹窗 = 丢掉草稿**：取消 / ✕ / Esc / 点灰底都会把字段回填成已保存的值 ——
+  不然那些没保存的字会被之后「设置 → 保存」顺手带进 config.json。
+
+改动：
+
+- `main/providers.js`：`DEFAULT_SETTINGS` 新增 `assistantPersonas: {}`；
+  `normalizeSettings` 归一化它（键为空/超长的丢、名字和人设都空的条目丢，人设上限 20000 字）。
+- `renderer/index.html`：「模型服务」一节末尾加 `.persona-row`（标签 + 状态 + 「编辑…」）；
+  新增 `#persona-modal`（名字 + 人设 + 取消 / 保存）。
+- `core/dom.js`：接上 `btnAssistantPersona` / `assistantHint` 和 `persona.*` 那组引用。
+- `views/settings.js`：新增 `syncPersonaFields`（settings → 弹窗字段 + 入口摘要；开设置、
+  开弹窗、关弹窗、保存后都调它，三边始终一致）、`updatePersonaHint`、`openPersonaDialog`、
+  `closePersonaDialog`（导出给入口层的 Esc 用）、`savePersonaDialog`（silent 保存，
+  不关设置弹窗）；表单按**当前生效的模型**读写（会话自己的模型优先，其次设置里的当前模型），
+  只动这一个模型的条目、别的原样带回。
+- `js/main.js`：Esc 判断链里给人设弹窗插一条、**排在设置之前** ——
+  不然在人设弹窗上按 Esc 会把底下的设置弹窗一起关掉。
+- `renderer/style.css`：`#persona-modal { z-index: 66 }`（压在设置 50 之上、确认框 70 之下，
+  漏了会像「点了按钮没反应」）、`.persona-row` 那一行的排版。
+- `data/cast.js`：新增 `assistantName(convo)` / `assistantPersona(convo)`（按模型查表，纯读）；
+  `speakerName` 的兜底从硬编码改成读它。
+- `data/messages.js`：`buildApiMessages` 给没绑卡的会话注入人设 + 扮演规则；
+  `applyMacros` 多收一个「这次是哪个模型」，`{{char}}` 的兜底跟着人设名走。
+- `views/chatList.js`：顶栏切模型后补一次消息区重绘 —— 气泡上的名字和空状态标题都要跟着换。
+- `views/chatMessages.js`：空状态标题「开始和 XX 聊天吧～」跟着人设的名字变。
+- `tools/smoke-renderer.js`：场景改成走**弹窗**这条路（入口按钮 → 弹窗 → 填 → 保存 →
+  落盘 → 空态标题 → 切模型各自独立），另加一条「取消后草稿被丢掉」；
+  `assistantPersonas` 补进设置白名单。宿主侧的 `probeAssistantPersona` 不变
+  （它验的是「人设真进了提示词、扮演规则一起带上了」，跟界面长什么样无关）。
+
+> ✅ **冒烟已补跑**：当时本会话跑不了 Electron，这一轮的改动后来一并包含在
+> **1078/1078 全绿、控制台报错 0 条**的那次 `npm run smoke` 里。
+
+---
+
+## 2026-10-05 帮助页：写角色的完整指南 + 「故事优化提示词」
+
+---
+
 ## 2026-10-05 帮助页：写角色的完整指南 + 「故事优化提示词」
 
 左下角多了一颗 **「帮助」**，切开是一整页写角色的指南（译改自 Character Tavern

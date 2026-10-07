@@ -25,6 +25,8 @@
   把设定、头像、开场白、示例对话一起读进来；也支持 JSON 卡（v1 / v2 / v3）。  
   v3 那种把开场白放进 `chat_history`（没有 `first_mes`）的变体也认。
 - 内置角色编辑器，可以完全手写一个角色。
+- **默认人设**：不绑角色卡的对话里 AI 是谁 —— 在**设置 → 默认人设**里改（名字 + 人设），
+  **按模型各存一份**，顶栏切模型就跟着换；留空就是通用助手。
 - **每个会话独立绑定角色**，新建对话会继承当前角色。
 - 支持 `{{char}}` / `{{user}}` / `<BOT>` / `<USER>` 宏。
 - **开场白**：空对话绑定角色时自动插入第一句话。
@@ -169,7 +171,9 @@ mimitale/
 │   ├── card-import.js     导入一个文件的解析
 │   ├── import-files.js    导入编排（读文件 → 解析 → 自动绑定）
 │   ├── png.js             PNG 角色卡的读写（tEXt / ccv3 块）
-│   └── vectors.js         向量 / 余弦相似度 / 排序
+│   ├── vectors.js         向量 / 余弦相似度 / 排序
+│   ├── search.js          联网搜索：博查（Bocha）的 web-search 接口
+│   └── request-log.js     「请求记录」：只存内存的环形缓冲，最近 20 条
 ├── preload.js       contextBridge 安全桥，把主进程能力暴露给页面
 ├── package.json
 ├── 故事优化提示词.md  给 AI 的「帮我改角色卡 / 故事」提示词（帮助页那颗按钮复制的是同一份）
@@ -177,18 +181,19 @@ mimitale/
 │   ├── index.html
 │   ├── style.css
 │   └── js/          界面逻辑（ES module，不需要打包器）
-│       ├── main.js      入口层 · 只剩启动流程 + 事件绑定 + 跨视图编排（653 行）
+│       ├── main.js      入口层 · 只剩启动流程 + 事件绑定 + 跨视图编排（689 行）
 │       ├── core/        常量 / 状态 / DOM 引用 / preload 桥 / 工具 / 面板字段桥
 │       ├── ui/          提示条 / 确认框 / 主题 / Markdown / 建 DOM 的小工具
 │       ├── data/        纯逻辑地基：服务商模型 / 角色库 / 状态面板 / 叙述规则 /
 │       │                记忆摘要 / 持久化 / 导出收尾 / 演出阵容 / 消息 / 语义检索 /
-│       │                剧情选项 / 会话骨架（14 个文件）
-│       └── views/       一个功能一块，共 33 个模块（refresh 总线 / redraw 门面 /
+│       │                联网搜索 / 剧情选项 / 会话骨架（15 个文件）
+│       └── views/       一个功能一块，共 35 个模块（refresh 总线 / redraw 门面 /
 │                        header / perspectiveUi / panelUi / worldbookList / worldbook /
-│                        presetList / preset / presetIO / settings / appearance / player /
-│                        memoryUi / viewSwitch / characterList / characterEditor /
-│                        charAttributes / charExpressions / characterImport / aiGen /
-│                        stream / chatImages / suggestionsUi / stateCard / convoActions /
+│                        presetList / preset / presetIO / settings / settingsCatalog /
+│                        appearance / player / memoryUi / viewSwitch / requestLog /
+│                        characterList / characterEditor / charAttributes /
+│                        charExpressions / characterImport / aiGen / stream /
+│                        chatImages / suggestionsUi / stateCard / convoActions /
 │                        summarize / composer / chatMessages / chatList / chatExport /
 │                        worldPlay / help）
 └── tools/           冒烟测试脚手架（假后端，不动你的真实数据）
@@ -198,13 +203,13 @@ mimitale/
 > `require` **同一份代码**去验，而不是在测试里另写一套 —— 「内嵌世界书被丢掉」  
 > 「导入后绑定指向不存在的书」这两个 bug 就是这么做才被抓住的。
 >
-> `renderer/js/main.js` 的重构**已经收尾**：从峰值 **7902 行**降到 **653 行**，  
+> `renderer/js/main.js` 的重构**已经收尾**：从峰值 **7902 行**降到 **689 行**，  
 > 只剩入口层编排 —— 启动流程（`init()`）、事件绑定（`bindEvents()`，含 Esc 的  
 > 有序关闭链和 `api.onChunk / onReasoning` 全局监听）、刷新接线板  
 > （`registerRefreshListeners()`）、以及跨视图编排（`importWorldbooks()`）。
 >
-> 功能代码按 `core ← ui ← data ← views ← 入口` 单向分层：**data 14 个文件**  
-> 放纯逻辑，**views 33 个模块**一个功能一块，刷新走 `views/refresh.js` 总线，  
+> 功能代码按 `core ← ui ← data ← views ← 入口` 单向分层：**data 15 个文件**  
+> 放纯逻辑，**views 35 个模块**一个功能一块，刷新走 `views/refresh.js` 总线，  
 > 全量重绘统一走 `views/redraw.js` 门面。视图要用入口层的动作时，由入口层  
 > `initXxx({ action })` 注入，视图不向上 import —— 这条是防循环依赖的铁律。
 >

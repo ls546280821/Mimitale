@@ -23,7 +23,7 @@ import { esc, renderMarkdown } from '../ui/markdown.js';
 import { h, button } from '../ui/build.js';
 import { entityTone } from '../ui/avatarTone.js';
 import { characterForConvo, convoWorldbookIds, worldbookById } from '../data/library.js';
-import { convoPlayer, convoUserName, userName, speakerName } from '../data/cast.js';
+import { convoPlayer, convoUserName, userName, speakerName, assistantName } from '../data/cast.js';
 import { cleanAssistantText, convoFieldDisplayNames, panelGroupNames } from '../data/panel.js';
 import { scrollToBottom } from './stream.js';
 import { buildMessageImages, illustrateMessage } from './chatImages.js';
@@ -315,6 +315,37 @@ function messageNode(message, index, character, labels, ctx) {
     bubble.appendChild(note);
   }
 
+  // 联网搜索的出处：这一轮的回答用到了搜索结果才列。
+  // 序号用的就是注入给模型的 [1][2] —— 正文里写了 [2]，这里第二条就是它。
+  const sources = !isUser && !isError && Array.isArray(message.sources) ? message.sources : null;
+  if (sources && sources.length) {
+    const box = document.createElement('div');
+    box.className = 'msg-sources';
+    box.appendChild(h('span', { class: 'msg-sources-cap', text: '来源' }));
+
+    sources.forEach((src, i) => {
+      const url = String((src && src.url) || '').trim();
+      if (!url) return;
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'msg-source';
+      btn.title = url;
+      btn.appendChild(h('span', { class: 'src-index', text: String(i + 1) }));
+      btn.appendChild(h('span', { class: 'src-title', text: String(src.title || url) }));
+      if (src.site) btn.appendChild(h('span', { class: 'src-site', text: String(src.site) }));
+      // 页面被 CSP 挡着开不了外链，交给主进程用系统浏览器打开（只放行 http/https）
+      btn.addEventListener('click', async () => {
+        const res = await api.openExternal(url);
+        if (res && res.ok !== true) showToast((res && res.error) || '打开链接失败', 'error');
+      });
+      box.appendChild(btn);
+    });
+
+    // 全被过滤掉（没有合法链接）就整块不画，别留一行光秃秃的「来源」
+    if (box.childElementCount > 1) bubble.appendChild(box);
+  }
+
   body.appendChild(role);
   body.appendChild(bubble);
 
@@ -415,6 +446,22 @@ function messageNode(message, index, character, labels, ctx) {
     actions.appendChild(branch);
   }
 
+  // 纯对话视图下操作按钮平时不露头，用这颗「⋯」开合（样式在 style.css，
+  // 普通视图里它是 display:none —— 那边操作按钮本来就跟着悬停浮出，不需要它）
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'mini-btn msg-more';
+  more.textContent = '⋯';
+  more.title = '更多操作';
+  more.setAttribute('aria-label', '更多操作');
+  more.setAttribute('aria-expanded', 'false');
+  more.addEventListener('click', () => {
+    const open = actions.classList.toggle('open');
+    more.setAttribute('aria-expanded', open ? 'true' : 'false');
+    more.textContent = open ? '收起' : '⋯';
+  });
+
+  body.appendChild(more);
   body.appendChild(actions);
 
   wrap.appendChild(avatar);
@@ -458,8 +505,11 @@ export function renderMessages(options) {
       <p class="hint">当前扮演的是「${esc(character.name)}」。想换角色，去左下角「角色库」点另一张卡上的「聊天」。</p>
     `;
     } else {
+      // 名字取自「默认人设」里当前模型那一份，切模型 / 改名这里都跟着变。
+      // 没写名字就干脆不提名字 —— 别硬塞一个内置假名上去
+      const who = assistantName(convo);
       empty.innerHTML = `
-      <h2>开始和昔涟聊天吧～</h2>
+      <h2>${who ? `开始和${esc(who)}聊天吧～` : '开始聊天吧～'}</h2>
       <p>在下面输入框里说点什么，然后按 Enter。</p>
       <p class="hint">第一次使用请先点左下角「设置」，填入接口地址和 API Key。</p>
       <p class="hint">想玩角色扮演？点左下角「角色库」导入角色卡，再点卡片上的「聊天」。</p>

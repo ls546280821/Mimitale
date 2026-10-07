@@ -292,9 +292,16 @@ function paceRuleText(convo, isGm) {
 }
 
 export function roleplayRuleText(charName, me, convo) {
+  // 没名字时（通用助手配了人设却没填名字）别拼出「扮演「」」——
+  // 那种情况下人设正文就在上面，直接让它照着演
+  const who = String(charName || '').trim();
+  const selfRef = who
+    ? `你现在要扮演「${who}」。请用「${who}」的语气、性格和说话习惯回应，`
+    : `你现在要照上面那段设定来演。请用这个角色的语气、性格和说话习惯回应，`;
+
   return (
     `【扮演规则】\n` +
-    `你现在要扮演「${charName}」。请用「${charName}」的语气、性格和说话习惯回应，` +
+    selfRef +
     `保持人设前后一致，不要跳出角色，也不要提到自己是 AI、语言模型或助手。` +
     `把对方称作「${me}」。\n` +
     // 人称与描写格式：**卡说了算**。

@@ -72,6 +72,16 @@ const DEFAULT_PROVIDER_ID = 'p1';
 // 而这个文件每次改设置都要整份重写。
 const MAX_CHAT_BACKGROUND_CHARS = 4000000;
 
+// 「默认人设」正文的上限。它每轮都会拼进系统提示词，写太长会白白吃掉上下文，
+// 所以给个够用又不至于失控的额度。
+const MAX_ASSISTANT_PERSONA_CHARS = 20000;
+
+// 联网搜索的时间范围可选项。和 main/search.js 的 FRESHNESS_VALUES 是同一份，
+// 但那个模块 require 了 main/http.js、而 http.js 又 require 本模块 —— 互相引用
+// 会在加载期拿到半成品，所以这份小清单在这里单独列一遍。
+// 加值要两边一起加。
+const SEARCH_FRESHNESS_VALUES = ['noLimit', 'oneDay', 'oneWeek', 'oneMonth', 'oneYear'];
+
 // 角色「属性」的快捷候选词。
 // 在角色编辑器里点一下就能多一个属性字段名，纯粹是省打字 —— 不承载任何逻辑，
 // 所以它就是一个字符串数组，放在设置里可编辑就够了，不值得单开一套「管理」界面。
@@ -113,6 +123,11 @@ const DEFAULT_SETTINGS = {
   // 世界书递归扫描最多连锁几层。0 = 完全关掉递归。
   // 只有勾了「递归」的条目才会往下带，所以这个上限是第二道闸。
   worldbookRecursiveDepth: 3,
+  // 最多把多少轮对话带进请求（1 轮 = 一问一答）。
+  // 调大 = 记得更牢，但每轮都重发一遍，token 花得更多；再早的内容归「记忆摘要」管。
+  // ⚠️ 这个值原来写死在 renderer/js/core/config.js 的 CONFIG.MAX_TURNS 里，
+  //    2026-10-07 挪到设置 —— 它是「用户能明显感觉到」的项（记性好不好），不该藏在代码里。
+  maxTurns: 20,
   // --- 生图（和聊天是两套：不同端点，通常也是不同模型）---
   imageProviderId: '',
   imageModel: '',
@@ -125,13 +140,31 @@ const DEFAULT_SETTINGS = {
   chatFontSize: 14,     // 消息正文字号（px）
   chatBoldColor: '',    // **加粗** 用什么颜色，空 = 跟随主题
   chatBackground: '',   // 消息区背景图（dataURL），空 = 没有
+  // 纯对话视图：只留对话本身 —— 藏掉状态卡入口条和剧情选项，消息上的操作按钮
+  // 也收进悬停才出现的「⋯」。同样是纯显示开关，不进提示词。
+  plainChatView: false,
   // --- 下面两个是界面自己写得出来的键，**必须列在这儿** ---
   // saveSettings 的白名单是「默认设置里有 or 磁盘上本来就有」。这两个键当初漏在
   // DEFAULT_SETTINGS 之外，靠的就是「用户磁盘上早写过了」才没被拦 ——
   // 全新装一份（config.json 里还没有它们）时，第一次保存就会被静默丢掉：
   // 快捷候选词和自动续写怎么改都不生效，只在主进程打一行看不见的 warn。
   autoContinue: true,       // 正文被 maxTokens 截断时自动接着写完
-  commonAttributes: []      // 角色编辑器里「属性」的快捷候选词
+  commonAttributes: [],     // 角色编辑器里「属性」的快捷候选词
+  // --- 默认人设：**没绑定角色卡**的会话（通用助手）用这一套，而且**按模型各存一份** ---
+  // 换模型（推理写手 / 日常闲聊往往不是同一个模型）时人设跟着换，
+  // 不用每次切完再回来改文字。
+  // 结构：{ [模型名]: { name, persona } }；没有条目的模型 = 通用助手
+  // （无人设 = 不扮演任何角色、也不提名字，见 renderer 的 data/cast.js）。
+  // 绑了角色卡的会话一律用那张卡自己的设定，这个键完全不参与。
+  assistantPersonas: {},
+  // --- 联网搜索（博查 web-search）---
+  // 又是一组独立配置：只认一个 Key，和聊天 / 生图 / 向量用的服务商都不相干。
+  // 搜索按次单独计费，所以**默认关着** —— 要让用户明确知道自己在花这份钱。
+  // 开关是「总闸」，每个会话还有一个自己的开关（convo.webSearch），两个都开才搜。
+  searchEnabled: false,
+  searchApiKey: '',
+  searchCount: 6,           // 一次带几条结果进上下文
+  searchFreshness: 'noLimit' // 时间范围：不限 / 一天内 / 一周内 / 一月内 / 一年内
 };
 
 function newProviderId() {
@@ -252,6 +285,14 @@ function normalizeSettings(saved) {
       ? Math.floor(depth)
       : DEFAULT_SETTINGS.worldbookRecursiveDepth;
 
+  // 带进请求的对话轮数。上限给得宽（200 轮）：这是用户自己的选择，
+  // 拦太死反而像 bug；只管住下限和「不是个数」的情况。
+  const turns = Number(raw.maxTurns);
+  s.maxTurns =
+    Number.isFinite(turns) && turns >= 1 && turns <= 200
+      ? Math.floor(turns)
+      : DEFAULT_SETTINGS.maxTurns;
+
   // 对话窗口外观。这三个都只影响显示，所以「值不合法就退回默认」是安全的。
   const fontSize = Number(raw.chatFontSize);
   s.chatFontSize =
@@ -268,6 +309,9 @@ function normalizeSettings(saved) {
   s.chatBackground =
     bg.startsWith('data:image/') && bg.length <= MAX_CHAT_BACKGROUND_CHARS ? bg : '';
 
+  // 纯对话视图：纯显示开关，只认 true
+  s.plainChatView = raw.plainChatView === true;
+
   // 常用属性候选词：去重、去空、限个数。
   // 注意判断的是「磁盘上有没有这个键」—— 用户把清单清空是合法操作，
   // 不能因为合并结果为空就又把默认值塞回去。
@@ -283,11 +327,54 @@ function normalizeSettings(saved) {
     })
     .slice(0, 40);
 
+  // 默认人设：按模型各存一份（没绑角色卡的会话用）。
+  // 逐条过一遍，只留形状对的：
+  //   · 键（模型名）为空 / 超长的丢掉；
+  //   · 名字和人设**都为空**的条目直接丢弃 —— 那是一条没意义的空壳，
+  //     留着只会在 config.json 里越积越多；
+  //   · 只有人设没名字是合法的（显示时用内置默认名兜底）。
+  // 「人设留空」本身也是合法状态（= 不扮演角色），所以这里不做「空就填默认」。
+  const personas = {};
+  const rawPersonas = raw.assistantPersonas;
+  if (rawPersonas && typeof rawPersonas === 'object' && !Array.isArray(rawPersonas)) {
+    for (const [key, value] of Object.entries(rawPersonas)) {
+      const model = String(key || '').trim().slice(0, 120);
+      if (!model) continue;
+      const entry = value && typeof value === 'object' ? value : {};
+      const name = String(entry.name || '').trim().slice(0, 40);
+      const persona =
+        typeof entry.persona === 'string'
+          ? entry.persona.trim().slice(0, MAX_ASSISTANT_PERSONA_CHARS)
+          : '';
+      if (!name && !persona) continue;
+      personas[model] = { name, persona };
+    }
+  }
+  s.assistantPersonas = personas;
+
+  // 联网搜索：默认关。搜索按次单独计费，必须让用户明确知道自己在花这份钱。
+  // Key 和聊天用的那些一样，落盘加密、内存明文（见 loadSettings / saveSettings）。
+  s.searchEnabled = raw.searchEnabled === true;
+  s.searchApiKey = typeof raw.searchApiKey === 'string' ? raw.searchApiKey.trim().slice(0, 200) : '';
+
+  const searchCount = Number(raw.searchCount);
+  s.searchCount =
+    Number.isFinite(searchCount) && searchCount >= 1 && searchCount <= 10
+      ? Math.floor(searchCount)
+      : DEFAULT_SETTINGS.searchCount;
+
+  const freshness = String(raw.searchFreshness || '').trim();
+  s.searchFreshness = SEARCH_FRESHNESS_VALUES.includes(freshness)
+    ? freshness
+    : DEFAULT_SETTINGS.searchFreshness;
+
   // 清掉旧版本的扁平字段，避免文件里同时存在两套数据
   delete s.baseUrl;
   delete s.apiKey;
   delete s.model;
-  // 早期版本在设置里存过一份「全局人设」，现在聊天一律走角色卡，这三个键不再使用
+  // 早期版本在设置里存过一份「全局人设」（键名 systemPrompt / userName），那时的语义是
+  // 「所有会话的人设」。现在的人设只走角色卡，没绑卡的会话则由上面的
+  // assistantName / assistantPersona 兜底 —— 两者不是一回事，留着会在文件里积两套数据。
   delete s.systemPrompt;
   delete s.userName;
   delete s.maxTurns;
@@ -335,6 +422,8 @@ function loadSettings() {
     ...p,
     apiKey: p.apiKey ? decryptApiKey(p.apiKey) : ''
   }));
+  // 联网搜索的 Key 一样是明文进内存
+  settings.searchApiKey = settings.searchApiKey ? decryptApiKey(settings.searchApiKey) : '';
 
   return settings;
 }
@@ -360,7 +449,8 @@ function saveSettings(patch) {
     providers: merged.providers.map((p) => ({
       ...p,
       apiKey: p.apiKey ? encryptApiKey(p.apiKey) : ''
-    }))
+    })),
+    searchApiKey: merged.searchApiKey ? encryptApiKey(merged.searchApiKey) : ''
   };
 
   writeJson(userDataFile('config.json'), toSave);

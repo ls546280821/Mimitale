@@ -8,17 +8,22 @@
 //
 //  顺序（和酒馆的思路一致）：
 //    1. system：人设 + 扮演规则/GM 规则 + 角色设定/性格/场景 + 叙述模式 + 日期
-//    2. 世界书命中的设定
+//    2. 世界书命中的设定 → 语义检索 → 联网搜索结果
 //    3. 角色卡里的示例对话（当成已经发生过的对话塞进去）
 //    4. 最近 N 轮真实对话（面板行已剥掉）
 //    5. 面板状态（当前权威值）
 //    6. 角色卡里的「对话后指令」，放最后最管用
 //
-//  人设一律取自角色卡本身 —— 系统里不再另存一份全局人设，
-//  免得两份设定打架（你扮演雷电将军，提示词却在说「你是昔涟」）。
+//  人设只有两个来源，而且互斥：绑了角色卡 → 用那张卡的 systemPrompt；
+//  没绑卡（默认对话）→ 用设置里的「默认人设」（可编辑，见 main/providers.js）。
+//  两者不会同时出现，免得两份设定打架（你扮演雷电将军，提示词却在说另一套人设）。
+//
+//  ⚠️ 默认对话按「跟 AI 模型聊天」处理，不是扮演酒馆里的角色：它只带人设、
+//  聊天记录、日期和联网搜索结果，**不带**扮演规则 / 世界书 / 玩家角色 / NPC 名单 /
+//  叙述模式 / 状态面板 / 剧情选项 / 表情标签。理由见 buildApiMessages 里的 plainChat。
+//  唯一留着的是「预设」—— 那是用户自己挂在这一局上的指令，属于显式选择。
 // ============================================================================
 
-import { CONFIG } from '../core/config.js';
 import { state } from '../core/state.js';
 import { asArray } from '../core/util.js';
 import {
@@ -36,16 +41,30 @@ import {
   roleplayRuleText
 } from './narration.js';
 import { optionsInstruction } from './suggestions.js';
-import { convoPlayer, convoUserName, userName, worldbookCast, playerProfileForPrompt, panelEntities } from './cast.js';
+import {
+  convoPlayer,
+  convoUserName,
+  userName,
+  assistantName,
+  assistantPersona,
+  worldbookCast,
+  playerProfileForPrompt,
+  panelEntities
+} from './cast.js';
 
 /**
  * 替换角色卡里的占位符。
  * {{char}} / <BOT> 是角色自己，{{user}} / <USER> 是你。
  * 只在「发给模型」和「插入开场白」时替换，原始文本保持不动，
  * 这样以后改了名字，旧消息不会莫名其妙跟着变。
+ *
+ * 没绑卡时「角色自己」是谁，取决于默认人设 —— 那份是按模型存的，
+ * 所以调用方知道是哪个模型的话（buildApiMessages 就知道），把它传进来，
+ * 免得这里只能拿设置里的当前模型去猜（会话可以有自己的模型）。
  */
-export function applyMacros(text, character, name) {
-  const charName = (character && character.name) || '昔涟';
+export function applyMacros(text, character, name, assistantFallback) {
+  const charName =
+    (character && character.name) || String(assistantFallback || '').trim() || assistantName();
   const me = name || userName();
 
   // 用函数式替换：字符串形式的替换参数会把 $&、$1 之类的序列当特殊写法，
@@ -220,16 +239,21 @@ export function dialoguePresetSampling(convo) {
 
 /**
  * 组装真正发给模型的消息数组。
- * 参数里的两段（世界书命中 / 语义检索）是调用方异步取好的 —— 这里保持同步，
- * 方便两边共用同一份拼接逻辑（发送、继续、重新生成都走它）。
+ * 参数里的三段（世界书命中 / 语义检索 / 联网搜索）是调用方异步取好的 ——
+ * 这里保持同步，方便两边共用同一份拼接逻辑（发送、继续、重新生成都走它）。
  */
-export function buildApiMessages(convo, worldbookSection, ragSection) {
+export function buildApiMessages(convo, worldbookSection, ragSection, searchSection) {
   const settings = state.settings || {};
   const character = characterForConvo(convo);
   // 进了世界的会话用玩家自己创建的角色名，其它会话用设置里的名字
   const me = convoUserName(convo);
-  const charName = (character && character.name) || '昔涟';
+  const charName = (character && character.name) || assistantName(convo);
   const gmMode = isGmMode(convo);
+  // 「默认对话」= 既没绑角色卡、也不是世界模式 —— 那就是**跟 AI 模型聊天**，
+  // 不是扮演酒馆里的某个角色。这种会话只带人设和聊天记录，应用不再往里塞
+  // 酒馆那一套（扮演规则 / 世界书 / 状态面板 / 剧情选项 / 表情标签）：
+  // 人设是自己写的、自足的，多叠一层规则只会跟它打架。
+  const plainChat = !character && !gmMode;
 
   // 注意：调用时对话末尾通常刚 push 了一条空的 assistant 占位消息（用来填空），
   // 必须把它过滤掉，否则会发给接口一条 content 为空的消息，严格的接口会直接报 400。
@@ -240,7 +264,10 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
       (String(m.content || '').trim() || messageImages(m).length)
   );
 
-  const turns = CONFIG.MAX_TURNS;
+  // 带几轮进请求由设置决定（设置 → 行为 → 对话轮数）。
+  // 以前写死在 core/config.js 的 CONFIG.MAX_TURNS 里 —— 但它是用户能明显感觉到的项
+  // （记性好坏），藏在代码里等于不给改。兜底 20 和 DEFAULT_SETTINGS.maxTurns 一致。
+  const turns = Math.max(1, Number(settings.maxTurns) || 20);
   // 从摘要覆盖点开始取「最近 N 轮」。
   // 如果还按 slice(-turns*2) 取，会出现「摘要写到第 30 条，原文只发第 70 条起」的断层 ——
   // 中间那段模型两边都看不到。从覆盖点往后、按轮数取，上下文才是连续的。
@@ -253,10 +280,12 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // ---- 1. 系统提示词 ----
   const parts = [];
 
-  // 人设只来自角色卡：绑了卡就用卡自己的 systemPrompt；
+  // 人设：绑了卡就用卡自己的 systemPrompt；**没绑卡**（通用助手）才用「默认人设」。
+  // 两者互斥 —— 一张卡一旦被绑定，默认人设就不参与，免得两份设定打架。
   // 世界模式（GM）没有「某个人」的人设，叙述者由主持规则来立。
-  const base = character ? character.systemPrompt || '' : '';
-  if (String(base).trim()) parts.push(applyMacros(base, character, me).trim());
+  const persona = character ? '' : assistantPersona(convo);
+  const base = character ? character.systemPrompt || '' : persona;
+  if (String(base).trim()) parts.push(applyMacros(base, character, me, charName).trim());
 
   if (character) {
     // 身份：年龄/性别/种族是「这个人是谁」的一部分，一开始就说清楚
@@ -275,8 +304,11 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // GM 模式换掉那段「不要跳出角色」：世界模型必须能写第三人称、切多个 NPC 视角，
   // 被「始终以第一人称」捆着会一轮缩回单角色腔调。
   // 两种规则里都带上了「推进节奏」—— 否则模型会一口气把整场戏演完，玩家只剩看的份。
-  const ruleText = gmMode ? gmRuleText(charName, me, convo) : roleplayRuleText(charName, me, convo);
-  if (character || gmMode) parts.push(ruleText);
+  // 默认对话（plainChat）不要这一段：那段规则是给「扮演某个角色」用的，
+  // 而这里要的是普通聊天，规则交给用户写的人设自己交代。
+  if (!plainChat) {
+    parts.push(gmMode ? gmRuleText(charName, me, convo) : roleplayRuleText(charName, me, convo));
+  }
 
   // 预设：对话层面额外叠上去的一层行为框架，紧跟扮演规则之后。
   // ⚠️ 刻意放在上面那个 if 外面 —— 通用助手（既没绑卡、也不是 GM）一样能用预设，
@@ -289,7 +321,8 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // 只有名字的话上面那句规则已经交代了，所以这里只在写了设定时才注入。
   const player = convoPlayer(convo);
   const playerProfileText = playerProfileForPrompt(convo);
-  if (player && playerProfileText) {
+  // 和世界书段一起挡：默认对话不认「我在这个世界里是谁」—— 那是扮演才有的事。
+  if (!plainChat && player && playerProfileText) {
     // 抬头里点明口径：这份设定是**玩家自己的角色**，不是给 GM 演的 NPC。
     // 玩家从角色库挑一张卡当自己时，注入的是那张卡的第三人称设定；
     // 紧接着就是【这个世界的人】名单，两者容易被模型混成一类，
@@ -302,12 +335,14 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
     );
   }
 
-  // 这个世界有哪些 NPC：不列出来 GM 就只能现编
-  const cast = worldbookCast(convo);
+  // 这个世界有哪些 NPC：不列出来 GM 就只能现编（默认对话不带，同世界书段）
+  const cast = plainChat ? '' : worldbookCast(convo);
   if (cast) parts.push(cast);
 
   // 叙述模式：决定要不要写心理 / 旁白，以及用什么标记（标记对上渲染样式）
-  const narration = narrationInstruction(convo);
+  // 默认对话不带：它读默认档「标准」，而那一档明确要求「不要写成一份动作 + 台词的
+  // 对话记录」「不要把整段动作括在括号里」—— 那是给写小说的，不是给普通聊天的。
+  const narration = plainChat ? '' : narrationInstruction(convo);
   if (narration) parts.push(narration);
 
   if (settings.showDate !== false) {
@@ -325,14 +360,22 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // ---- 2. 世界书：命中的设定紧跟人设之后 ----
   // 放在角色定义后面（酒馆叫 After Char Defs）——比角色本身靠前会稀释人设，
   // 比对话历史靠后又容易被忽略，这里是比较稳的位置。
-  if (String(worldbookSection || '').trim()) {
+  // 默认对话不带：那是「这个世界有哪些设定」的补充，属于扮演那一套。
+  if (!plainChat && String(worldbookSection || '').trim()) {
     messages.push({ role: 'system', content: String(worldbookSection).trim() });
   }
 
   // ---- 2.2 语义检索捞回来的往事 / 设定 ----
   // 紧跟在世界书后面：都是「参考背景」，而且都是可选的（捞不到就什么都不加）
-  if (String(ragSection || '').trim()) {
+  if (!plainChat && String(ragSection || '').trim()) {
     messages.push({ role: 'system', content: String(ragSection).trim() });
+  }
+
+  // ---- 2.3 联网搜索结果 ----
+  // 和世界书同属「参考背景」，所以放在同一个位置。
+  // 这一条**默认对话也带** —— 联网是「跟模型聊天」本来的能力，不是扮演那一套。
+  if (String(searchSection || '').trim()) {
+    messages.push({ role: 'system', content: String(searchSection).trim() });
   }
 
   // ---- 2.5 前面的剧情：较早对话的摘要 ----
@@ -380,16 +423,16 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // ---- 5. 面板状态：紧贴对话历史之后，权重很高 ----
   // 放在这里而不是塞进历史，是因为历史会被 maxTurns 截断 ——
   // 面板一旦被截出去，模型就开始凭感觉编数值。
-  const panelText = formatPanelForPrompt(convo);
+  const panelText = plainChat ? '' : formatPanelForPrompt(convo);
   if (panelText) messages.push({ role: 'system', content: panelText });
 
   // ---- 5b. 剧情选项：和面板同一批（都是「这轮要维护的状态」）----
   // 只在这张卡/这个会话开了剧情选项时才注入。
-  const optionsText = optionsInstruction(convo);
+  const optionsText = plainChat ? '' : optionsInstruction(convo);
   if (optionsText) messages.push({ role: 'system', content: optionsText });
 
   // ---- 5c. 表情标签：只在有人配了「带情绪键的表情图」时才注入 ----
-  const emoText = expressionInstruction(convo);
+  const emoText = plainChat ? '' : expressionInstruction(convo);
   if (emoText) messages.push({ role: 'system', content: emoText });
 
   // ---- 6. 对话后指令 ----

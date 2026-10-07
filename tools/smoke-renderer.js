@@ -275,8 +275,8 @@ await scenario('配色方案切换', async () => {
 });
 
 // ---------------------------------------------------------------------------
-//  场景 2c：顶栏「⋯」菜单（记忆 / 复制全文 / 导出 / 清空对话 收在里面）
-//  收起来是为了给标题让地方。这里只验「能开、能关、点项会收起」——
+//  场景 2c：顶栏「⋯」菜单（记忆 / 复制全文 / 导出 / 纯对话视图 / 请求记录 / 清空对话）
+//  收起来是为了给标题让地方。这里只验「装了哪几项、能开、能关、点项会收起」——
 //  各项功能本身在别的场景里另有覆盖，不在这里重复。
 // ---------------------------------------------------------------------------
 await scenario('顶栏「⋯」菜单', async () => {
@@ -287,7 +287,17 @@ await scenario('顶栏「⋯」菜单', async () => {
   await waitFor('菜单展开', () => !menu.classList.contains('hidden'));
   check('点一下展开', !menu.classList.contains('hidden'));
   check('按钮标成 aria-expanded=true', byId('btn-more').getAttribute('aria-expanded') === 'true');
-  check('菜单里装了四项', $$('#topbar-more .menu-item').length === 4, String($$('#topbar-more .menu-item').length));
+  // 按 DOM 顺序把 id 全列出来比一次：以前这里只数「四项」，后来菜单里加了
+  // 「纯对话视图」和「请求记录」，没人改它 —— 数字对不上时那句话说不清是多了谁、
+  // 少了谁。列名字的写法既守「有没有变」，也顺带把顺序钉住。
+  const menuIds = $$('#topbar-more .menu-item')
+    .map((b) => b.id)
+    .join(', ');
+  check(
+    '菜单里的项目齐全、顺序没变',
+    menuIds === 'btn-memory, btn-copy-all, btn-export-convo, btn-plain-view, btn-request-log, btn-clear',
+    menuIds
+  );
 
   // 点别处收起
   click('#messages');
@@ -458,8 +468,29 @@ await scenario('设置弹窗', async () => {
   await waitFor('设置弹窗打开', () => shown('#settings-modal'));
   check('设置弹窗里有表单卡片', !!$('#settings-modal .modal-card'));
 
-  click('#btn-close-settings');
-  await waitFor('设置弹窗关闭', () => !shown('#settings-modal'));
+  // 「对话轮数」2026-10-07 从 core/config.js 写死的 CONFIG.MAX_TURNS 挪到设置里。
+  // 白名单断言只能证明「这个键在 DEFAULT_SETTINGS 里」，证不了「表单读得到、写得出」——
+  // readSettingsForm 里漏一行就正好卡在中间，所以这里真存一次。
+  check('行为一节里有「对话轮数」', !!byId('s-max-turns'));
+  const turnsBefore = byId('s-max-turns').value;
+  check('「对话轮数」回填了默认的 20', turnsBefore === '20', turnsBefore);
+
+  setValue('#s-max-turns', '42');
+  click('#btn-save-settings');
+  await waitFor('设置已保存', () => !shown('#settings-modal'));
+  await sleep(150);
+  const turnsSaved = ((await window.mimitale.getSettings()).settings || {}).maxTurns;
+  check('改「对话轮数」能落盘', turnsSaved === 42, String(turnsSaved));
+
+  // 改回去 —— 后面好几个场景都依赖默认的 20 轮
+  click('#btn-settings');
+  await waitFor('设置弹窗再开', () => shown('#settings-modal'));
+  setValue('#s-max-turns', turnsBefore || '20');
+  click('#btn-save-settings');
+  await waitFor('设置已还原', () => !shown('#settings-modal'));
+  await sleep(150);
+  const turnsBack = ((await window.mimitale.getSettings()).settings || {}).maxTurns;
+  check('「对话轮数」还原成 20（后面的场景还等着它）', turnsBack === 20, String(turnsBack));
 });
 
 // ---------------------------------------------------------------------------
@@ -6739,6 +6770,432 @@ await scenario('帮助：切页、正文与复制提示词', async () => {
     () => shown('#toast') && /故事优化提示词/.test(byId('toast').textContent)
   );
   check('复制按钮弹出了对的提示', /故事优化提示词/.test(byId('toast').textContent), byId('toast').textContent);
+});
+
+// ---------------------------------------------------------------------------
+//  默认人设：按模型各存一份，管「没绑角色卡」的对话
+//
+//  这一段只负责造现场和验界面；「这段人设到底有没有拼进提示词」由宿主侧的
+//  probeAssistantPersona 断言（页面读不到发给模型的消息）。
+// ---------------------------------------------------------------------------
+await scenario('默认人设：按模型可编辑，并注入没绑卡的对话', async () => {
+  const PERSONA_TEXT = '你是一只叫团子的猫，只用喵喵叫和动作回应。';
+
+  const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+  const convMod = await import(new URL('js/data/conversations.js', document.baseURI).href);
+  const redrawMod = await import(new URL('js/views/redraw.js', document.baseURI).href);
+  const viewMod = await import(new URL('js/views/viewSwitch.js', document.baseURI).href);
+
+  // 造一条**不绑角色卡**的会话（通用助手那一类）
+  viewMod.showView('chat');
+  convMod.createConvo(true);
+  redrawMod.renderAll({ forceScroll: true });
+  await sleep(80);
+
+  const model = String((stateMod.state.settings || {}).activeModel || '');
+  check('当前有模型可配', !!model, model || '（设置里没有 activeModel）');
+
+  // --- 1) 「模型服务」里有一行入口，点开才进编辑弹窗 ---
+  click('#btn-settings');
+  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+
+  const hintText = () => (byId('s-assistant-hint') || {}).textContent || '';
+  check('模型服务里有「默认人设」入口按钮', !!byId('btn-assistant-persona'));
+  check(
+    '入口那行写着当前模型还没配',
+    hintText().includes(model) && /未设置/.test(hintText()),
+    hintText()
+  );
+
+  click('#btn-assistant-persona');
+  await waitFor('人设弹窗打开', () => shown('#persona-modal'));
+  check(
+    '人设弹窗里能选「给哪个模型」，默认落在当前这个模型上',
+    byId('persona-model').value === model,
+    `${byId('persona-model').value}（可选项 ${byId('persona-model').options.length} 个）`
+  );
+  check(
+    '这个模型还没配过人设，两个框都是空的',
+    byId('persona-name').value === '' && byId('persona-text').value === '',
+    `名字「${byId('persona-name').value}」`
+  );
+
+  // 先试一次「取消」：没保存的字必须丢掉，不能被之后「保存设置」顺带带走
+  setValue('#persona-name', '不该留下');
+  setValue('#persona-text', '这段也不该留下');
+  click('#btn-cancel-persona');
+  await waitFor('人设弹窗关掉', () => !shown('#persona-modal'));
+  check(
+    '取消后弹窗字段回填成空（草稿被丢掉）',
+    byId('persona-name').value === '' && byId('persona-text').value === '',
+    `名字「${byId('persona-name').value}」正文「${byId('persona-text').value}」`
+  );
+
+  // --- 1.5) 「套用聊天风格模板」：空框直接填；有内容时先问一句再覆盖 ---
+  // 这段模板补的是「API 没有网页版那层官方语气」的缺口，属于默认对话的核心体验，
+  // 所以顺手守住两条：空框不打扰、非空不偷改。
+  click('#btn-assistant-persona');
+  await waitFor('人设弹窗再开一次', () => shown('#persona-modal'));
+  check('人设弹窗里有「套用聊天风格模板」', !!byId('btn-persona-template'));
+
+  click('#btn-persona-template');
+  await sleep(80);
+  const tplText = byId('persona-text').value;
+  check(
+    '空框时点模板直接填进去，不弹确认',
+    tplText.includes('【说话方式】') && !shown('#confirm-modal'),
+    String(tplText).slice(0, 24)
+  );
+
+  click('#btn-persona-template');
+  await waitFor('有内容时点模板要先确认', () => shown('#confirm-modal'));
+  click('#confirm-cancel');
+  await waitFor('确认框收起', () => !shown('#confirm-modal'));
+  check('在确认框里点「取消」，正文一个字都不变', byId('persona-text').value === tplText);
+
+  // 模板是草稿，别让它影响后面「正经配一套」那一步 —— 清掉再取消
+  setValue('#persona-text', '');
+  click('#btn-cancel-persona');
+  await waitFor('放弃模板草稿', () => !shown('#persona-modal'));
+
+  // --- 2) 正经配一套并保存 ---
+  click('#btn-assistant-persona');
+  await waitFor('人设弹窗再开', () => shown('#persona-modal'));
+  setValue('#persona-name', '烟测助手');
+  setValue('#persona-text', PERSONA_TEXT);
+  click('#btn-save-persona');
+  await waitFor('保存后人设弹窗关闭', () => !shown('#persona-modal'));
+  await sleep(150);
+
+  const saved = (await window.mimitale.getSettings()).settings;
+  const map = saved.assistantPersonas || {};
+  check(
+    '默认人设按模型名落盘',
+    !!(map[model] && map[model].name === '烟测助手'),
+    JSON.stringify(map)
+  );
+  check(
+    '人设正文也落了盘',
+    !!(map[model] && map[model].persona === PERSONA_TEXT),
+    (map[model] || {}).persona
+  );
+  check(
+    '入口那行跟着变成「已设置」',
+    /已设置/.test(hintText()) && hintText().includes('烟测助手'),
+    hintText()
+  );
+
+  click('#btn-close-settings');
+  await waitFor('设置弹窗关闭', () => !shown('#settings-modal'));
+
+  // --- 3) 空状态标题跟着人设的名字走 ---
+  const emptyTitle = $('#messages .empty h2') ? $('#messages .empty h2').textContent : '';
+  check('空状态标题用了默认人设的名字', emptyTitle.includes('烟测助手'), emptyTitle);
+
+  // --- 4) 换成另一个模型：那一份是空的，刚才那份还在（= 每个模型一份）---
+  const convo = stateMod.state.conversations.find((c) => c.id === stateMod.state.activeId);
+  if (convo) convo.model = '另一个模型';
+  click('#btn-settings');
+  await waitFor('设置弹窗再开一次', () => shown('#settings-modal'));
+  click('#btn-assistant-persona');
+  await waitFor('人设弹窗再开', () => shown('#persona-modal'));
+  check(
+    '另一个模型的人设是空的（两边各自独立）',
+    byId('persona-name').value === '',
+    byId('persona-name').value
+  );
+  check(
+    '切模型后弹窗顶上的下拉框跟着换了',
+    byId('persona-model').value === '另一个模型',
+    byId('persona-model').value
+  );
+
+  // --- 4.5) 弹窗里能**直接换编辑对象** -----------------------------------
+  // 这一节守的是那个报上来的 bug：编辑对象从前跟着「会话在用的模型」走，
+  // 界面上又没有任何地方能改 —— 想给另一个模型配人设就无从下手，
+  // 弹窗永远只有会话那一个模型的一份。
+  const personaOptions = [...byId('persona-model').options].map((o) => o.value);
+  check(
+    '下拉框列出了各服务商的模型，也带上当前会话在用的这个',
+    personaOptions.includes(model) && personaOptions.includes('另一个模型'),
+    personaOptions.join(' , ')
+  );
+
+  setValue('#persona-model', model);
+  await sleep(80);
+  check(
+    '换到另一个模型，字段里换成那一份（不是刚才那份空的）',
+    byId('persona-name').value === '烟测助手' && byId('persona-text').value === PERSONA_TEXT,
+    `名字「${byId('persona-name').value}」`
+  );
+  check('字段里没有未保存的改动时，换编辑对象不弹确认框', !shown('#confirm-modal'));
+
+  setValue('#persona-model', '另一个模型');
+  await sleep(80);
+  check(
+    '换回来字段又变回那一份空草稿',
+    byId('persona-name').value === '' && byId('persona-text').value === '',
+    `名字「${byId('persona-name').value}」`
+  );
+
+  // 挑着模型存一份：必须进到**选中的**那个模型名下，不能覆盖另一份。
+  // 拿 img-model-x 当靶子 —— 它是服务商列表里真实存在的一个模型（另一个服务商名下的），
+  // 正好顺带验「跨服务商的模型都能选」。存完「另一个模型」还是干净的，
+  // 下面「没配名字时空状态标题不提名字」那条断言才不会被打乱。
+  const PICKED = 'img-model-x';
+  setValue('#persona-model', PICKED);
+  await sleep(80);
+  check(
+    '另一个服务商名下的模型也能选，字段同样是空的',
+    byId('persona-model').value === PICKED &&
+      byId('persona-name').value === '' &&
+      byId('persona-text').value === '',
+    byId('persona-model').value
+  );
+
+  const PERSONA_TEXT_2 = '你是只回答天气的助手。';
+  setValue('#persona-name', '第二个助手');
+  setValue('#persona-text', PERSONA_TEXT_2);
+
+  // 有未保存的改动时换编辑对象：先问一句。点「取消」= 不切，草稿一个字都不动。
+  // （草稿只活在字段里、没有按模型分别暂存，所以这里必须拦一下，
+  //   否则「点开看看另一个模型」就会把刚写的整段吃掉。）
+  setValue('#persona-model', model);
+  await waitFor('有草稿时换编辑对象先弹确认', () => shown('#confirm-modal'));
+  click('#confirm-cancel');
+  await waitFor('确认框收起', () => !shown('#confirm-modal'));
+  await sleep(80);
+  check(
+    '在确认框点「取消」：编辑对象退回原处，草稿还在',
+    byId('persona-model').value === PICKED &&
+      byId('persona-name').value === '第二个助手' &&
+      byId('persona-text').value === PERSONA_TEXT_2,
+    `${byId('persona-model').value} / ${byId('persona-name').value}`
+  );
+
+  click('#btn-save-persona');
+  await waitFor('保存另一个模型的人设后弹窗关闭', () => !shown('#persona-modal'));
+  await sleep(150);
+
+  const savedByPick = (await window.mimitale.getSettings()).settings.assistantPersonas || {};
+  check(
+    '挑着模型存：这一份进了选中的那个模型，原来那份没被动',
+    (savedByPick[PICKED] || {}).name === '第二个助手' &&
+      (savedByPick[PICKED] || {}).persona === PERSONA_TEXT_2 &&
+      (savedByPick[model] || {}).name === '烟测助手' &&
+      !savedByPick['另一个模型'],
+    JSON.stringify(savedByPick)
+  );
+  check(
+    '入口那行摘要说的仍是「当前在用」那个模型，不是刚编辑的那个',
+    hintText().includes('另一个模型') && /未设置/.test(hintText()),
+    hintText()
+  );
+
+  click('#btn-close-settings');
+  await waitFor('设置弹窗关闭', () => !shown('#settings-modal'));
+
+  // 「另一个模型」没配人设 = 通用助手连名字都没有 —— 标题不该硬套一个内置假名
+  redrawMod.renderAll({ forceScroll: true });
+  await sleep(80);
+  const anonTitle = ($('#messages .empty h2') || {}).textContent || '';
+  check('没配名字时空状态标题不提名字', anonTitle === '开始聊天吧～', anonTitle);
+
+  if (convo) convo.model = model;
+  redrawMod.renderAll({ forceScroll: true });
+  await sleep(80);
+
+  // --- 5) 真的聊一句，注入内容交给宿主侧 probe 断言 ---
+  const beforeMsgs = $$('#messages .msg').length;
+  setValue('#input', '你好');
+  click('#btn-send');
+  await waitFor('通用助手回复出现', () => $$('#messages .msg').length >= beforeMsgs + 2, 8000);
+  await waitFor('流式结束', () => byId('btn-send').disabled === false, 8000);
+});
+
+await scenario('纯对话视图 + 联网开关：显示收干净，每局各记各的', async () => {
+  const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+  const convMod = await import(new URL('js/data/conversations.js', document.baseURI).href);
+  const redrawMod = await import(new URL('js/views/redraw.js', document.baseURI).href);
+  const viewMod = await import(new URL('js/views/viewSwitch.js', document.baseURI).href);
+
+  viewMod.showView('chat');
+  const convo = convMod.createConvo(true);
+  redrawMod.renderAll({ forceScroll: true });
+  await sleep(80);
+
+  // --- 1) 总闸没开时点「联网」：不点亮，直接把人送进设置 ---
+  click('#btn-web-search');
+  await waitFor('没启用时点「联网」会弹设置', () => shown('#settings-modal'));
+  check(
+    '总闸没开时不点亮开关',
+    byId('btn-web-search').getAttribute('aria-pressed') === 'false',
+    byId('btn-web-search').getAttribute('aria-pressed')
+  );
+
+  // --- 2) 在设置里把总闸打开并填个 Key ---
+  setChecked('#s-search-enabled', true);
+  setValue('#s-search-key', 'sk-smoke-search');
+  click('#btn-save-settings');
+  await waitFor('联网设置已保存', () => !shown('#settings-modal'));
+  await sleep(150);
+
+  const searchSaved = (await window.mimitale.getSettings()).settings;
+  check('联网总闸落了盘', searchSaved.searchEnabled === true, String(searchSaved.searchEnabled));
+
+  // --- 3) 再点开关：点亮，并且记在这一条会话上 ---
+  click('#btn-web-search');
+  await sleep(60);
+  check(
+    '点一下「联网」把它点亮',
+    byId('btn-web-search').getAttribute('aria-pressed') === 'true',
+    byId('btn-web-search').getAttribute('aria-pressed')
+  );
+  check('联网开关记在这一条会话上', convo.webSearch === true, String(convo.webSearch));
+
+  // --- 4) 换一条新会话：默认不联网（每局各记各的） ---
+  const other = convMod.createConvo(true);
+  redrawMod.renderAll({ forceScroll: true });
+  await sleep(60);
+  check(
+    '新会话默认不联网（开关跟着会话走）',
+    byId('btn-web-search').getAttribute('aria-pressed') === 'false' && other.webSearch !== true,
+    `aria-pressed=${byId('btn-web-search').getAttribute('aria-pressed')} webSearch=${other.webSearch}`
+  );
+
+  // --- 5) 纯对话视图：从顶栏「⋯」里打开 ---
+  check('「⋯」里有「纯对话视图」这一项', !!byId('btn-plain-view'));
+
+  // 走正规路径：先展开菜单、再点这一项；clickMoreItem 还会顺带验「点完菜单要收起」
+  await clickMoreItem('#btn-plain-view');
+  await sleep(60);
+  check('打开后 body 挂上了 plain-view', document.body.classList.contains('plain-view'));
+  check(
+    '菜单项自己打上勾',
+    byId('btn-plain-view').getAttribute('aria-checked') === 'true',
+    byId('btn-plain-view').getAttribute('aria-checked')
+  );
+
+  // 状态卡入口条：先强制显示，再看纯对话视图有没有把它压掉
+  const panelBox = byId('panel-box');
+  panelBox.classList.remove('hidden');
+  const panelDisplay = getComputedStyle(panelBox).display;
+  panelBox.classList.add('hidden');
+  check('纯对话视图藏掉了状态卡入口条', panelDisplay === 'none', panelDisplay);
+
+  // 消息上的操作按钮：换成一颗常驻的「⋯」，点开才展开。
+  // 得先切到一条**有消息**的会话上（前面那条新会话是空的）—— 用上一条场景聊过的那条。
+  const withMsgs =
+    stateMod.state.conversations.find((c) =>
+      (c.messages || []).some((m) => String(m.content || '').includes('你好'))
+    ) || stateMod.state.conversations.find((c) => (c.messages || []).length >= 2);
+  check('能找到一条有消息的会话用来验按钮', !!withMsgs);
+  if (withMsgs) {
+    stateMod.state.activeId = withMsgs.id;
+    redrawMod.renderAll({ forceScroll: true });
+    await sleep(80);
+
+    const actions = $('#messages .msg .msg-actions');
+    const more = $('#messages .msg .msg-more');
+    check(
+      '消息上的操作按钮收起来了',
+      !!actions && getComputedStyle(actions).display === 'none',
+      actions ? getComputedStyle(actions).display : '（没找到操作栏）'
+    );
+    check(
+      '换成一颗常驻的「⋯」',
+      !!more && getComputedStyle(more).display !== 'none',
+      more ? getComputedStyle(more).display : '（没找到「⋯」）'
+    );
+
+    if (more) {
+      more.click();
+      await sleep(40);
+      check(
+        '点「⋯」才把操作按钮展开',
+        getComputedStyle($('#messages .msg .msg-actions')).display !== 'none',
+        getComputedStyle($('#messages .msg .msg-actions')).display
+      );
+    }
+  }
+
+  // --- 6) 收尾：两个开关都关回去，别把后面的场景（悬停 / 灯箱）拖下水 ---
+  await clickMoreItem('#btn-plain-view');
+  await sleep(60);
+  check('再点一下能关掉纯对话视图', !document.body.classList.contains('plain-view'));
+
+  click('#btn-settings');
+  await waitFor('设置弹窗打开（收尾）', () => shown('#settings-modal'));
+  setChecked('#s-search-enabled', false);
+  setValue('#s-search-key', '');
+  click('#btn-save-settings');
+  await waitFor('设置已保存（收尾）', () => !shown('#settings-modal'));
+  await sleep(120);
+  check(
+    '收尾后联网总闸关回去了',
+    (await window.mimitale.getSettings()).settings.searchEnabled === false
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  请求记录（顶栏「⋯」→ 请求记录）
+//
+//  它回答的是「这几轮到底给模型发了什么」。数据在主进程内存里（main/request-log.js），
+//  所以页面侧只验「列表有没有、详情是不是原文、清空管不管用」——
+//  「记下来的那一份对不对」在宿主侧的 probeRequestLog 里（页面看不到真正发出去的东西）。
+// ---------------------------------------------------------------------------
+await scenario('请求记录：列表、原文 JSON、清空', async () => {
+  const convMod = await import(new URL('js/data/conversations.js', document.baseURI).href);
+  const redrawMod = await import(new URL('js/views/redraw.js', document.baseURI).href);
+
+  // 先发一条带标记的消息：最新那条记录就认得出来是哪一次
+  const MARK = '请求记录标记语';
+  convMod.createConvo(true);
+  redrawMod.renderAll({ forceScroll: true });
+  await sleep(80);
+
+  const beforeMsgs = $$('#messages .msg').length;
+  setValue('#input', MARK);
+  click('#btn-send');
+  await waitFor('这一轮回复出现', () => $$('#messages .msg').length >= beforeMsgs + 2, 8000);
+  await waitFor('流式结束', () => byId('btn-send').disabled === false, 8000);
+
+  // --- 1) 从「⋯」里打开，最新一条排在最前 ---
+  await clickMoreItem('#btn-request-log');
+  await waitFor('请求记录弹窗打开', () => shown('#requests-modal'));
+
+  const items = $$('#requests-list .requests-item');
+  check('刚才那一轮被记下来了', items.length >= 1, `列表里 ${items.length} 条`);
+
+  const first = items[0];
+  check(
+    '最新一条排在最前面，认得出是我刚发的那句',
+    !!first && first.textContent.includes(MARK),
+    first ? first.textContent.slice(0, 50) : '（列表是空的）'
+  );
+
+  // --- 2) 点开看原文 ---
+  if (first) click(first);
+  await sleep(60);
+  const json = byId('requests-json').textContent;
+  check('详情里是我刚那轮的原文 JSON', json.includes(MARK), json.slice(0, 70));
+  // 只断言这几个字段「在」—— 它们正是和官方网页版最容易不一样的地方
+  check(
+    '原文里带着 stream / temperature / max_tokens',
+    json.includes('"stream"') && json.includes('"temperature"') && json.includes('"max_tokens"'),
+    json.slice(0, 110)
+  );
+  check('有内容时「复制 JSON」可用', byId('btn-copy-request').disabled === false);
+
+  // --- 3) 清空 ---
+  click('#btn-clear-requests');
+  await sleep(150);
+  check('清空后列表空了', $$('#requests-list .requests-item').length === 0);
+  check('清空后「复制 JSON」禁用', byId('btn-copy-request').disabled === true);
+
+  // --- 4) 关掉，别挡着后面的场景 ---
+  click('#btn-close-requests');
+  await waitFor('请求记录弹窗关掉', () => !shown('#requests-modal'));
 });
 
 return { results, notes, hoverProbe };

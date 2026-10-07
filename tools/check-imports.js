@@ -15,7 +15,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const root = 'E:/工作/Mimitale/renderer/js';
+// 从脚本自身位置推根目录，别写死盘符 —— 仓库换过盘，写死的那次直接 ENOENT。
+const root = path.join(__dirname, '..', 'renderer', 'js');
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);

@@ -103,6 +103,14 @@
               <button id="btn-memory" class="menu-item" type="button" role="menuitem">记忆<span id="memory-count" class="memory-badge hidden"></span></button>
               <button id="btn-copy-all" class="menu-item" type="button" role="menuitem">复制全文</button>
               <button id="btn-export-convo" class="menu-item" type="button" role="menuitem">导出</button>
+              <!-- 纯粹的显示开关：藏掉状态卡入口条、剧情选项，消息上的操作按钮也收进悬停才出现的「⋯」。
+                   状态记在设置里（plainChatView），开合逻辑在 js/ui/plainView.js。 -->
+              <button id="btn-plain-view" class="menu-item" type="button" role="menuitemcheckbox"
+                      aria-checked="false" title="只留对话本身：藏掉状态卡入口条、剧情选项和消息上的按钮">纯对话视图</button>
+              <!-- 排查用：把最近几次真正发出去的请求原样摊开。
+                   它不是显示开关，是一次性的动作，所以用普通 menuitem。 -->
+              <button id="btn-request-log" class="menu-item" type="button" role="menuitem"
+                      title="看看这几轮到底给模型发了什么">请求记录</button>
               <button id="btn-clear" class="menu-item menu-item-danger" type="button" role="menuitem">清空对话</button>
             </div>
           </div>
@@ -133,6 +141,17 @@
           <div id="suggest-list" class="suggest-list"></div>
         </div>
         <div class="composer-box">
+          <!-- 联网搜索：按会话记（convo.webSearch）。点亮了 AI 才会在回答前去查网页，
+               答完在气泡下面列出出处。总闸在「设置 → 联网搜索」里。 -->
+          <button id="btn-web-search" class="icon-btn web-search-btn" type="button"
+                  title="联网搜索（先在「设置 → 联网搜索」里填好博查的 API Key）"
+                  aria-pressed="false" aria-label="联网搜索">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18" />
+              <ellipse cx="12" cy="12" rx="4" ry="9" />
+            </svg>
+          </button>
           <button id="btn-attach" class="icon-btn attach-btn" type="button"
                   title="加一张图（也可以直接粘贴或拖进来）" aria-label="添加图片">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -677,6 +696,16 @@
             <button id="btn-del-provider" class="btn btn-danger btn-sm" type="button">删除这个服务商</button>
             <button id="btn-test" class="btn btn-ghost btn-sm" type="button">测试当前服务商</button>
           </div>
+
+          <!-- 默认人设：没绑定角色卡的对话里「AI 是谁」，按模型各存一份。
+               正文往往是一整段设定（很长），所以设置页只留一行入口，编辑走弹窗。 -->
+          <div class="persona-row">
+            <div class="persona-row-info">
+              <span class="field-label">默认人设</span>
+              <span class="field-help" id="s-assistant-hint">—</span>
+            </div>
+            <button id="btn-assistant-persona" class="btn btn-ghost btn-sm" type="button">编辑…</button>
+          </div>
         </section>
 
         <section class="panel-section">
@@ -763,6 +792,16 @@
               0 = 完全关掉递归。层数越多带进来的设定越多，<b>token 也越多</b>。
             </span>
           </label>
+
+          <label class="field">
+            <span class="field-label">对话轮数</span>
+            <input id="s-max-turns" type="number" min="1" max="200" step="1" aria-label="带进请求的对话轮数" />
+            <span class="field-help">
+              每次请求最多带上多少轮旧对话（1 轮 = 一问一答）。更早的内容由<b>记忆摘要</b>接管，不会全丢。<br />
+              调大 = 记得更牢，但<b>每一轮都要把这几十条重发一遍，token 花得更多</b>。
+              想让它「像网页版那样什么都知道」，就调大这里；觉得贵或慢就调小。
+            </span>
+          </label>
         </section>
 
         <section class="panel-section">
@@ -786,6 +825,60 @@
               只是省打字的候选清单，不限制你手写别的属性名。
             </span>
           </label>
+        </section>
+
+        <!-- 联网搜索：又一组独立配置（一个 Key 走天下），走博查的 web-search -->
+        <section class="panel-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M3 12h18" />
+                <ellipse cx="12" cy="12" rx="4" ry="9" />
+              </svg>
+            </span>
+            <div>
+              <div class="section-title">联网搜索</div>
+              <div class="section-desc">让 AI 能查到网上的实时信息，答完在气泡下面列出出处</div>
+            </div>
+          </div>
+
+          <label class="check">
+            <input id="s-search-enabled" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">启用联网搜索</span>
+              <span class="check-desc">
+                这里是<b>总闸</b>。开着之后，还要在输入框左边点亮<b>「联网」</b>那一颗，这一轮才会真的去搜。<br />
+                搜索是<b>按次单独计费</b>的（不占聊天模型的额度），所以默认关着。
+              </span>
+            </span>
+          </label>
+
+          <label class="field">
+            <span class="field-label">博查 API Key</span>
+            <input id="s-search-key" type="password" spellcheck="false" placeholder="sk-..." aria-label="博查 API Key" />
+            <span class="field-help">
+              到 <b>open.bochaai.com</b> 注册，在「API KEY」页面复制。只保存在你自己电脑上，保存时会加密。<br />
+              本应用用的是博查的 Web Search 接口，和聊天用的服务商是两回事，Key 也各填各的。
+            </span>
+          </label>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">每次带回</span>
+              <select id="s-search-count" aria-label="每次带回几条搜索结果"></select>
+              <span class="field-help">带几条网页进上下文。多了更全，也更容易挤掉正文。</span>
+            </label>
+            <label class="field">
+              <span class="field-label">时间范围</span>
+              <select id="s-search-freshness" aria-label="搜索结果的时间范围"></select>
+              <span class="field-help">问「今天」「最近」这种事的时候，选窄一点更准。</span>
+            </label>
+          </div>
+
+          <div class="provider-actions">
+            <button id="btn-test-search" class="btn btn-ghost btn-sm" type="button">测试搜索</button>
+          </div>
         </section>
 
         <!-- 生图：和聊天是两套配置，默认留空 = 不启用 -->
@@ -954,7 +1047,7 @@
               <div class="char-head-fields">
                 <label class="field">
                   <span class="field-label">角色名</span>
-                  <input id="c-name" type="text" spellcheck="false" placeholder="例如 昔涟" aria-label="角色名" />
+                  <input id="c-name" type="text" spellcheck="false" placeholder="例如 小满" aria-label="角色名" />
                 </label>
                 <label class="field">
                   <span class="field-label">标签</span>
@@ -1499,6 +1592,47 @@
   </div>
 
   <!-- ================= 视角设置弹窗 ================= -->
+  <!-- 请求记录：把「这一轮到底发出去了什么」原样摊开。
+       为什么要它：同一个模型，官方网页版和本应用的回复常常不一样 ——
+       原因几乎总在「请求不同」（那边有官方预置的系统提示词、我们只发最近 N 轮、
+       采样参数也是自己设的），而请求以前是看不见的，只能靠猜。
+       数据只在主进程内存里（main/request-log.js），重启就没，所以这页是临时的排查工具。 -->
+  <div id="requests-modal" class="modal hidden">
+    <div class="modal-card requests-card" role="dialog" aria-modal="true" aria-labelledby="requests-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="requests-title">请求记录</h2>
+          <p class="modal-sub">
+            实际发出去的原文 · 只留最近 <b id="requests-max">20</b> 次，<b>关掉应用就没了</b>
+          </p>
+        </div>
+        <button id="btn-close-requests" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭请求记录">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body requests-body">
+        <div id="requests-list" class="requests-list" aria-label="请求列表"></div>
+        <div class="requests-detail">
+          <div class="requests-detail-head">
+            <span id="requests-summary" class="requests-summary">从左边选一次请求</span>
+            <button id="btn-copy-request" class="btn btn-sm" type="button" disabled>复制 JSON</button>
+          </div>
+          <pre id="requests-json" class="requests-json">发一条消息，这里就会出现它实际发出去的完整内容。</pre>
+        </div>
+      </div>
+
+      <footer class="modal-foot">
+        <span class="foot-hint">system 提示词、带进去的每一轮、以及采样参数，都是原样</span>
+        <div class="foot-actions">
+          <button id="btn-clear-requests" class="btn btn-ghost" type="button">清空记录</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
   <div id="perspective-modal" class="modal hidden">
     <div class="modal-card perspective-card" role="dialog" aria-modal="true" aria-labelledby="perspective-title">
       <header class="modal-head">
@@ -1785,6 +1919,70 @@
         <div class="foot-actions">
           <button id="btn-cancel-wb-char-picker" class="btn btn-ghost" type="button">取消</button>
           <button id="btn-confirm-wb-char-picker" class="btn btn-primary" type="button">加入</button>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ================= 默认人设弹窗 =================
+       从「设置 → 模型服务 → 默认人设」里打开，所以层级要压在设置弹窗之上（见 style.css）。 -->
+  <div id="persona-modal" class="modal hidden">
+    <div class="modal-card persona-card" role="dialog" aria-modal="true" aria-labelledby="persona-title">
+      <header class="modal-head">
+        <div class="modal-heading">
+          <h2 id="persona-title">默认人设</h2>
+          <p class="modal-sub">没选角色卡的对话里，跟你说话的是谁 · 每个模型各存一份</p>
+        </div>
+        <button id="btn-close-persona" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭默认人设">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      </header>
+
+      <div class="modal-body">
+        <!-- 人设是按**模型名**存的，所以「正在编辑谁」必须是个看得见、改得动的选择
+             ——以前这里只写一行「当前模型 X」，X 跟着会话自己用的模型走，
+             设置里根本没有地方能改它，想给另一个模型配人设就无从下手。 -->
+        <label class="field">
+          <span class="field-label">给哪个模型</span>
+          <select id="persona-model" aria-label="选择要给哪个模型配默认人设"></select>
+          <span class="field-help">
+            <b>这里选谁，存下来的就是谁那一份</b>。没绑角色卡的对话，按它在顶栏当前用的模型取这套设定。<br />
+            两边都清空 = 那个模型回到通用助手（不扮演任何角色）。
+          </span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">名字</span>
+          <input id="persona-name" type="text" spellcheck="false" placeholder="可以不填" aria-label="默认人设的名字" />
+          <span class="field-help">AI 那一侧显示的名字，也会用来在提示词里自称。<b>留空就不提名字</b> —— 气泡和导出的对话里显示成「AI」，空状态标题也不带名字。</span>
+        </label>
+
+        <label class="field field-stack">
+          <span class="field-label">人设</span>
+          <textarea id="persona-text" rows="12" spellcheck="false" aria-label="默认人设正文" placeholder="例如：&#10;你是……&#10;性格：……&#10;说话习惯：……"></textarea>
+          <span class="field-help">
+            写法和「角色卡」一样：你是谁、什么性格、怎么说话。<b>留空就是通用助手</b>（不扮演任何角色）。<br />
+            只对<b>没绑定角色卡</b>的对话生效 —— 一旦在某张卡上点了「聊天」，这段话就不参与，改由那张卡自己说话。
+          </span>
+        </label>
+
+        <!-- 人设是这一侧**唯一**的系统提示词：API 不像 chat.deepseek.com 那样自带官方那层
+             「友好、自然、有温度」的语气设定，想要那种聊天感只能自己写。这个按钮给一段起点。 -->
+        <div class="persona-template-row">
+          <button id="btn-persona-template" class="btn btn-sm" type="button">套用聊天风格模板</button>
+          <span class="persona-template-hint">
+            想让回复更像「网页版那种聊天」就从这儿起步 —— 已有内容时会先问你一句再覆盖。
+          </span>
+        </div>
+      </div>
+
+      <footer class="modal-foot">
+        <span class="foot-hint" id="persona-foot-hint">改动只影响上面选中的那个模型</span>
+        <div class="foot-actions">
+          <button id="btn-cancel-persona" class="btn btn-ghost" type="button">取消</button>
+          <button id="btn-save-persona" class="btn btn-primary" type="button">保存</button>
         </div>
       </footer>
     </div>

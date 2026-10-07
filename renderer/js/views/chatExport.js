@@ -124,7 +124,7 @@ function conversationMarkdown(convo) {
     if (!content) continue;
     if (message.role === 'user') lines.push(`**${player && player.name ? player.name : userName()}：**`);
     else if (message.role === 'error') lines.push('**（出错了）**');
-    else lines.push(`**${character ? character.name : speakerName(convo)}：**`);
+    else lines.push(`**${character ? character.name : speakerName(convo) || 'AI'}：**`);
     lines.push('');
     lines.push(content);
     lines.push('');

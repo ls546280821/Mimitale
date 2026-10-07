@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-//  设置弹窗（含服务商编辑 / 生图 / 语义检索 / 模型目录兜底）
+//  设置弹窗（含服务商编辑 / 生图 / 语义检索 / 联网搜索）
 //
 //  两处刻意的边界：
 //
@@ -17,19 +17,34 @@
 //  Esc 关弹窗那一条**没搬过来**：它在入口层的 Esc 判断链里有固定顺序
 //  （确认框 → 玩家弹窗 → 角色选择 → 角色编辑器 → 设置 → 外观），
 //  拆成两个监听器会让这条顺序失效。
+//
+//  内置目录兜底（模型清单 / 生图尺寸规则）在 views/settingsCatalog.js ——
+//  本模块只 import 它导出的查询和「铺进界面」的动作。往「服务商表单」里写字的
+//  applyCatalogModels 留在本地：它要用这里的 stashProviderForm()。
 // ---------------------------------------------------------------------------
 
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
+import { activeConvo, asArray } from '../core/util.js';
 import { el } from '../core/dom.js';
 import { h, clear } from '../ui/build.js';
 import { showToast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { providers, providerById, isBridgeProvider } from '../data/providers.js';
 import { renderHeader } from './header.js';
+import {
+  catalogForBaseUrl,
+  imageCatalogModels,
+  looksLikeUnsupportedModelList,
+  preferImageModel,
+  fillImageSizeOptions
+} from './settingsCatalog.js';
 
 /** 设置弹窗里当前正在编辑的服务商 */
 let editingProviderId = null;
+
+/** 默认人设弹窗里，字段中那份草稿属于哪个模型（换编辑对象时的脏检查要靠它） */
+let personaShownModel = '';
 
 // --- 入口层注入的重绘动作 ---
 // refreshModelSwitch()：右上角「当前模型」切换器（服务商 / 模型列表改了要重画）
@@ -84,7 +99,19 @@ export function initSettings(opts = {}) {
   });
 
   el.btnDelProvider.addEventListener('click', removeProvider);
+  el.btnTestSearch.addEventListener('click', testSearch);
 
+  // 默认人设：设置页里只有一行入口，正文放在弹窗里编辑
+  el.btnAssistantPersona.addEventListener('click', openPersonaDialog);
+  el.btnClosePersona.addEventListener('click', closePersonaDialog);
+  el.btnCancelPersona.addEventListener('click', closePersonaDialog);
+  el.btnSavePersona.addEventListener('click', savePersonaDialog);
+  el.btnPersonaTemplate.addEventListener('click', applyPersonaTemplate);
+  // 换「给哪个模型」= 换编辑对象，字段整个重灌一遍
+  el.persona.model.addEventListener('change', switchPersonaModel);
+  el.personaModal.addEventListener('click', (event) => {
+    if (event.target === el.personaModal) closePersonaDialog();
+  });
 
   el.modal.addEventListener('click', (event) => {
     if (event.target === el.modal) closeSettings();
@@ -110,9 +137,6 @@ export function setEditingProvider(id) {
  *   · 打开设置时 true —— 补一个选项摆在那儿，免得一打开就被静默改掉
  *     （换了服务商、或者列表被人删过，都会出现这种情况）
  *   · 用户主动换服务商时 false —— 老服务商的模型名在新服务商这儿没有意义，直接选第一个
- */
-/**
- * 给模型下拉填选项。
  *
  * catalogModels：可选，把内置目录里的模型也并进来（标注「内置」）。
  * 生图那一组用得上 —— 服务商的模型列表里通常只有文本模型，
@@ -152,6 +176,254 @@ function fillModelSelect(select, providerId, current, emptyHint, keepMissing = t
   select.value = value || all[0];
 }
 
+// ------------------------------ 默认人设 ------------------------------
+
+/**
+ * 「默认人设」是按**模型名**存的，所以必须回答两个不同的问题：
+ *
+ *   1. 这份人设生效时会取哪一条？ → defaultAssistantModel()
+ *      口径和 data/cast.js 完全一致：会话自己的模型优先（每个会话都记着自己的），
+ *      没有会话（比如空状态页）才退回设置里的当前模型。
+ *   2. 弹窗现在编辑的是哪一条？ → editingAssistantModel()
+ *      = 弹窗顶部那个下拉框选中的模型。
+ *
+ * 这两个**刻意分开**。以前只取了 1 就拿它当编辑对象，界面上又没有任何地方能改，
+ * 于是「想给另一个模型配人设」完全无从下手 —— 弹窗永远只有会话那一个模型的一份。
+ */
+function defaultAssistantModel() {
+  const convo = activeConvo();
+  const own = convo && String(convo.model || '').trim();
+  if (own) return own;
+  return String((state.settings || {}).activeModel || '').trim();
+}
+
+/** 设置里的默认人设表（形状不对就当空的） */
+function assistantPersonaMap(settings) {
+  const map = (settings || {}).assistantPersonas;
+  return map && typeof map === 'object' && !Array.isArray(map) ? map : {};
+}
+
+/**
+ * 弹窗顶部那个「给哪个模型」下拉框的可选项 = 顶栏切换模型时能选到的那些，
+ * 一个不多一个不少（同样按服务商分组），这样两处说的是同一件事。
+ *
+ * 另外把 want 塞进去：会话用着一个「已经在服务商列表里删掉、但历史会话还记着」的
+ * 模型时，它也必须能选中 —— 否则下拉框会静默落到别的模型上，等于编辑错了对象。
+ */
+function fillPersonaModelOptions(want) {
+  const select = el.persona.model;
+  if (!select) return;
+
+  const groups = [];
+  const seen = new Set();
+  let hasWant = false;
+
+  for (const provider of providers()) {
+    const models = [];
+    for (const raw of asArray(provider.models)) {
+      const model = String(raw || '').trim();
+      if (!model || seen.has(model)) continue;
+      seen.add(model);
+      if (model === want) hasWant = true;
+      models.push(model);
+    }
+    if (models.length) groups.push({ name: provider.name || '未命名服务商', models });
+  }
+
+  clear(select);
+  // 选不中的那个模型单独放最前面，别让它藏进某个服务商的分组里
+  if (want && !hasWant) select.appendChild(h('option', { value: want, text: want }));
+
+  for (const group of groups) {
+    const box = document.createElement('optgroup');
+    box.label = group.name;
+    for (const model of group.models) {
+      box.appendChild(h('option', { value: model, text: model }));
+    }
+    select.appendChild(box);
+  }
+
+  if (select.options.length) {
+    const hasOption = [...select.options].some((o) => o.value === want);
+    select.value = hasOption ? want : select.options[0].value;
+  }
+}
+
+/** 弹窗现在编辑的是哪个模型（下拉框说了算；下拉框还没铺出来时才退回默认口径） */
+function editingAssistantModel() {
+  const select = el.persona.model;
+  const picked = select && String(select.value || '').trim();
+  return picked || defaultAssistantModel();
+}
+
+/**
+ * 把「下拉框选中那个模型的人设」灌进弹窗字段，并刷新设置页里那行入口的摘要。
+ *
+ * 弹窗字段和设置表单其实是同一份草稿，所以打开设置、打开弹窗、关弹窗、换编辑对象
+ * 这几处都要调它 —— 保证 settings / 弹窗字段 / 入口摘要三方说的是同一件事。
+ * 关弹窗时调它 = 把没保存的改动丢掉，免得设置那边点「保存」时把它一起带走。
+ *
+ * target 传值 = 强制把编辑对象换成它（打开设置时用，让下拉框每次都回到当前在用的模型，
+ * 而不是留着上次翻过的那个）。不传 = 沿用下拉框里已经选好的那个。
+ */
+function syncPersonaFields(settings, target) {
+  const source = settings || state.settings || {};
+  fillPersonaModelOptions(target === undefined ? editingAssistantModel() : target);
+
+  const model = editingAssistantModel();
+  const entry = model ? assistantPersonaMap(source)[model] || {} : {};
+
+  el.persona.name.value = entry.name || '';
+  el.persona.text.value = entry.persona || '';
+  // 记下字段里这份草稿属于谁：change 事件里下拉框已经是新值了，那时候再问
+  // 「编辑的是哪个模型」会问到新模型头上，脏检查就成了假阳性。
+  personaShownModel = model;
+
+  updatePersonaHint(source);
+}
+
+/** 「模型服务」里那行入口右侧的状态说明：**当前在用的**那个模型到底配没配 */
+function updatePersonaHint(settings) {
+  const source = settings || state.settings || {};
+  const model = defaultAssistantModel();
+
+  if (!model) {
+    el.assistantHint.textContent = '还没选模型 —— 先在顶栏选一个';
+    return;
+  }
+
+  const entry = assistantPersonaMap(source)[model] || {};
+  const name = String(entry.name || '').trim();
+  const hasText = !!String(entry.persona || '').trim();
+
+  // 顺手说一句「还存着别的模型的人设」：不然用户看着这一行，
+  // 会以为人设只跟当前这个模型绑死、别的地方没法配（就是这么以为才报的 bug）。
+  const configured = Object.keys(assistantPersonaMap(source)).length;
+  const others = configured - (name || hasText ? 1 : 0);
+  const tail = others > 0 ? ` · 另有 ${others} 个模型配过` : '';
+
+  el.assistantHint.textContent =
+    (name || hasText
+      ? `「${model}」已设置：${name || '（没写名字）'}`
+      : `「${model}」未设置，是通用助手`) + tail;
+}
+
+/** 弹窗字段里这份草稿跟已保存的那份有没有差别（换编辑对象前要据此问一句） */
+function personaDraftDirty() {
+  if (!personaShownModel) return false;
+
+  const entry = assistantPersonaMap(state.settings)[personaShownModel] || {};
+  return (
+    el.persona.name.value.trim() !== String(entry.name || '').trim() ||
+    el.persona.text.value.trim() !== String(entry.persona || '').trim()
+  );
+}
+
+/** 换编辑对象：把另一个模型那一份重新灌进字段 */
+async function switchPersonaModel() {
+  if (!personaDraftDirty()) {
+    syncPersonaFields();
+    return;
+  }
+
+  // 草稿只活在字段里（没有按模型分别暂存），所以换对象前先把话说清楚
+  const from = personaShownModel;
+  const ok = await confirmDialog({
+    title: '换一个模型编辑',
+    message: `「${from}」这份还没保存，切走就丢了。继续吗？`,
+    confirmText: '丢掉并切换'
+  });
+
+  if (ok) {
+    syncPersonaFields();
+    return;
+  }
+
+  // 不切了：下拉框退回原来那个，字段里还是刚才那份草稿（本来就没动过）
+  el.persona.model.value = from;
+}
+
+function openPersonaDialog() {
+  // 先把服务商表单收进内存：用户可能刚在「可用模型」里敲了一个新模型名，
+  // 还没点保存就想给它配人设 —— 不收的话下拉框里根本没有它。
+  stashProviderForm();
+  syncPersonaFields();
+  el.personaModal.classList.remove('hidden');
+  el.persona.text.focus();
+}
+
+export function closePersonaDialog() {
+  // 从 settings 重新回填 = 丢掉没保存的改动
+  syncPersonaFields();
+  el.personaModal.classList.add('hidden');
+}
+
+async function savePersonaDialog() {
+  if (!editingAssistantModel()) {
+    showToast('先在顶栏选一个模型，人设才知道该存给谁', 'error');
+    return;
+  }
+
+  // 走和设置弹窗同一条保存链路（白名单 / 归一化 / 重绘都在里面）。
+  // silent=true：不关设置弹窗、不弹「设置已保存」，提示由这里给得更准。
+  const savedModel = personaShownModel || editingAssistantModel();
+  const prev = state.settings;
+  await saveSettings(true);
+  closePersonaDialog();
+
+  // 保存成功才会换成一个新对象（见 saveSettings 里的赋值）；失败时原样返回，别再报「已保存」
+  if (state.settings !== prev) showToast(`已保存「${savedModel}」的默认人设`, 'ok');
+}
+
+/**
+ * 「套用聊天风格模板」要填进去的那段。
+ *
+ * 为什么需要它：默认对话这一侧，system 提示词**只有用户自己写的这一段**。
+ * chat.deepseek.com 那种「友好、自然、有温度」的聊天感，来自官方预置的提示词 ——
+ * 走 API 拿不到。用户不写清楚，模型就退回最原始的「完成模式」：
+ * 只求信息直达、不做任何修饰，读起来像在填表格。
+ *
+ * 所以这段刻意只讲**说话方式**、不设定具体人格 —— 人格留给用户自己写（第一行那个空位），
+ * 填进去之后随便改。「留空 = 通用助手」的原则不变，它只是个起点。
+ */
+const PERSONA_TEMPLATE = [
+  '（在这里写「你是谁」：名字、性格、说话习惯 —— 想怎么设定都行。写完可以把这一行删掉。）',
+  '',
+  '【说话方式】',
+  '- 像跟朋友聊天那样自然：可以不完整、可以插话，不要写成一份分点的报告。',
+  '- 不要动不动就列 1. 2. 3.，也别堆标题和小标题 —— 除非我明确要一份清单。',
+  '- 长短按内容来：一句话能说清就一句话，不用硬凑字数。',
+  '- 可以用语气词，但别每句都加。',
+  '- 有不同意见就直说，不必一味附和；不确定就说不确定，别编。'
+].join('\n');
+
+/**
+ * 一键填入聊天风格模板。
+ *
+ * 已有内容时先问一句：直接盖掉用户写的字是**撤不回来**的
+ * （程序改 textarea.value 会清掉浏览器自己的撤销栈，Ctrl+Z 也救不回）。
+ */
+async function applyPersonaTemplate() {
+  if (String(el.persona.text.value || '').trim()) {
+    const ok = await confirmDialog({
+      title: '覆盖现在的人设？',
+      message: '这个框里已经有内容了。套用模板会把它整段换掉，而且撤不回来。',
+      confirmText: '覆盖',
+      danger: true
+    });
+    if (!ok) return;
+  }
+
+  el.persona.text.value = PERSONA_TEMPLATE;
+  el.persona.text.focus();
+  // 选中第一行那个空位：用户直接打字就把「在这里写你是谁」替换掉了，
+  // 不用先自己删一遍。选中范围在程序改 value 之后设，所以一定生效。
+  el.persona.text.setSelectionRange(0, PERSONA_TEMPLATE.indexOf('\n'));
+  showToast('模板已填入 —— 改完记得点「保存」', 'ok');
+}
+
+// ------------------------------ 填表单 ------------------------------
+
 function fillSettingsForm(settings) {
   el.s.temp.value = settings.temperature ?? 0.7;
   el.s.maxTokens.value = settings.maxTokens ?? 8192;
@@ -162,7 +434,16 @@ function fillSettingsForm(settings) {
   el.s.wbDepth.value = String(
     Number.isFinite(Number(settings.worldbookRecursiveDepth)) ? Number(settings.worldbookRecursiveDepth) : 3
   );
+  el.s.maxTurns.value = String(
+    Number.isFinite(Number(settings.maxTurns)) && Number(settings.maxTurns) >= 1 ? Math.floor(Number(settings.maxTurns)) : 20
+  );
   el.s.commonAttrs.value = (Array.isArray(settings.commonAttributes) ? settings.commonAttributes : []).join(', ');
+
+  // 默认人设：弹窗字段跟着设置表单一起刷新，这样「设置里点保存」读到的
+  // 永远是当前这一份 —— 用户从头到尾没开过弹窗，也不会把它清空。
+  // 名字留空是合法的（= 不提名字），所以原样回填、不替用户补。
+  // 每次都强制把编辑对象拨回「当前在用的那个模型」：上次翻看过的不算数。
+  syncPersonaFields(settings, defaultAssistantModel());
 
   // 生图：下拉里放一个「不启用」+ 所有服务商
   clear(el.s.imageProvider);
@@ -202,6 +483,51 @@ function fillSettingsForm(settings) {
     ? settings.embeddingProviderId
     : '';
   fillModelSelect(el.s.embeddingModel, el.s.embeddingProvider.value, settings.embeddingModel, '（先在上面选一个服务商）');
+
+  // 联网搜索：总闸 + Key + 条数 + 时间范围。
+  // Key 和其它 Key 一样是明文进内存的（主进程解密后给过来），所以这里原样回填，
+  // 「保存」时再交回去重新加密。
+  el.s.searchEnabled.checked = settings.searchEnabled === true;
+  el.s.searchKey.value = settings.searchApiKey || '';
+  fillSearchCountOptions(settings.searchCount);
+  fillSearchFreshnessOptions(settings.searchFreshness);
+}
+
+// ------------------------------ 联网搜索 ------------------------------
+
+// 「每次带回几条」的可选值。上限和 main/search.js 的 MAX_COUNT 对齐。
+const SEARCH_COUNTS = [3, 5, 6, 8, 10];
+
+// 时间范围的可选值。value 要和 main/search.js 的 freshness 一致，
+// 那边不认识的会落回 noLimit。加值要两边一起加。
+const SEARCH_FRESHNESS = [
+  ['noLimit', '不限时间'],
+  ['oneDay', '一天内'],
+  ['oneWeek', '一周内'],
+  ['oneMonth', '一月内'],
+  ['oneYear', '一年内']
+];
+
+function fillSearchCountOptions(current) {
+  const wanted = String(Number(current) || '');
+  clear(el.s.searchCount);
+  for (const n of SEARCH_COUNTS) {
+    el.s.searchCount.appendChild(h('option', { value: String(n), text: `${n} 条` }));
+  }
+  // 存过的值不在候选里（比如老配置写了 7）也摆出来，别静默改掉用户的选择
+  if (wanted && !SEARCH_COUNTS.includes(Number(wanted))) {
+    el.s.searchCount.appendChild(h('option', { value: wanted, text: `${wanted} 条` }));
+  }
+  el.s.searchCount.value = wanted || '6';
+}
+
+function fillSearchFreshnessOptions(current) {
+  const wanted = String(current || 'noLimit');
+  clear(el.s.searchFreshness);
+  for (const [value, label] of SEARCH_FRESHNESS) {
+    el.s.searchFreshness.appendChild(h('option', { value, text: label }));
+  }
+  el.s.searchFreshness.value = SEARCH_FRESHNESS.some(([v]) => v === wanted) ? wanted : 'noLimit';
 }
 
 // ------------------------------ 服务商编辑 ------------------------------
@@ -364,6 +690,10 @@ function readSettingsForm() {
       const depth = Number(el.s.wbDepth.value);
       return Number.isFinite(depth) ? Math.max(0, Math.min(5, Math.floor(depth))) : 3;
     })(),
+    maxTurns: (() => {
+      const t = Number(el.s.maxTurns.value);
+      return Number.isFinite(t) ? Math.max(1, Math.min(200, Math.floor(t))) : 20;
+    })(),
     imageProviderId: el.s.imageProvider.value || '',
     imageModel: el.s.imageModel.value.trim(),
     imageSize: el.s.imageSize.value || '',
@@ -371,7 +701,28 @@ function readSettingsForm() {
     embeddingProviderId: el.s.embeddingProvider.value || '',
     embeddingModel: el.s.embeddingModel.value.trim(),
     // 和「服务商模型列表」一样是「分隔符拆开的字符串列表」，直接复用那个解析
-    commonAttributes: parseModels(el.s.commonAttrs.value).slice(0, 40)
+    commonAttributes: parseModels(el.s.commonAttrs.value).slice(0, 40),
+    // 联网搜索。Key 留空就是「不要了」—— 照原样交回去（不偷偷把旧值填回来）
+    searchEnabled: el.s.searchEnabled.checked,
+    searchApiKey: el.s.searchKey.value.trim(),
+    searchCount: (() => {
+      const n = Number(el.s.searchCount.value);
+      return Number.isFinite(n) ? Math.max(1, Math.min(10, Math.floor(n))) : 6;
+    })(),
+    searchFreshness: el.s.searchFreshness.value || 'noLimit',
+    // 默认人设：只动**当前模型**那一条，别的模型的条目原样带回去。
+    // 名字和人设都清空 = 这个模型不要人设了，把那条删掉（别在 config.json 里留空壳）。
+    assistantPersonas: (() => {
+      const map = { ...assistantPersonaMap(state.settings) };
+      const model = editingAssistantModel();
+      // 还没选模型（一个服务商都没配）时没地方存，原样带回
+      if (!model) return map;
+      const name = el.persona.name.value.trim();
+      const persona = el.persona.text.value.trim();
+      if (!name && !persona) delete map[model];
+      else map[model] = { name, persona };
+      return map;
+    })()
   };
 }
 
@@ -432,208 +783,10 @@ async function saveSettings(silent) {
   return state.settings;
 }
 
-/**
- * 各服务商的已知模型目录。
- *
- * 用途：「拉取可用模型」走的是 OpenAI 那套 GET /models，但不少国内服务商
- * 根本没有这个接口（智谱就是），请求会被网关拒掉（常见 406）。
- * 这种情况下不能让用户卡死在一个看不懂的错误码上，所以给一份内置目录兜底。
- *
- * 按接口地址里的域名匹配，而不是按服务商名字 —— 名字用户可以随便改。
- *
- * imageModels 是「生图」那一组能用的模型。文本模型不能拿来生图，
- * 选错了接口会报 404 —— 这个坑很容易踩，所以单独列出来。
- */
-const MODEL_CATALOG = [
-  {
-    match: /dashscope\.aliyuncs\.com/i,
-    name: '通义千问',
-    note: '通义的 OpenAI 兼容模式对部分 Key 不返回模型列表，可先手填',
-    models: ['qwen-plus', 'qwen-max', 'qwen-turbo', 'qwen-long'],
-    imageModels: ['wanx2.1-t2i-turbo', 'wanx2.1-t2i-plus', 'wanx-v1']
-  },
-  {
-    match: /moonshot\.cn/i,
-    name: 'Kimi',
-    note: 'Moonshot 支持模型列表；若拉取失败可从下面挑',
-    models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'],
-    imageModels: []
-  },
-  {
-    match: /deepseek\.com/i,
-    name: 'DeepSeek',
-    note: 'DeepSeek 支持模型列表；若拉取失败可从下面挑',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
-    // DeepSeek 目前没有生图模型
-    imageModels: []
-  },
-  {
-    match: /openai\.com/i,
-    name: 'OpenAI',
-    note: 'OpenAI 支持模型列表；若拉取失败可从下面挑',
-    models: ['gpt-4o-mini', 'gpt-4o'],
-    imageModels: ['gpt-image-1', 'dall-e-3']
-  }
-];
-
-function catalogForBaseUrl(baseUrl) {
-  const url = String(baseUrl || '');
-  return MODEL_CATALOG.find((c) => c.match.test(url)) || null;
-}
-
-/** 某个服务商的内置生图模型（用来并进生图模型下拉） */
-function imageCatalogModels(providerId) {
-  const provider = providerById(providerId);
-  if (!provider) return [];
-  const catalog = catalogForBaseUrl(provider.baseUrl);
-  return catalog && Array.isArray(catalog.imageModels) ? catalog.imageModels : [];
-}
-
-/**
- * 各生图模型支持的图片尺寸。
- *
- * 这个必须按模型区分：智谱 glm-image 只认固定的 7 个尺寸（默认 1280x1280），
- * 而本应用早期一律发 1024x1024，于是被接口拒掉（智谱错误码 1210「参数有误」）。
- * 参数来自智谱官方 OpenAPI 的 CreateImageRequest.size 说明。
- */
-const IMAGE_SIZE_RULES = [
-  {
-    match: /^glm-image$/i,
-    label: 'GLM-Image',
-    sizes: ['1280x1280', '1568x1056', '1056x1568', '1472x1088', '1088x1472', '1728x960', '960x1728'],
-    custom: { min: 1024, max: 2048, step: 32 },
-    note: '默认 1280x1280。自定义需在 1024-2048 之间、且是 32 的整数倍'
-  },
-  {
-    match: /^cogview/i,
-    label: 'CogView',
-    sizes: ['1024x1024', '768x1344', '864x1152', '1344x768', '1152x864', '1440x720', '720x1440'],
-    custom: { min: 512, max: 2048, step: 16 },
-    note: '默认 1024x1024。自定义需在 512-2048 之间、且是 16 的整数倍'
-  }
-];
-
-const DEFAULT_IMAGE_SIZES = ['1024x1024', '1024x1792', '1792x1024', '512x512'];
-
-function imageSizeRule(model) {
-  const name = String(model || '').trim();
-  return IMAGE_SIZE_RULES.find((r) => r.match.test(name)) || null;
-}
-
-/** 某个生图模型可选的尺寸列表 */
-function sizesForImageModel(model) {
-  const rule = imageSizeRule(model);
-  return rule ? rule.sizes : DEFAULT_IMAGE_SIZES;
-}
-
-/** 尺寸是否合法：已知模型按规则校验，未知模型只做基本格式检查 */
-function isValidImageSize(model, size) {
-  const value = String(size || '').trim().toLowerCase();
-  if (!/^\d{2,4}x\d{2,4}$/.test(value)) return false;
-
-  const rule = imageSizeRule(model);
-  if (!rule) return true;
-
-  if (rule.sizes.includes(value)) return true;
-
-  // 不在推荐列表里也可能合法（自定义尺寸），按规则体检
-  if (!rule.custom) return false;
-  const [w, h] = value.split('x').map(Number);
-  const { min, max, step } = rule.custom;
-  const inRange = (n) => n >= min && n <= max && n % step === 0;
-  return inRange(w) && inRange(h);
-}
-
-/**
- * 生图模型优先选对的。
- *
- * 坑：provider.models 里通常全是文本模型，生图那一组下拉如果直接沿用，
- * 就会把 glm-5.3 这种文本模型发给 /images/generations，接口报 404。
- * 所以有内置生图目录时，主动切过去并说明原因；
- * 用户自己指定了生图模型（模型名看着像生图模型）就不抢。
- */
-function preferImageModel(provider) {
-  if (!provider) return;
-
-  const imageModels = imageCatalogModels(provider.id);
-  if (!imageModels.length) return;
-
-  const available = Array.isArray(provider.models) ? provider.models.filter(Boolean) : [];
-  const current = String(el.s.imageModel.value || '').trim();
-
-  // 当前已经是这家已知的生图模型 —— 不用动
-  if (current && imageModels.includes(current)) return;
-  // 用户自己在模型列表里放了生图模型并选中了它 —— 尊重用户
-  if (current && current !== available[0] && /image|cogview|dall-e|wanx|flux|sd|stable/i.test(current)) return;
-
-  const target = imageModels[0];
-  if (target === current) return;
-
-  const option = Array.from(el.s.imageModel.options || []).find((o) => o.value === target);
-  if (option) {
-    el.s.imageModel.value = target;
-  } else {
-    el.s.imageModel.appendChild(h('option', { value: target, text: `${target}（内置）` }));
-    el.s.imageModel.value = target;
-  }
-
-  showToast(
-    `这家服务商的生图模型是 ${imageModels.join(' / ')}，` +
-      `已从「${current || '文本模型'}」切到「${target}」——` +
-      '文本模型不能用来生图，选错会报 404',
-    'ok'
-  );
-}
-
-/**
- * 按当前生图模型重建尺寸下拉，并尽量保留用户原来的选择。
- * 模型不认识时用通用尺寸，不拦着用户。
- */
-function fillImageSizeOptions(model, current) {
-  const select = el.s.imageSize;
-  if (!select) return;
-
-  const sizes = sizesForImageModel(model);
-  const wanted = String(current || '').trim();
-
-  clear(select);
-  for (const size of sizes) {
-    select.appendChild(h('option', { value: size, text: size }));
-  }
-
-  // 已保存的尺寸不在这个模型的列表里：要么直接纠正，要么明确标出来
-  if (wanted && !sizes.includes(wanted)) {
-    if (isValidImageSize(model, wanted)) {
-      // 是合法自定义尺寸，保留
-      select.appendChild(h('option', { value: wanted, text: `${wanted}（自定义）` }));
-      select.value = wanted;
-    } else {
-      // 非法（比如 glm-image 配 1024x1024）——直接切到默认值，别让它再撞一次
-      const rule = imageSizeRule(model);
-      const fallback = sizes[0];
-      select.value = fallback;
-      if (rule) {
-        showToast(
-          `${rule.label} 不支持 ${wanted}，已改成 ${fallback}` +
-            (rule.note ? `（${rule.note}）` : ''),
-          'ok'
-        );
-      }
-    }
-    return;
-  }
-
-  select.value = wanted && sizes.includes(wanted) ? wanted : sizes[0];
-}
-
-/** 拉取失败时，判断是不是「这个服务商压根没有模型列表接口」 */
-function looksLikeUnsupportedModelList(message) {
-  const text = String(message || '');
-  return (
-    /\b(406|404|405|501)\b/.test(text) ||
-    /不被接受|找不到接口|不支持|Not Acceptable|Method Not Allowed/i.test(text)
-  );
-}
+// ------------------------------ 内置目录兜底导入 ------------------------------
+// 目录数据和生图尺寸规则都在 views/settingsCatalog.js。这里只留**往服务商表单里
+// 写字**的那一步 —— 「拉取模型」失败、且失败原因像是「这家压根没有模型列表接口」
+// （常见 406）时，把已知模型填进来，别让用户卡在一个看不懂的错误码上。
 
 /**
  * 把内置目录里的模型填进模型输入框。
@@ -660,6 +813,8 @@ function applyCatalogModels(catalog, replace) {
   return next.length;
 }
 
+// ------------------------------ 网络动作 ------------------------------
+
 async function testConnection() {
   stashProviderForm();
   const provider = providerById(editingProviderId);
@@ -675,6 +830,35 @@ async function testConnection() {
   } finally {
     el.btnTest.disabled = false;
     el.btnTest.textContent = '测试当前服务商';
+  }
+}
+
+/**
+ * 「测试搜索」：拿框里**当前填的** Key 试搜一次。
+ * 和「测试当前服务商」一个思路 —— 用户还没点保存就想先确认能不能用，
+ * 没必要逼他先存一遍再试。
+ */
+async function testSearch() {
+  el.btnTestSearch.disabled = true;
+  el.btnTestSearch.textContent = '测试中…';
+  try {
+    const result = await api.testSearch({
+      apiKey: el.s.searchKey.value.trim(),
+      freshness: el.s.searchFreshness.value || 'noLimit'
+    });
+    if (!result || result.ok !== true) {
+      throw new Error((result && result.error) || '测试失败');
+    }
+    const first = (result.items && result.items[0]) || null;
+    showToast(
+      `搜索可用，拿到 ${result.count} 条${first ? `（第一条：${first.title}）` : ''}`,
+      'ok'
+    );
+  } catch (err) {
+    showToast((err && err.message) || '测试失败', 'error');
+  } finally {
+    el.btnTestSearch.disabled = false;
+    el.btnTestSearch.textContent = '测试搜索';
   }
 }
 

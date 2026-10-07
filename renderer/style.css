@@ -777,6 +777,13 @@ body {
 .menu-pop .menu-item-danger:hover { background: var(--danger-bg-hover); color: var(--danger-hover); }
 /* 菜单项里的段数角标：它本来是按幽灵按钮上的位置调的，这里跟着文字走就行 */
 .menu-pop .memory-badge { margin-left: 6px; }
+/* 开关型菜单项（「纯对话视图」）：开着的时候整行改主色、右边补一个勾 */
+.menu-pop .menu-item[aria-checked='true'] { color: var(--accent); }
+.menu-pop .menu-item[aria-checked='true']::after {
+  content: '✓';
+  margin-left: auto;
+  padding-left: 14px;
+}
 
 /* --------------------------- 顶栏：切换模型 --------------------------- */
 
@@ -1272,6 +1279,84 @@ body {
   border-color: var(--danger-border);
 }
 
+/* ---------------------- 联网搜索的出处 ----------------------
+   AI 回复用了搜索结果时，在气泡下面列一行来源。序号和注入给模型的 [1][2] 对齐，
+   正文里写了 [2] 就能对上第二条。点一下用系统浏览器打开。 */
+.msg-sources {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.msg-sources-cap {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+
+.msg-source {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 260px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-side);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.msg-source:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.msg-source .src-index {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.msg-source .src-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-source .src-site {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+
+/* ---------------------- 纯对话视图（body.plain-view） ----------------------
+   只留对话本身：状态卡入口条和剧情选项整块不画，消息上的操作按钮也不再跟着
+   悬停冒出来 —— 改成点那一颗「⋯」才展开（按钮在 chatMessages.js 里建）。
+   侧栏、输入区、顶栏都不动，所以这只是「少看几样东西」，不是另一个界面。 */
+body.plain-view #panel-box,
+body.plain-view .msg-options {
+  display: none !important;
+}
+
+body.plain-view .msg-actions { display: none; }
+body.plain-view .msg-actions.open { display: flex; }
+
+/* 「⋯」只在纯对话视图里出现；平时操作按钮本来就跟着悬停浮出，不需要它 */
+.msg-more { display: none; }
+body.plain-view .msg-more { display: inline-flex; }
+body.plain-view .msg-more[aria-expanded='true'] { color: var(--accent); }
+
 /* ---------------------- 剧情选项（跟在 AI 回复气泡下面） ----------------------
    模型每轮给几个可点选项，就画在最新一条回复的气泡下面：点一下当作玩家说了
    这句话发出去。底下一条小工具行：「⟳ 换一批」+「✕」收起。 */
@@ -1489,6 +1574,25 @@ body {
 
 .attach-btn:hover { color: var(--accent); }
 
+/* 联网搜索开关：和「加图」并排的图标按钮。
+   没开 = 灰的（默认就是他平时看到的样子）；开了 = 铺一层主色底，一眼能看出
+   「这一轮会去搜」，免得白花搜索的钱。 */
+.web-search-btn {
+  flex: 0 0 auto;
+  margin-bottom: 2px;
+}
+
+.web-search-btn[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+}
+
+.web-search-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* 待发送的图片：输入框上方一条缩略图 */
 .attach-strip {
   display: flex;
@@ -1688,6 +1792,10 @@ body {
    弹窗就被角色编辑器整个盖住。 */
 #expr-modal { z-index: 65; }
 #confirm-modal { z-index: 70; }
+/* 人设弹窗是从设置里点「编辑…」打开的，得压在设置（50）之上；
+   确认框（70）仍然在它上面。缺了这条会退回 50、被设置弹窗整个盖住。 */
+#persona-modal { z-index: 66; }
+#persona-modal .modal-card { max-width: 620px; }
 
 /* ------------------------------ AI 生成角色 ------------------------------ */
 
@@ -1987,6 +2095,54 @@ body {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border-soft);
+}
+
+/* 「默认人设」入口行：左边是名字 + 当前状态，右边一颗「编辑…」。
+   它属于「模型服务」这一节 —— 人设是按模型存的，正文往往一整段，
+   所以设置页只留这一行，编辑走弹窗。 */
+.persona-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.persona-row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* .field-label 默认带一段上留白（给 label 网格对齐用的），这一行用不上 */
+.persona-row-info .field-label { padding-top: 0; }
+
+.persona-row-info .field-help {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-faint);
+  word-break: break-word;
+}
+
+/* 「套用聊天风格模板」那一行：按钮 + 一句说明。
+   放在人设框**下面** —— 用户先看见空框，再看见「不知道写什么？这儿有个起点」。 */
+.persona-template-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.persona-template-hint {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-faint);
+  flex: 1 1 220px;
+  min-width: 0;
 }
 
 /* 「标签 + 右侧按钮」的一行 */
@@ -4617,6 +4773,129 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 
 .perspective-card { max-width: 560px; }
 .perspective-note { margin: 4px 0 0; }
+
+/* ------------------------------ 请求记录 ------------------------------ */
+
+/* 左列表 + 右详情，所以比普通弹窗宽 */
+.requests-card { max-width: 880px; width: min(880px, 92vw); }
+
+.requests-body {
+  display: grid;
+  grid-template-columns: minmax(0, 250px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.requests-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.requests-empty {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+/* 一条记录 = 时间 + 模型 / 我问的那句 / 带了多少条 + 采样参数 */
+.requests-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.requests-item:hover { border-color: var(--border-hover); }
+
+.requests-item.is-active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
+.requests-item-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.requests-item-time {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.requests-item-model {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+.requests-item-preview,
+.requests-item-stats {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.requests-item-preview { font-size: 12.5px; line-height: 1.45; color: var(--text); }
+.requests-item-stats { font-size: 11px; color: var(--text-faint); }
+
+.requests-detail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.requests-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.requests-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* 原样 JSON：等宽、可换行、自己能滚。放在这儿是为了「一个字段都没加工」看得出来 */
+.requests-json {
+  flex: 1;
+  margin: 0;
+  padding: 12px;
+  max-height: 52vh;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--pre-bg);
+  color: var(--text-dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* ------------------------------ 记忆（分段摘要） ------------------------------ */
 

@@ -250,8 +250,12 @@ function normalizeUsage(usage) {
  *   · 'stop'   —— 模型自己写完了（哪怕正文是空的，也说明不是被截断）
  * 少了它，上层只能靠「正文为空 + 有思考」猜，猜错就会把「模型没落笔」
  * 说成「额度用光」，让人白白去调 max_tokens（而调大往往没用）。
+ *
+ * onRequest(body, url)：请求**真正发出去之前**回调一次，把最终的 body 和地址交出去
+ * （界面上的「请求记录」靠它）。放在这个函数里是因为只有这里才权威 ——
+ * 让上层各自照着重拼一遍，参数一多迟早走样。
  */
-function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
+function streamChat({ settings, messages, onDelta, onReasoning, signal, onRequest }) {
   return new Promise((resolve, reject) => {
     let target;
     try {
@@ -277,6 +281,16 @@ function streamChat({ settings, messages, onDelta, onReasoning, signal }) {
     // 有些服务商不接受 top_p 与 temperature 同时出现，这里仅在显式设置时附带
     if (settings.topP !== undefined && settings.topP !== null && settings.topP !== '') {
       body.top_p = Number(settings.topP);
+    }
+
+    // 交出去给「请求记录」留档。body 到这里已经定稿、往后不会再改 ——
+    // 所以记下的就是服务端即将收到的那一份。记录本身失败也不能拖垮这次请求。
+    if (typeof onRequest === 'function') {
+      try {
+        onRequest(body, target.href);
+      } catch (err) {
+        /* 记录是旁路功能，出错就跳过 */
+      }
     }
 
     const payload = Buffer.from(JSON.stringify(body), 'utf8');

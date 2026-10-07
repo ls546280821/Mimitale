@@ -24,6 +24,7 @@ import { ensureConvoEndpoint, isBridgeProvider } from '../data/providers.js';
 import { buildApiMessages, characterContextForConvo, dialoguePresetSampling } from '../data/messages.js';
 import { matchWorldbookSection } from '../data/cast.js';
 import { recallSection } from '../data/rag.js';
+import { searchSection } from '../data/search.js';
 import {
   convoFieldDisplayNames,
   convoPanelFields,
@@ -49,6 +50,46 @@ function setStreaming(on) {
 export function autoGrowInput() {
   el.input.style.height = 'auto';
   el.input.style.height = `${Math.min(el.input.scrollHeight, CONFIG.MAX_INPUT_HEIGHT)}px`;
+}
+
+// ---------------------------------------------------------------------------
+//  联网搜索开关（输入框左边那颗）
+//
+//  状态记在**会话**上（convo.webSearch）：这一局要不要联网是这一局的事，
+//  换个会话不该被上一条带跑。总闸在设置里的 searchEnabled（默认关，因为按次计费）。
+// ---------------------------------------------------------------------------
+
+/** 点一下开关：没配好就把人送进设置，别点了没反应 */
+export function toggleWebSearch() {
+  const convo = activeConvo();
+  if (!convo) return;
+
+  if ((state.settings || {}).searchEnabled !== true) {
+    showToast('先在「设置 → 联网搜索」里开启，并填好博查的 API Key', 'error');
+    openSettings();
+    return;
+  }
+
+  convo.webSearch = convo.webSearch !== true;
+  convo.updatedAt = now();
+  renderWebSearchToggle();
+  persistConversations(0);
+}
+
+/** 把开关画成「这一局会不会联网」的样子（换会话、改设置后都要重画） */
+export function renderWebSearchToggle() {
+  const convo = activeConvo();
+  const ready = (state.settings || {}).searchEnabled === true;
+  // 总闸关着就画成没开 —— 按钮上的样子要和「这一轮会不会真去搜」一致，
+  // 否则用户会以为联网开着却什么都没发生
+  const on = ready && !!(convo && convo.webSearch === true);
+
+  el.btnWebSearch.setAttribute('aria-pressed', on ? 'true' : 'false');
+  el.btnWebSearch.title = !ready
+    ? '联网搜索还没启用 —— 点一下去「设置 → 联网搜索」里开'
+    : on
+      ? '这一局会联网：每轮回答前先查一次网页（按次单独计费）'
+      : '这一局不联网。点一下打开（每搜一次单独计费）';
 }
 
 export async function sendMessage(text) {
@@ -412,6 +453,9 @@ async function requestCompletion(convo, options) {
   // 而开场引导往往正是最需要世界书的时候。匹配本身是本地纯计算，不省这一下。
   const worldbookSection = await matchWorldbookSection(convo);
   const ragSection = await recallSection(convo);
+  // 联网搜索：只在总闸和这一局的开关都开着时才真的去搜（见 data/search.js）。
+  // 搜失败只是没有搜索结果，闲聊照旧。
+  const search = await searchSection(convo);
 
   const requestId = uid();
   state.requestId = requestId;
@@ -425,6 +469,8 @@ async function requestCompletion(convo, options) {
     model: endpoint.model,
     providerId: endpoint.provider.id
   };
+  // 这一轮据以回答的来源，挂在消息上给气泡下面的来源列表用
+  if (search.sources.length) assistant.sources = search.sources;
 
   // 重新生成：把老候选接在前面，新的那条占一个空位先显示「正在思考」。
   // 先占位是为了让「2/3」这种计数在流式过程中就是对的。
@@ -462,7 +508,7 @@ async function requestCompletion(convo, options) {
       requestId,
       providerId: endpoint.provider.id,
       model: endpoint.model,
-      messages: buildApiMessages(convo, worldbookSection, ragSection),
+      messages: buildApiMessages(convo, worldbookSection, ragSection, search.section),
       characterContext: characterContextForConvo(convo),
       sampling: dialoguePresetSampling(convo)
     });
@@ -516,7 +562,7 @@ async function requestCompletion(convo, options) {
         waitNode.textContent = truncated ? '思考把篇幅用光了，正在重写正文…' : '它只思考没落笔，正在重写正文…';
       }
 
-      const retryMessages = [...buildApiMessages(convo, worldbookSection, ragSection)];
+      const retryMessages = [...buildApiMessages(convo, worldbookSection, ragSection, search.section)];
       retryMessages.push({ role: 'user', content: REASONING_RETRY_NUDGE });
 
       const retryId = uid();
