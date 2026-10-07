@@ -1712,6 +1712,11 @@ function probeExports(result) {
     detail: roundOk ? '' : roundDetail
   });
 
+  // --- 世界书导出 → 真导入：**开场白和书里的 NPC 也不能丢** ---------------
+  // 见 probeWorldbookExportRoundTrip()：那条用的是页面里真实的 worldbookPayload()，
+  // 而 worldbookPayload 住在渲染层（ESM），宿主侧 require 不到 —— 所以放在那儿，
+  // 不在这儿再糊一份假的导出函数（那样只会测到测试自己）。
+
   // --- 预设导出 ---
   // 单条导出写的是**对象本身**，全部导出才是 { presets: [...] } ——
   // 这两种形状自己的导入都认，所以「导出去的文件能原样导回来」是真成立的。
@@ -1867,11 +1872,16 @@ function probeImport(result) {
     return () => `w-import-${(n += 1)}`;
   })();
 
+  // ⚠️ 注入项要和 main/ipc.js 里那条真链路**逐项对齐**。少一项，测试就绿着，
+  // 而真机上那条路是断的 —— 下面「书里自带的 NPC」就是这么漏掉的：
+  // 以前这里没传 normalizeCharacters，于是书里那份 characters 被静默丢掉，
+  // 测试却一直全绿。加新的注入项时，两边一起加。
   const run = (files, paths) =>
     importFiles({
       paths,
       parseImportFile,
       makeWorldbookId: idGen,
+      normalizeCharacters: (raw) => normalizeCharacter(raw, 'json'),
       ...fakeFs(files)
     });
 
@@ -1927,6 +1937,47 @@ function probeImport(result) {
     push('导入：整批结果里角色只多了一个', (out.characters || []).length === 1,
       `roles=${(out.characters || []).length}`);
   }
+
+  // --- 世界书自带的 NPC（`characters`）不能丢 -------------------------------
+  // 这是「分享一份世界书」最常带的东西（例子：樱川大学 v4.0 里那 5 个 NPC）。
+  // 真实链路上如果 ipc.js 忘了注入 normalizeCharacters，这些副本会被**静默丢掉**：
+  // 书导进来了、条目一条不少，进世界却发现一个 NPC 都不在场，全程不报错。
+  const castBook = {
+    name: '带 NPC 的世界书',
+    description: '验证书里的角色副本能不能跟着进来',
+    opening: '你在校门口站着，行李箱放在脚边。',
+    entries: {
+      0: { uid: 0, comment: '规则', key: [], content: '玩家不是世界中心。', constant: true, order: 5 }
+    },
+    characters: [
+      { id: 'npc-1', name: '顾言', description: '大三，学生会成员', personality: '温和可靠', age: '20', gender: '男' },
+      { id: 'npc-2', name: '林夏', description: '新闻学院', personality: '外向活泼', age: '20', gender: '女' }
+    ]
+  };
+
+  const castOut = run(
+    { 'D:\\tmp\\带NPC的世界书.json': Buffer.from(JSON.stringify(castBook), 'utf8') },
+    ['D:\\tmp\\带NPC的世界书.json']
+  );
+  const castImported = (castOut.worldbooks || [])[0];
+
+  push('导入：世界书里自带的 NPC 收进来了（以前整份 characters 静默丢掉）',
+    !!castImported && (castImported.characters || []).length === 2,
+    castImported ? `characters=${(castImported.characters || []).length}` : JSON.stringify(castOut.errors));
+  push('导入：书里 NPC 的设定做了归一化（名字 / 性格 / 年龄都在）',
+    !!castImported && castImported.characters[0] &&
+      castImported.characters[0].name === '顾言' &&
+      castImported.characters[0].personality === '温和可靠' &&
+      castImported.characters[0].age === '20' &&
+      typeof castImported.characters[0].id === 'string' && !!castImported.characters[0].id,
+    castImported && castImported.characters[0] ? JSON.stringify(castImported.characters[0]) : '没有书');
+  push('导入：书里的开场白也留下了', !!castImported && castImported.opening === castBook.opening,
+    castImported ? `opening=${JSON.stringify(castImported.opening)}` : '没有书');
+  push('导入：NPC 不会被当成新的角色卡塞进角色库', (castOut.characters || []).length === 0,
+    `roles=${(castOut.characters || []).length}`);
+  push('导入：书里没有 characters 时也不会凭空造副本',
+    (out.worldbooks || []).length > 0 && (out.worldbooks || []).every((b) => Array.isArray(b.characters)),
+    `books=${(out.worldbooks || []).map((b) => `${b.name}:${(b.characters || []).length}`).join(' ')}`);
 
   // 取消 / 一个文件都没有时，不能凭空造出东西来
   let emptyOk = false;
@@ -2848,6 +2899,148 @@ function probeAssistantPersona(result) {
 }
 
 /**
+ * 世界书「导出 → 导入」的**真**往返：导出的字节由页面里真实的
+ * `worldbookPayload()`（renderer/js/data/library.js）生成，再喂给主进程真实的
+ * `importFiles` —— 中间隔着进程边界和两层归一化，两边都换不掉。
+ *
+ * 为什么非要这么绕：`worldbookPayload` 住在渲染层（导出按钮按的是它），
+ * 而 `importFiles` 住在主进程（导入按钮走的是它），宿主侧没法直接 require
+ * 渲染层的 ESM。以前这条断言根本不存在，于是「导出只写 name/description/entries」
+ * 一直没被发现 —— 表现是**导出一本带 NPC 的世界书再导回来，开场白没了、
+ * 书里的 NPC 一个不剩**，而那两样正是分享一份世界书时最想要的。
+ *
+ * 同时验「书里的 NPC 不会被当成新的角色卡塞进角色库」：导入结果里
+ * `characters` 是「新增的角色卡」，世界书的 NPC 只该住在书里。
+ */
+async function probeWorldbookExportRoundTrip(win, result) {
+  const push = (name, pass, detail) => result.results.push({ name, pass: !!pass, detail: detail || '' });
+
+  const source = {
+    name: '往返用世界书',
+    opening: '你在校门口站着，行李箱放在脚边。',
+    entries: [
+      {
+        title: '世界规则（常驻）',
+        keys: [],
+        secondaryKeys: [],
+        content: '玩家不是世界中心。',
+        constant: true,
+        order: 5,
+        enabled: true,
+        probability: 100
+      },
+      {
+        title: '食堂',
+        keys: ['食堂'],
+        secondaryKeys: [],
+        content: '中午人最多。',
+        constant: false,
+        order: 10,
+        enabled: true,
+        probability: 100
+      }
+    ],
+    characters: [
+      { name: '顾言', description: '大三，学生会成员', personality: '温和可靠', age: '20', gender: '男' },
+      { name: '林夏', description: '新闻学院', personality: '外向活泼', age: '20', gender: '女' }
+    ]
+  };
+
+  let text = '';
+  let exportDetail = '';
+  try {
+    text = await win.webContents.executeJavaScript(`(async () => {
+      const mod = await import(new URL('js/data/library.js', document.baseURI).href);
+      const book = ${JSON.stringify(source)};
+      book.id = 'w-roundtrip-src';
+      return JSON.stringify(mod.worldbookPayload(book));
+    })()`);
+  } catch (err) {
+    exportDetail = '页面里导出失败：' + ((err && err.message) || err);
+  }
+
+  let shapeOk = false;
+  let shapeDetail = exportDetail || '没拿到导出的 JSON';
+  if (!exportDetail) {
+    try {
+      const payload = JSON.parse(text);
+      const cast = Array.isArray(payload.characters) ? payload.characters : [];
+      shapeOk =
+        payload.opening === source.opening &&
+        Object.keys(payload.entries || {}).length === 2 &&
+        cast.length === 2 &&
+        cast[0].name === '顾言' &&
+        cast[1].name === '林夏';
+      shapeDetail = `opening=${JSON.stringify(payload.opening)} 条目=${Object.keys(payload.entries || {}).length} characters=${cast
+        .map((c) => c.name)
+        .join('、')}`;
+    } catch (err) {
+      shapeDetail = '导出的 JSON 解析失败：' + ((err && err.message) || err);
+    }
+  }
+  push('导出：世界书带上了开场白和书里的 NPC', shapeOk, shapeOk ? '' : shapeDetail);
+
+  // 把页面刚导出的那份字节喂进真实的导入链路
+  let backOk = false;
+  let backDetail = shapeOk ? '没跑起来' : `导出的形状就不对（${shapeDetail}），往返没意义`;
+  if (shapeOk) {
+    try {
+      const back = importFiles({
+        paths: ['D:\\roundtrip\\worldbook.json'],
+        readFile: () => Buffer.from(text, 'utf8'),
+        parseImportFile,
+        makeWorldbookId: () => 'w-roundtrip-back',
+        normalizeCharacters: (raw) => normalizeCharacter(raw, 'json')
+      });
+      const b = (back.worldbooks || [])[0];
+      const cast = b && Array.isArray(b.characters) ? b.characters : [];
+      backOk =
+        !!b &&
+        (b.entries || []).length === 2 &&
+        b.opening === source.opening &&
+        cast.length === 2 &&
+        cast[0].name === '顾言' &&
+        cast[0].personality === '温和可靠' &&
+        cast[0].age === '20' &&
+        (back.characters || []).length === 0;
+      backDetail = `书=${b && b.name} 条目=${b ? (b.entries || []).length : 0} opening=${
+        b ? JSON.stringify(b.opening) : 'null'
+      } NPC=${cast.map((c) => c.name).join('、')} 新增角色卡=${(back.characters || []).length} errors=${JSON.stringify(
+        back.errors
+      )}`;
+    } catch (err) {
+      backDetail = '往返崩了：' + ((err && err.message) || err);
+    }
+  }
+  push('导出 → 导入：世界书的开场白和 NPC 都还在（真往返）', backOk, backOk ? '' : backDetail);
+
+  // NPC 的 id 在导入时要重发（同一毫秒里连导两次会撞车），而且两个 NPC 不能重号 ——
+  // 不然同一次导入里的两个副本会互相顶掉。这段逻辑住在渲染层，所以在这儿验。
+  let reissueOk = false;
+  let reissueDetail = exportDetail || '没跑起来';
+  try {
+    reissueDetail = await win.webContents.executeJavaScript(`(async () => {
+      const mod = await import(new URL('js/data/library-reissue.js', document.baseURI).href);
+      const books = [{ id: 'w-old', name: 'x', characters: [{ id: 'old-1', name: '顾言' }, { id: 'old-2', name: '林夏' }] }];
+      const out = mod.reissueImportedIds(books, [], 'stampX');
+      const chars = (out.books[0] && out.books[0].characters) || [];
+      const ids = chars.map((c) => c.id);
+      return JSON.stringify({
+        ok: ids.length === 2 && new Set(ids).size === 2 && ids.every((id) => typeof id === 'string' && !!id) &&
+          !!out.books[0] && out.books[0].id !== 'w-old',
+        ids,
+        kept: chars.map((c) => c.name)
+      });
+    })()`);
+    const parsed = JSON.parse(reissueDetail);
+    reissueOk = parsed.ok === true && parsed.kept.join('、') === '顾言、林夏';
+  } catch (err) {
+    reissueDetail = '重发 id 崩了：' + ((err && err.message) || err);
+  }
+  push('导入：重发 id 之后书里每个 NPC 的 id 都不重号', reissueOk, reissueOk ? '' : reissueDetail);
+}
+
+/**
  * 写盘失败必须浮上来（真 bug 的回归测试）。
  *
  * 以前 store.js 的 writeJsonNow 出错只 `return false`，writeJson 把 false 当结果
@@ -3111,6 +3304,7 @@ app.whenReady().then(async () => {
       probeSettingsWhitelist(result);
       await probeStoreWriteFailure(result);
       await probeAiGenParse(win, result);
+      await probeWorldbookExportRoundTrip(win, result);
       await probeHover(win, result);
       await probeLightboxClick(win, result);
     } catch (err) {

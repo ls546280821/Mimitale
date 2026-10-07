@@ -23,6 +23,9 @@ const MAX_WORLDBOOK_CONTENT = 20000;
 const MAX_WORLDBOOK_KEYS = 200;
 // 每本世界书里能装多少个「角色副本」。副本自带头像（base64），所以不能不限量。
 const MAX_WORLDBOOK_CHARACTERS = 50;
+// 导入外部文件时更严一点：外部文件里的 cast 没见过用户，先按这个数收进来，
+// 真嫌少可以再手动加（自己库里那 50 的上限不变）。
+const MAX_IMPORTED_WORLDBOOK_CHARACTERS = 30;
 // 世界书开场白的上限
 const MAX_WORLDBOOK_OPENING = 4000;
 
@@ -102,13 +105,15 @@ function worldbookEntryList(raw) {
  * 把世界书（数组或带 entries 的对象）整理成内部格式。
  *
  * 两个依赖都由调用方注入，因为这个模块不碰磁盘、也不认主进程的其它类型：
- *   · makeId            —— 怎么发世界书 id（主进程和导入链路规则不同）
+ *   · makeId              —— 怎么发世界书 id（主进程和导入链路规则不同）
  *   · normalizeCharacters —— 书里「角色副本」的归一化器（就是 characters.js 那个）。
- *                           不传就当没有副本 —— 导入链路用不到这个字段。
+ *                            不传就当没有副本（只有测试里的假链路会这样）。
+ *   · maxCharacters       —— 这次最多收几个副本（缺省 MAX_WORLDBOOK_CHARACTERS）。
+ *                            导入外部文件时传更小的数，见 MAX_IMPORTED_WORLDBOOK_CHARACTERS。
  *
  * ⚠️ 白名单式：加字段时两个都得同步，否则静默丢失。
  */
-function normalizeWorldbook(raw, fallbackName, makeId, normalizeCharacters) {
+function normalizeWorldbook(raw, fallbackName, makeId, normalizeCharacters, maxCharacters) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const rawEntries = Array.isArray(raw) ? raw : worldbookEntryList(r.entries);
   const name =
@@ -123,12 +128,19 @@ function normalizeWorldbook(raw, fallbackName, makeId, normalizeCharacters) {
 
   // 书里的角色是「独立副本」：从角色库加进来时复制一份，之后两边各改各的，
   // 单独跟角色库里的那个角色聊天不会影响这里。
+  //
+  // 外面导进来的世界书（比如「樱川大学」那份带 5 个 NPC 的）走的就是这里。
+  // 以前导入链路没注入 normalizeCharacters，这些副本会被**静默丢掉** ——
+  // 书导进来了、条目都在，就是 NPC 一个都不在场。见 main/import-files.js。
   const characters = [];
   if (typeof normalizeCharacters === 'function') {
     const rawChars = Array.isArray(r.characters) ? r.characters : [];
+    const limit = Number.isFinite(maxCharacters) && maxCharacters > 0
+      ? Math.floor(maxCharacters)
+      : MAX_WORLDBOOK_CHARACTERS;
     for (const item of rawChars) {
       characters.push(normalizeCharacters(item));
-      if (characters.length >= MAX_WORLDBOOK_CHARACTERS) break;
+      if (characters.length >= limit) break;
     }
   }
 
@@ -148,19 +160,35 @@ function normalizeWorldbook(raw, fallbackName, makeId, normalizeCharacters) {
 /**
  * 角色卡里内嵌的世界书。
  * ST 导出角色卡时会把「角色绑定的世界书」一起塞进 character_book。
+ * 内嵌的那份同样可能带 characters（我们自己导出的卡就带），所以两个注入项照传。
  */
-function worldbookFromCharacterBook(raw, characterName, makeId) {
+function worldbookFromCharacterBook(raw, characterName, makeId, opts) {
   if (!raw || typeof raw !== 'object') return null;
-  const book = normalizeWorldbook(raw, `${characterName || '角色'}的世界书`, makeId);
+  const o = opts || {};
+  const book = normalizeWorldbook(
+    raw,
+    `${characterName || '角色'}的世界书`,
+    makeId,
+    o.normalizeCharacters,
+    o.maxCharacters
+  );
   // 一个条目都没有就没必要存一份空世界书
   if (!book.entries.length) return null;
   return book;
 }
 
-/** 把单独的 lorebook 文件（`{entries:[...]}` 或裸数组）转成世界书 */
-function worldbookFromLorebook(raw, fallbackName, makeId) {
+/**
+ * 把单独的 lorebook 文件（`{entries:[...]}` 或裸数组）转成世界书。
+ *
+ * opts.normalizeCharacters 是**必须传**的（导入链路见 main/import-files.js）：
+ * 不传的话书里那份 `characters`（世界书自带的 NPC）会被静默丢掉 ——
+ * 表现是「书导进来了、条目都在，进世界却发现一个 NPC 都没有」。
+ * maxCharacters 缺省 50；导入外部文件时传 MAX_IMPORTED_WORLDBOOK_CHARACTERS。
+ */
+function worldbookFromLorebook(raw, fallbackName, makeId, opts) {
   if (!raw || typeof raw !== 'object') return null;
-  const book = normalizeWorldbook(raw, fallbackName, makeId);
+  const o = opts || {};
+  const book = normalizeWorldbook(raw, fallbackName, makeId, o.normalizeCharacters, o.maxCharacters);
   if (!book.entries.length) return null;
   return book;
 }
@@ -184,6 +212,7 @@ function looksLikeLorebook(card) {
 module.exports = {
   MAX_WORLDBOOK_ENTRIES,
   MAX_WORLDBOOK_CHARACTERS,
+  MAX_IMPORTED_WORLDBOOK_CHARACTERS,
   MAX_WORLDBOOK_OPENING,
   normalizeWorldbook,
   worldbookFromCharacterBook,

@@ -31,6 +31,10 @@ const MAX_IMPORT_FILES = 100;
  * @param {function} opts.readFile   (path) => Buffer
  * @param {function} opts.parseImportFile  见 main/card-import.js
  * @param {function} opts.makeWorldbookId  生成世界书 id
+ * @param {function} [opts.normalizeCharacters]  书里「角色副本」的归一化器
+ *        （main/characters.js 的 normalizeCharacter）。**导入链路必须传**：
+ *        不传的话，外部世界书里那份 `characters`（世界书自带的 NPC）会被
+ *        静默丢掉 —— 书导进来了、条目都在，进世界却发现一个 NPC 都不在场。
  * @param {function} opts.basename   (path) => string；不传就按分隔符切
  * @param {function} opts.extname    (path) => string
  * @param {number}   [opts.maxBytes]
@@ -42,6 +46,7 @@ function importFiles(opts) {
   const readFile = o.readFile;
   const parseImportFile = o.parseImportFile;
   const makeWorldbookId = o.makeWorldbookId;
+  const normalizeCharacters = o.normalizeCharacters;
   const basename = typeof o.basename === 'function' ? o.basename : (p) => String(p).split(/[\\/]/).pop();
   const extname =
     typeof o.extname === 'function'
@@ -86,7 +91,8 @@ function importFiles(opts) {
         buffer,
         ext: extname(file).toLowerCase(),
         fallbackName: base.replace(/\.[^.]+$/, ''),
-        makeWorldbookId
+        makeWorldbookId,
+        normalizeCharacters
       });
     } catch (err) {
       errors.push(`${base}：${(err && err.message) || '解析失败'}`);

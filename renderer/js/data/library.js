@@ -165,10 +165,46 @@ export function recursiveDepthSetting() {
 }
 
 /**
+ * 把书里的「角色副本」转成能导出的形状。
+ *
+ * 副本是完整角色对象，直接塞出去会带上一堆内部字段（worldbookIds / optionsSpec /
+ * 时间戳…），而且**头像和立绘是 base64**，几十个副本能把文件撑到几十兆 ——
+ * 导入那边本来也是从零归一化一遍，所以这里只留「设定」那几项。
+ * 图片仍然是原样带上（副本的头像就是它的一部分），但只在确实存在时才写键。
+ */
+function worldbookCharacterPayload(character) {
+  const c = character && typeof character === 'object' ? character : {};
+  const out = {
+    name: c.name || '',
+    description: c.description || '',
+    personality: c.personality || '',
+    scenario: c.scenario || '',
+    firstMes: c.firstMes || '',
+    mesExample: c.mesExample || '',
+    systemPrompt: c.systemPrompt || '',
+    postHistoryInstructions: c.postHistoryInstructions || '',
+    creatorNotes: c.creatorNotes || '',
+    age: c.age || '',
+    gender: c.gender || '',
+    race: c.race || '',
+    tags: asArray(c.tags)
+  };
+  if (Array.isArray(c.attributes) && c.attributes.length) out.attributes = c.attributes;
+  if (typeof c.avatar === 'string' && c.avatar) out.avatar = c.avatar;
+  if (typeof c.portrait === 'string' && c.portrait) out.portrait = c.portrait;
+  if (c.showInPanel === true) out.showInPanel = true;
+  return out;
+}
+
+/**
  * 世界书导出成酒馆 lorebook 的形状（导入那边认的就是这个）。
  *
  * 两头都要用：角色卡导出时把绑定的书塞进 character_book 字段，
  * 世界书编辑器里的「导出本书」直接导出整本 —— 所以沉在这儿。
+ *
+ * ⚠️ opening 和 characters 也一起导出（酒馆规范里没有这两个字段，多出来的键
+ * 别家会忽略）。少了它们，「导出这本书再导回来」就等于**丢掉开场白和全部 NPC** ——
+ * 而那正是别人分享一份世界书时最想要的两样东西。
  */
 export function worldbookPayload(book) {
   const entries = {};
@@ -194,5 +230,9 @@ export function worldbookPayload(book) {
     };
   });
 
-  return { name: book.name || '未命名世界', description: book.description || '', entries };
+  const payload = { name: book.name || '未命名世界', description: book.description || '', entries };
+  if (typeof book.opening === 'string' && book.opening) payload.opening = book.opening;
+  const cast = asArray(book.characters);
+  if (cast.length) payload.characters = cast.map(worldbookCharacterPayload);
+  return payload;
 }

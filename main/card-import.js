@@ -18,7 +18,8 @@ const { normalizeCharacter } = require('./characters.js');
 const {
   worldbookFromCharacterBook,
   worldbookFromLorebook,
-  looksLikeLorebook
+  looksLikeLorebook,
+  MAX_IMPORTED_WORLDBOOK_CHARACTERS
 } = require('./worldbook-parse.js');
 
 /**
@@ -151,8 +152,11 @@ function firstMesFromChatHistory(d) {
  *
  * 注意：内嵌世界书挂在返回值的临时的 `worldbook` 字段上，
  * **由调用方决定怎么落盘和绑定**（导入链路会给它发 id 并绑到这个角色）。
+ *
+ * normalizeOpts 是内嵌世界书的注入项（{ normalizeCharacters, maxCharacters }），
+ * 见 main/worldbook-parse.js —— 不传的话卡里那本书的 `characters` 会被丢掉。
  */
-function characterFromCard(card, avatar, source, fallbackName, makeWorldbookId) {
+function characterFromCard(card, avatar, source, fallbackName, makeWorldbookId, normalizeOpts) {
   if (!card || typeof card !== 'object') return null;
 
   // v2 / v3 把真正的数据放在 data 里；v1 是直接铺在顶层
@@ -217,7 +221,8 @@ function characterFromCard(card, avatar, source, fallbackName, makeWorldbookId) 
   character.worldbook = worldbookFromCharacterBook(
     d.character_book || card.character_book,
     character.name,
-    makeWorldbookId
+    makeWorldbookId,
+    normalizeOpts
   );
 
   return character;
@@ -237,8 +242,10 @@ function characterFromCard(card, avatar, source, fallbackName, makeWorldbookId) 
  * 判断顺序很讲究：**先判世界书**。酒馆导出的世界书同样带 name/description，
  * 先走角色卡那条路会被当成一个空角色收下，整本书的条目全丢。
  */
-function parseImportFile({ buffer, ext, fallbackName, makeWorldbookId }) {
+function parseImportFile({ buffer, ext, fallbackName, makeWorldbookId, normalizeCharacters }) {
   const isPng = ext === '.png';
+  // 书里「角色副本」的归一化器 + 导入时更严的副本数上限（见 worldbook-parse.js）
+  const bookOpts = { normalizeCharacters, maxCharacters: MAX_IMPORTED_WORLDBOOK_CHARACTERS };
 
   let card = null;
   let avatar = '';
@@ -266,14 +273,14 @@ function parseImportFile({ buffer, ext, fallbackName, makeWorldbookId }) {
 
   // 独立世界书先判（理由见上面）
   if (looksLikeLorebook(card)) {
-    const book = worldbookFromLorebook(card, fallbackName, makeWorldbookId);
+    const book = worldbookFromLorebook(card, fallbackName, makeWorldbookId, bookOpts);
     if (book) return { kind: 'worldbook', worldbook: book };
   }
 
-  const character = characterFromCard(card, avatar, isPng ? 'png' : 'json', fallbackName, makeWorldbookId);
+  const character = characterFromCard(card, avatar, isPng ? 'png' : 'json', fallbackName, makeWorldbookId, bookOpts);
   if (!character) {
     // 不是角色卡，再试一次世界书（形状松一点的，比如裸数组）
-    const book = worldbookFromLorebook(card, fallbackName, makeWorldbookId);
+    const book = worldbookFromLorebook(card, fallbackName, makeWorldbookId, bookOpts);
     if (book) return { kind: 'worldbook', worldbook: book };
     return { kind: 'error', error: '既不是角色卡也不是世界书' };
   }

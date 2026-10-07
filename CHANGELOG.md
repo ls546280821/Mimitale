@@ -4,6 +4,57 @@
 
 ---
 
+## 2026-10-08 世界书的 NPC 和开场白不再被导入/导出丢掉
+
+### 起因：一份「带 5 个 NPC 的世界书」导进来，NPC 一个都不在场
+
+一份世界书文件（樱川大学 v4.0 那种，8 条设定 + 开场白 + 顾言/林夏/苏晴/唐雨/沈月五张卡）
+走真实导入链路实测：**8 条设定和开场白都进来了，`characters` 那份被静默丢掉** ——
+书导进来了、条目一条不少，进世界却发现「这本书里的 NPC」是空的，全程不报错。
+导出那头同样：`worldbookPayload` 只写 `name / description / entries`，
+所以「导出这本书再导回来」等于**开场白没了、书里的 NPC 一个不剩**。
+
+这两个字段都白名单式地写在代码里，丢的时候没有一处会响：
+
+**1. 导入链路从来没注入过角色归一化器** —— `main/import-files.js` 调
+`parseImportFile(...)` 时没传 `normalizeCharacters`，而 `worldbook-parse.js` 里
+是 `if (typeof normalizeCharacters === 'function')`：不传就静默当「这本书没有副本」。
+现在 `import-files.js` / `card-import.js` / `worldbookFromLorebook` /
+`worldbookFromCharacterBook` 一路透传，`main/ipc.js` 注入
+`(raw) => normalizeCharacter(raw, 'json')`。
+外部文件收副本另设上限 30（自己库里仍是 50）——别人的文件先按小一点收，嫌少再手动加。
+
+**2. 导出只写三个字段** —— `renderer/js/data/library.js` 的 `worldbookPayload()`
+现在带上 `opening` 和 `characters`。副本按「只留设定」的形状导出
+（名字/描述/性格/场景/开场白/示例对话/系统提示/备注/年龄/性别/种族/标签/属性，
+外加存在的头像和立绘），不带 `worldbookIds` / `optionsSpec` / 时间戳这些内部字段 ——
+副本的 base64 图片是几十兆级别，全量塞进去会毁掉分享这件事。
+
+> `opening` / `characters` 是酒馆规范里没有的键，别的软件会原样忽略；
+> 条目那部分仍是标准 lorebook 形状，酒馆照样能导。
+
+### 补上的回归测试（这三条以前一条都没有）
+
+- **导入**：书里自带的 NPC 收进来了、设定做了归一化、NPC 不会被当成新的角色卡塞进角色库。
+  ⚠️ 顺带把 `probeImport` 里的假链路对齐 `main/ipc.js`：**它以前也没传
+  `normalizeCharacters`** —— 这正是「测试全绿、真机是断的」的成因，注入项得逐项对齐。
+- **导出 → 导入真往返**（新增 `probeWorldbookExportRoundTrip`）：导出的字节由页面里
+  **真实**的 `worldbookPayload()` 生成（渲染层 ESM，宿主侧 require 不到，所以走
+  `webContents.executeJavaScript`），再喂给主进程**真实**的 `importFiles`，
+  验开场白、两个 NPC、条目一条不少，且新增角色卡为 0。
+- **重发 id**：`reissueImportedIds` 之后书里每个 NPC 的 id 都不重号
+  （同一毫秒里连导两次会撞车，重号就是两个副本互相顶掉）。
+
+> 冒烟：**1121/1121 全绿、控制台报错 0 条**。
+
+### 文档
+
+`使用说明.md` 补了一节「导入 / 导出世界书」：文件里有什么 ↔ 导入后落在哪儿
+（条目 / 开场白 / 角色副本三样，以及「角色卡文件不会被当成 NPC 收进来」），
+并说明导出的文件能被本应用原样导回来。
+
+---
+
 ## 2026-10-07 清掉审计剩下的那一批缺陷（15 项）
 
 ### 会丢用户东西的两条

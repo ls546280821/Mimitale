@@ -60,6 +60,9 @@ const { getMainWindow, sendToRenderer } = require('./window.js');
 const { matchWorldbookEntries, formatWorldbookSection } = require('./worldbook-match.js');
 const { parseImportFile } = require('./card-import.js');
 const { importFiles, MAX_IMPORT_BYTES } = require('./import-files.js');
+// 外部世界书里那份 `characters`（世界书自带的 NPC）要过一遍角色归一化器 ——
+// 不注入的话它会被静默丢掉，见 main/import-files.js 的注释。
+const { normalizeCharacter } = require('./characters.js');
 // 预设导入时要过一遍**落盘用的**那个归一化器 —— 导进来的东西当场就是内部形状，
 // 界面不用再认一遍「别人分享的格式」。
 const { normalizePreset } = require('./presets.js');
@@ -479,6 +482,8 @@ function registerIpc() {
       readFile: (file) => fs.readFileSync(file),
       parseImportFile,
       makeWorldbookId: newWorldbookId,
+      // 书里带的 NPC 也要收进来（导出的世界书再导回来是一个闭环）
+      normalizeCharacters: (raw) => normalizeCharacter(raw, 'json'),
       // 和主进程别处保持一致：单文件 12MB
       maxBytes: MAX_IMPORT_BYTES
     });
