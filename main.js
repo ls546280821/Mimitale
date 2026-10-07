@@ -65,6 +65,26 @@ function markInstance() {
   }
 }
 
+/**
+ * 自己退出时把这个标记删掉。
+ *
+ * 不删的话它会一直躺在 userData 里，直到 INSTANCE_STALE_MS（6 小时）过期。
+ * 万一 Windows 把这 6 小时里的那个 PID 复用给了别的进程，`process.kill(pid, 0)`
+ * 就会成功 —— 下次启动读到「实例还活着」，直接 app.quit()：没有窗口、没有提示、
+ * 退出码 0，用户只看到应用「闪一下就不见了」，只能自己去 %APPDATA% 删文件。
+ * markInstance 的注释本来就写着「失败也要开」，不删标记正好破坏了这条。
+ *
+ * 只删自己写的那份（比对 pid）：先启动的那个实例退出时，不能把后启动实例的标记抹掉。
+ */
+function clearInstanceMarker() {
+  try {
+    const info = JSON.parse(fs.readFileSync(markerPath(), 'utf8'));
+    if (info && info.pid === process.pid) fs.unlinkSync(markerPath());
+  } catch (err) {
+    // 文件不在 / 读不动 / 不是我们写的 —— 都没关系，本来就是个尽力而为的清理
+  }
+}
+
 const gotLock = app.requestSingleInstanceLock();
 // 拿不到 Chromium 的锁时，只有「自己的标记说是真有人开着」才让位
 const yieldToOther = !gotLock && markedInstanceAlive();
@@ -83,6 +103,10 @@ if (yieldToOther) {
   app.quit();
 } else {
   markInstance();
+
+  // 正常退出 / before-quit 两条路都挂上：Windows 上 app.quit() 触发 before-quit，
+  // 而 'quit' 在部分异常退出路径里不一定到得了，所以以 before-quit 为准。
+  app.on('before-quit', clearInstanceMarker);
 
   app.whenReady().then(() => {
     registerIpc();

@@ -92,15 +92,26 @@ export function renderWebSearchToggle() {
       : '这一局不联网。点一下打开（每搜一次单独计费）';
 }
 
+/**
+ * 发一条消息。
+ *
+ * **返回值**：真的发出去了返回 true，任何早退路径返回 false。
+ * 调用方（发送按钮 / 回车）必须**先看返回值再清空输入框** ——
+ * 以前是「先清空再调这个函数」，于是下面每一条早退都会把用户刚打的字吃掉：
+ *   · 没配模型服务 / 没填 API Key（全新安装第一条「你好」就是这么没的）
+ *   · 正在生成中（输入框在流式期间并没有禁用，回车照样进得来）
+ *   · 空消息（只按了个回车）
+ * 对照：待发的图片是**校验之后**才清的，所以图还在、字没了 —— 那种不一致最难解释。
+ */
 export async function sendMessage(text) {
   const content = String(text || '').trim();
   // 只带图不写字也算一条消息 —— 问「这是什么」不一定非要打字
   const images = getPendingImages();
-  if (!content && !images.length) return;
+  if (!content && !images.length) return false;
 
   if (state.streaming) {
     showToast('正在生成中，请稍候或先停止');
-    return;
+    return false;
   }
 
   let convo = activeConvo();
@@ -111,13 +122,17 @@ export async function sendMessage(text) {
   if (!endpoint) {
     showToast('还没有配置模型服务，请先在设置里添加', 'error');
     openSettings();
-    return;
+    return false;
   }
   if (!endpoint.provider.apiKey && !isBridgeProvider(endpoint.provider)) {
     showToast(`请先填写「${endpoint.provider.name}」的 API Key`, 'error');
     openSettings();
-    return;
+    return false;
   }
+
+  // 只带图时也要给调用方一个能对得上的「刚发出去的那段文字」，好判断
+  // 输入框里现在这坨还是不是刚才那条（见下面 setInputText 的用法）。
+  const sentText = content || '（图片）';
 
   if (convo.messages.length === 0) {
     convo.title = content.slice(0, 24) || (images.length ? '（图片）' : '新对话');
@@ -136,6 +151,26 @@ export async function sendMessage(text) {
   persistConversations();
 
   await requestCompletion(convo);
+  return true;
+}
+
+/** 上面那个返回值对应的「刚发出去的文字」，给清空输入框时做比对用 */
+export function sentTextOf(text) {
+  const trimmed = String(text || '').trim();
+  return trimmed || '（图片）';
+}
+
+/**
+ * 一条消息真的发出去之后，把输入框清掉。
+ *
+ * 只在「框里现在还是刚才发出去的那段文字」时才清：发消息中间隔着几个 await
+ * （世界书匹配 / 联网搜索），用户完全可能在这期间又打了一段新的 ——
+ * 那种情况下他新打的字不能被别人清掉。
+ */
+export function clearInputAfterSend(sentText) {
+  if (el.input.value.trim() !== String(sentText || '').trim()) return;
+  el.input.value = '';
+  autoGrowInput();
 }
 
 /**

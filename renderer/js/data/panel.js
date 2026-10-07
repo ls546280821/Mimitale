@@ -217,12 +217,23 @@ function parseFieldLabel(convo, label) {
 }
 
 /** 显示名 → owner id 的反查（「露西娅」→ 露西娅副本 id）。查不到返回空。 */
-function ownerIdByLabel(convo, label) {
+export function ownerIdByLabel(convo, label) {
   const text = String(label || '').trim();
   if (!text || !convo) return '';
 
   const p = convo.player;
   if (p && String(p.name || '').trim() === text) return 'player';
+
+  // 玩家没填名字时，注入用的前缀是「我」（见 panelOwnerLabel 的兜底），
+  // 这里必须能把它认回来 —— 否则模型照着抄一遍「我·好感度」，
+  // 反查不到 owner 就变成一条**新的无主字段**：状态卡上多出一行重复字段，
+  // 注入里也多一行，而真正的玩家字段停在旧值上。
+  //
+  // 放在「角色库按名字找」之前：万一真有角色叫「我」，前缀已经撞名了，
+  // 按「玩家优先」处理至少能保证回读是自洽的（不会一会儿是玩家、一会儿是角色）。
+  if (!p || !String(p.name || '').trim()) {
+    if (text === panelOwnerLabel(convo, 'player')) return 'player';
+  }
 
   // 会话里已有的 owner 先认一遍：模型照抄的前缀就是我们注入的显示名，
   // 按它反查最准（角色库可能有同名卡，按名字查会认错人）。
@@ -485,14 +496,48 @@ function isStatusBlockLine(line) {
  *
  * 这里改成「从第一个状态行起整体截断」：状态行一旦认出就从那行砍断，
  * 砍断点只进不退，正文（前半段）逐 token 稳定增长，不会忽长忽短。
- * 收尾重绘（renderMessages）仍走 cleanAssistantText 做精确剥除，
- * 所以这里宁可多砍一点也没关系 —— 反正状态块是模型最后输出的、永远在末尾。
+ * 收尾重绘（renderMessages）仍走 cleanAssistantText 做精确剥除。
+ *
+ * ⚠️ knownFields（会话当前的面板字段名）不是可选的：内心描写 / 上帝视角的回复
+ *    本来就以 `【心理】`、`【旁白】` 这种整行小标题起头（见 data/narration.js），
+ *    光看「行首是【】」会把**正文段落**当成状态块砍掉 —— 那几段在整个流式过程中
+ *    都不显示，直到最后重绘才一次性蹦出来。
+ *    带上字段名就能分清：是面板字段的名字才砍，套不上的段落照常显示。
+ *    代价只是「模型编了个新字段名时，它的值会显示到重绘为止」，比吞掉正文轻得多。
  */
-export function cutTrailingStatusBlock(text) {
+export function cutTrailingStatusBlock(text, knownFields) {
   const lines = String(text || '').split('\n');
+
+  // 只认会话里真实存在的字段名。没传就退回「不砍」—— 宁可多显示，也不误砍正文。
+  const known = new Set(
+    asArray(knownFields)
+      .map((n) => String(n || '').trim())
+      .filter(Boolean)
+      .map((n) => n.replace(/^【|】$/g, ''))
+  );
+
+  /** 这一行是不是「面板字段行」（就是 cleanAssistantText 最后要剥的那种） */
+  const isPanelFieldLine = (line) => {
+    const t = line.trim();
+    const m = t.match(/^【([^】]+)】(.*)$/);
+    if (!m) return false;
+    const name = m[1].trim();
+    const rest = m[2].trim();
+    // 有值、有冒号，或者这个名字本来就是这一局的面板字段 → 是状态行
+    // （流式阶段冒号还没写到，所以「名字已知」也得算）
+    if (/^[:：]/.test(rest)) return true;
+    return known.has(name);
+  };
+
   let cut = lines.length;
   for (let i = 0; i < lines.length; i += 1) {
-    if (isStatusBlockLine(lines[i])) {
+    const line = lines[i];
+    // 非【】开头的状态块（—— / [当前状态 / 剧情选项 / <emo>）跟正文不冲突，照旧
+    if (isStatusBlockLine(line) && !line.trim().startsWith('【')) {
+      cut = i;
+      break;
+    }
+    if (isPanelFieldLine(line)) {
       cut = i;
       break;
     }
@@ -837,6 +882,13 @@ export function absorbTopLevelIntoPlayer(convo) {
       fields.push(target);
       if (value !== undefined) panel[target] = value;
       if (defs[key]) defs[target] = { ...defs[key], owner };
+    } else {
+      // 字段数到顶了，**认领不成立**：目标键没建出来，这条无主字段就得原样留着。
+      // 以前这里少一个 else，remove.add(key) 是**无条件**执行的 —— 到顶之后
+      // 每条走规则 1/2 的无主字段都被「搬走」，实际却是直接被删掉：
+      // 面板从 120 个字段塌成 1 个，值全丢。规则 3/4 那边是显式 else if，
+      // 走不到就什么都不做，两条路的脾气本来就该一致。
+      return;
     }
     remove.add(key);
   };
@@ -957,6 +1009,14 @@ function mergeMeterValue(value, prev, def) {
   const text = String(value == null ? '' : value).trim();
   if (!text || !def || def.type !== 'meter' || typeof def.max !== 'number') return text;
   if (text.includes('/')) return text;
+
+  // ⚠️ 得先确认这真的**只是个分子**。以前不看内容就无脑拼分母，
+  //    于是模型（或手改）给数值字段写了个中文值「烦躁」，会被存成「烦躁/100」——
+  //    值被改坏，fieldProgress 也算不出数字，进度条跟着消失。
+  //    属性值输入框本来就是自由文本（charAttributes），切类型也不会清掉已输入的
+  //    内容，所以这条路很容易走到。
+  //    数值字段存的就是数字（可带单位，如「80 点」），不满足就原样放行。
+  if (!/^[-+]?\d+(?:\.\d+)?\s*[^\d\s]*$/.test(text)) return text;
 
   // 分母优先用旧值里的（可能和 max 不同，比如按比例的分数字段），没有就用 max
   const m = String(prev == null ? '' : prev).match(/^[-+]?\d+(?:\.\d+)?\s*\/\s*([-+]?\d+(?:\.\d+)?)$/);

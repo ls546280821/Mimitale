@@ -15,7 +15,12 @@ import { state } from '../core/state.js';
 import { uid, now } from '../core/util.js';
 import { convoWorldbookIds, convoDialoguePresetIds } from './library.js';
 import { convoPanel, convoPanelDefs, convoPanelFields } from './panel.js';
-import { DEFAULT_NARRATION_MODE, DEFAULT_PACE_MODE } from './narration.js';
+import {
+  DEFAULT_NARRATION_MODE,
+  DEFAULT_PACE_MODE,
+  convoNarrationMode,
+  convoPaceMode
+} from './narration.js';
 import { persistConversations } from './persist.js';
 
 /**
@@ -89,6 +94,14 @@ export function branchSkeleton(convo, cut) {
       return ids === null ? null : [...ids];
     })(),
     gmMode: convo.gmMode === true,
+    // 视角设置也要照搬 —— 注释里一直写着「视角设置」，实现却漏了这两个键：
+    // convoNarrationMode / convoPaceMode 查不到就回落到默认档，于是
+    // 从「上帝视角 + 快节奏」分出来的新线悄悄变回「标准 + 一步一步」，
+    // 提示词变了、顶栏的档位标签也没了，而且不报任何错。
+    narrationMode: convoNarrationMode(convo),
+    paceMode: convoPaceMode(convo),
+    // 「这一局要不要联网」同理：不搬的话分出来的新线默认不联网
+    webSearch: convo.webSearch === true,
     player: convo.player ? { ...convo.player } : null,
     panelFields: [...convoPanelFields(convo)],
     panel: { ...convoPanel(convo) },

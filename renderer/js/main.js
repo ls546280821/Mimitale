@@ -122,7 +122,15 @@ import { initAiGen, openAiGenModal } from './views/aiGen.js';
 import { renderAll } from './views/redraw.js';
 import { renderConvoList, renderModelSwitch, applyModelChoice } from './views/chatList.js';
 import { renderMessages } from './views/chatMessages.js';
-import { sendMessage, autoGrowInput, stopGenerating, toggleWebSearch, renderWebSearchToggle } from './views/composer.js';
+import {
+  sendMessage,
+  autoGrowInput,
+  sentTextOf,
+  clearInputAfterSend,
+  stopGenerating,
+  toggleWebSearch,
+  renderWebSearchToggle
+} from './views/composer.js';
 import { clearConvo } from './views/convoActions.js';
 import { summarizeNow } from './views/summarize.js';
 import { exportCharacter, exportConversation } from './views/chatExport.js';
@@ -188,11 +196,25 @@ function bindEvents() {
     showView('chars');
   });
 
-  el.btnSend.addEventListener('click', () => {
+  /**
+   * 发消息的统一入口：**先发再清**，发不出去就把文字留在框里。
+   *
+   * 以前三个入口（发送按钮 / 回车 / Ctrl+回车）都是「先把 value 清空、再调
+   * sendMessage」，而 sendMessage 有一堆早退路径（没配模型、没填 Key、正在生成中）——
+   * 每一条都会把用户刚打的字吃掉，而且不报错、只弹个提示。
+   * 现在由 sendMessage 返回「到底发出去没有」，清了才清。
+   */
+  const submitInput = () => {
     const text = el.input.value;
-    el.input.value = '';
-    autoGrowInput();
-    sendMessage(text);
+    const sent = sentTextOf(text);
+    return sendMessage(text).then((didSend) => {
+      if (didSend) clearInputAfterSend(sent);
+      return didSend;
+    });
+  };
+
+  el.btnSend.addEventListener('click', () => {
+    submitInput();
   });
 
   // 输入框左边的「联网」开关：纯显示 + 会话状态，落盘在 composer 里做
@@ -281,6 +303,11 @@ function bindEvents() {
   el.input.addEventListener('input', autoGrowInput);
 
   el.input.addEventListener('keydown', (event) => {
+    // 中文/日文输入法：敲拼音时按回车是**选词**，那一下在 Chromium 里也会报成
+    // Enter（keyCode 229，且 isComposing 为 true）。不挡的话会拿半截拼音去发消息
+    // （再加上以前「先清空再校验」，连半截都没了）。两个判据都看，各家输入法不一致。
+    if (event.isComposing || event.keyCode === 229) return;
+
     // 数字键 1~9 快捷选剧情选项：只在输入框为空、且不是组合键时触发，
     // 否则会跟「想输入数字」打架。选项按钮上印着对应序号，一眼对上。
     if (event.key >= '1' && event.key <= '9' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
@@ -302,19 +329,13 @@ function bindEvents() {
 
     if (wantSend && !event.altKey) {
       event.preventDefault();
-      const text = el.input.value;
-      el.input.value = '';
-      autoGrowInput();
-      sendMessage(text);
+      submitInput();
       return;
     }
 
     if (!wantSend && withModifier) {
       event.preventDefault();
-      const text = el.input.value;
-      el.input.value = '';
-      autoGrowInput();
-      sendMessage(text);
+      submitInput();
     }
   });
 
@@ -390,12 +411,21 @@ function bindEvents() {
 
     assistant.content += text;
 
-    // 一次流式过程中目标节点不会变，缓存起来 —— 否则每个 token 都要
+    // 一次流式过程中目标节点一般不变，缓存起来 —— 否则每个 token 都要
     // 在消息列表里查一次 DOM，长对话下这些查询加起来也不少。
-    if (chunkTarget.requestId !== requestId) {
+    //
+    // ⚠️ 但缓存必须认「节点已经脱离文档」这种情况：生成过程中只要发生一次整体重绘
+    //    （存设置走 afterSettingsSave、改状态卡字段走 refreshAll 都会调 renderMessages，
+    //    而它整片重建 #messages 的 innerHTML），缓存的 .msg-content 就成了文档外的孤儿 ——
+    //    之后每个分片都写进那个孤儿里，屏幕上的气泡**看起来卡住了**，
+    //    直到 finally 里 renderAll 才把整段正文一次性刷出来。
+    //    isConnected 为 false 就地重查一次，代价只有那些被重绘的轮次。
+    if (chunkTarget.requestId !== requestId || !chunkTarget.node || !chunkTarget.node.isConnected) {
       const index = convo.messages.length - 1;
       // 本次流式开始前这条消息已有的正文（继续时 = 上一轮的原文，可能带旧状态块）。
       // 它是完整的，用 cleanAssistantText 精确剥掉旧状态块，得到干净正文 base。
+      // 重绘之后重查也走同一条路：assistant.content 已经含了本轮全部增量，
+      // 减掉这一次的 text 就得到基准，delta 归零再往后拼，不会丢字也不会重复。
       const before = assistant.content.slice(0, assistant.content.length - text.length);
       chunkTarget = {
         requestId,
@@ -416,7 +446,11 @@ function bindEvents() {
     // 所以 base 用 cleanAssistantText 剥旧状态块（保留夹在中间的正文），
     // 本轮新增的 delta 用 cutTrailingStatusBlock 从第一个状态行起整体截断（不闪）。
     chunkTarget.delta += text;
-    const display = chunkTarget.base + cutTrailingStatusBlock(chunkTarget.delta);
+    // 把这一局的面板字段名带进去：只有「真的是面板字段」的行才砍，
+    // 内心描写 / 上帝视角的【心理】【旁白】小标题不能被当成状态块吞掉。
+    const display =
+      chunkTarget.base +
+      cutTrailingStatusBlock(chunkTarget.delta, convoFieldDisplayNames(convo));
     streamPainter.push(chunkTarget.node, display);
   });
 

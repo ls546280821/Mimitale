@@ -37,6 +37,15 @@ export async function removeConvo(id) {
   const convo = state.conversations.find((c) => c.id === id);
   if (!convo) return;
 
+  // 正在生成时不能删：删完 state.activeId 就换人了，而流式回调是按「当前会话的
+  // 最后一条消息」追加的（main.js 的 onChunk）—— 后面那些分片会写进**另一个会话**，
+  // 再被 finally 里的 persistConversations 落盘。旁边的 switchConvo / removeMessage /
+  // branchFromMessage 都有这道守卫，就这里当初漏了。
+  if (state.streaming) {
+    showToast('正在生成回答，先点「停止生成」再删除会话');
+    return;
+  }
+
   const ok = await confirmDialog({
     title: '删除会话',
     message: `删除会话「${convo.title || '新对话'}」？此操作无法撤销。`,
@@ -77,6 +86,11 @@ export async function clearConvo() {
   }
 
   convo.messages = [];
+  // 摘要必须一起清：它的 start/end 是**按当时的消息下标**记的，消息没了这些下标
+  // 就成了过期坐标 —— 留着会让 buildApiMessages 以为「前面一大段已经被压缩过」，
+  // 于是把新对话整段切掉（用户刚打的那句话都发不出去）。
+  // （buildApiMessages 里还有一道兜底，但这里才是问题的源头。）
+  convo.summaries = [];
   convo.title = '新对话';
   state.usage = null;
   renderAll({ forceScroll: true });

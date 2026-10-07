@@ -76,13 +76,23 @@ export function imageCatalogModels(providerId) {
   return catalog && Array.isArray(catalog.imageModels) ? catalog.imageModels : [];
 }
 
-/** 拉取失败时，判断是不是「这个服务商压根没有模型列表接口」 */
+/**
+ * 拉取失败时，判断是不是「这个服务商压根没有模型列表接口」。
+ *
+ * ⚠️ 这里只能看**状态码**，不能拿中文文案去模糊匹配：main/http.js 给 404 写的提示是
+ *    「404 找不到接口：多半是「接口地址」写错了」，给 400 写的是「参数不被该服务商接受」——
+ *    「找不到接口」「不被接受」这两个词都被下面的关键词撞上，于是**接口地址写错**
+ *    也会被当成「这家没有模型列表接口」，弹一句成功语气的兜底提示，把人带到错误的方向。
+ *
+ *    哪些码算「这个端点不存在」：
+ *      · 404 Not Found      —— 大部分兼容层没有 /models 就是这个
+ *      · 405 / 501          —— 方法不允许 / 没实现
+ *    刻意**不含** 400 / 406 / 401 / 403：那些是「地址对、但请求本身被拒」
+ *    （Key 没权限、网关拦了），不是端点不存在，照实报错更有用。
+ */
 export function looksLikeUnsupportedModelList(message) {
   const text = String(message || '');
-  return (
-    /\b(406|404|405|501)\b/.test(text) ||
-    /不被接受|找不到接口|不支持|Not Acceptable|Method Not Allowed/i.test(text)
-  );
+  return /\b(404|405|501)\b/.test(text);
 }
 
 // ------------------------------ 生图尺寸规则 ------------------------------
@@ -90,24 +100,33 @@ export function looksLikeUnsupportedModelList(message) {
 /**
  * 各生图模型支持的图片尺寸。
  *
- * 这个必须按模型区分：智谱 glm-image 只认固定的 7 个尺寸（默认 1280x1280），
- * 而本应用早期一律发 1024x1024，于是被接口拒掉（智谱错误码 1210「参数有误」）。
- * 参数来自智谱官方 OpenAPI 的 CreateImageRequest.size 说明。
+ * 这个必须按模型区分：两家都只认自己那份「推荐尺寸 + 自定义区间」，
+ * 而本应用早期一律发 1024x1024，在只收固定档的模型上被接口拒掉
+ * （智谱错误码 1210「参数有误」）。参数照各自官方文档抄：
+ *   · GLM-Image  推荐 7 档，自定义 512-2048、长宽均为 32 的整数倍
+ *   · CogView-3  推荐 7 档，自定义 512-2048、长宽均被 16 整除，且总像素 ≤ 2^21
+ *
+ * ⚠️ 修过一次的坑：glm-image 的自定义下限当初写成 1024，是照「推荐尺寸里最小的
+ *    那个」抄的 —— 实际文档写的是 512px。结果是 512x512、800x800 这类**合法**
+ *    尺寸被自家校验判成非法、被悄悄换掉；而 1024x1024 本来就是合法的
+ *    （在 512-2048 内、也是 32 的倍数），并不需要被「纠正」。
  */
+const MAX_CUSTOM_PIXELS = 2 ** 21; // CogView 的硬上限：总像素不超过 2^21
+
 const IMAGE_SIZE_RULES = [
   {
     match: /^glm-image$/i,
     label: 'GLM-Image',
     sizes: ['1280x1280', '1568x1056', '1056x1568', '1472x1088', '1088x1472', '1728x960', '960x1728'],
-    custom: { min: 1024, max: 2048, step: 32 },
-    note: '默认 1280x1280。自定义需在 1024-2048 之间、且是 32 的整数倍'
+    custom: { min: 512, max: 2048, step: 32 },
+    note: '推荐 1280x1280。自定义需在 512-2048 之间、且长宽均为 32 的整数倍'
   },
   {
     match: /^cogview/i,
     label: 'CogView',
     sizes: ['1024x1024', '768x1344', '864x1152', '1344x768', '1152x864', '1440x720', '720x1440'],
-    custom: { min: 512, max: 2048, step: 16 },
-    note: '默认 1024x1024。自定义需在 512-2048 之间、且是 16 的整数倍'
+    custom: { min: 512, max: 2048, step: 16, maxPixels: MAX_CUSTOM_PIXELS },
+    note: '推荐 1024x1024。自定义需在 512-2048 之间、长宽被 16 整除，且总像素不超过 2^21'
   }
 ];
 
@@ -137,9 +156,12 @@ function isValidImageSize(model, size) {
   // 不在推荐列表里也可能合法（自定义尺寸），按规则体检
   if (!rule.custom) return false;
   const [w, hgt] = value.split('x').map(Number);
-  const { min, max, step } = rule.custom;
+  const { min, max, step, maxPixels } = rule.custom;
   const inRange = (n) => n >= min && n <= max && n % step === 0;
-  return inRange(w) && inRange(hgt);
+  if (!inRange(w) || !inRange(hgt)) return false;
+  // CogView 还限总像素：长宽各自合法、乘起来仍可能超上限
+  if (typeof maxPixels === 'number' && w * hgt > maxPixels) return false;
+  return true;
 }
 
 // ------------------------------ 铺进设置界面 ------------------------------

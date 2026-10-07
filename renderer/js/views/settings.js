@@ -670,30 +670,71 @@ async function removeProvider() {
 
 // ------------------------------ 保存 ------------------------------
 
+/**
+ * 把数字输入框读成一个数。
+ *
+ * ⚠️ 不能只用 `Number(v)` + `isNaN` 兜底：**空输入框的 `Number('')` 是 0，不是 NaN**，
+ *    于是所有 `isNaN(...) ? 默认值 : ...` 的分支全是死代码，清空输入框会静默变成：
+ *    回复上限 → 被夹到 64（每条回复都被截断）、对话轮数 → 1（历史等于没了）、
+ *    递归深度 → 0（递归关掉）、温度 → 0。界面重开还显示那个被夹过的值，
+ *    用户根本不知道是自己手滑清空的。
+ *
+ * 空 / 写不出数 → 退回**原来存着的那个值**（比"悄悄改成默认值"更贴近直觉：
+ * 「我没填」就当我没改），再没有才用 fallback 兜底。
+ */
+function numberFrom(input, fallback, min, max, integer) {
+  const rawText = String((input && input.value) || '').trim();
+  const raw = Number(rawText);
+  if (!rawText || !Number.isFinite(raw)) return fallback;
+  const clamped = Math.max(min, Math.min(max, raw));
+  return integer ? Math.floor(clamped) : clamped;
+}
+
 function readSettingsForm() {
   stashProviderForm();
 
-  const temp = Number(el.s.temp.value);
-  const maxTokens = Number(el.s.maxTokens.value);
+  const saved = state.settings || {};
 
   return {
     providers: providers(),
-    activeProviderId: (state.settings || {}).activeProviderId,
-    activeModel: (state.settings || {}).activeModel,
-    temperature: isNaN(temp) ? 0.7 : Math.max(0, Math.min(2, temp)),
-    maxTokens: isNaN(maxTokens) ? 8192 : Math.max(64, Math.min(32000, maxTokens)),
+    activeProviderId: saved.activeProviderId,
+    activeModel: saved.activeModel,
+    // 兜底用**原来存着的值**，不是硬编码的 8192：清空输入框 = 没改，
+    // 用常量兜底会把「磁盘上明明是 512」悄悄改成 8192。
+    temperature: numberFrom(
+      el.s.temp,
+      Number.isFinite(Number(saved.temperature)) ? Number(saved.temperature) : 0.7,
+      0,
+      2,
+      false
+    ),
+    maxTokens: numberFrom(
+      el.s.maxTokens,
+      Number.isFinite(Number(saved.maxTokens)) ? Number(saved.maxTokens) : 8192,
+      64,
+      32000,
+      true
+    ),
     sendOnEnter: el.s.sendOnEnter.checked,
     showDate: el.s.showDate.checked,
     showUsage: el.s.showUsage.checked,
     autoContinue: el.s.autoContinue.checked,
-    worldbookRecursiveDepth: (() => {
-      const depth = Number(el.s.wbDepth.value);
-      return Number.isFinite(depth) ? Math.max(0, Math.min(5, Math.floor(depth))) : 3;
-    })(),
-    maxTurns: (() => {
-      const t = Number(el.s.maxTurns.value);
-      return Number.isFinite(t) ? Math.max(1, Math.min(200, Math.floor(t))) : 20;
-    })(),
+    worldbookRecursiveDepth: numberFrom(
+      el.s.wbDepth,
+      Number.isFinite(Number(saved.worldbookRecursiveDepth))
+        ? Number(saved.worldbookRecursiveDepth)
+        : 3,
+      0,
+      5,
+      true
+    ),
+    maxTurns: numberFrom(
+      el.s.maxTurns,
+      Number.isFinite(Number(saved.maxTurns)) ? Number(saved.maxTurns) : 20,
+      1,
+      200,
+      true
+    ),
     imageProviderId: el.s.imageProvider.value || '',
     imageModel: el.s.imageModel.value.trim(),
     imageSize: el.s.imageSize.value || '',
@@ -705,10 +746,13 @@ function readSettingsForm() {
     // 联网搜索。Key 留空就是「不要了」—— 照原样交回去（不偷偷把旧值填回来）
     searchEnabled: el.s.searchEnabled.checked,
     searchApiKey: el.s.searchKey.value.trim(),
-    searchCount: (() => {
-      const n = Number(el.s.searchCount.value);
-      return Number.isFinite(n) ? Math.max(1, Math.min(10, Math.floor(n))) : 6;
-    })(),
+    searchCount: numberFrom(
+      el.s.searchCount,
+      Number.isFinite(Number(saved.searchCount)) ? Number(saved.searchCount) : 6,
+      1,
+      10,
+      true
+    ),
     searchFreshness: el.s.searchFreshness.value || 'noLimit',
     // 默认人设：只动**当前模型**那一条，别的模型的条目原样带回去。
     // 名字和人设都清空 = 这个模型不要人设了，把那条删掉（别在 config.json 里留空壳）。
@@ -901,12 +945,17 @@ async function fetchModels() {
 
     // 该服务商没有模型列表接口时（智谱就是），不要只丢一个 HTTP 错误码给用户，
     // 直接把已知模型填上，让流程能继续走下去。
+    //
+    // ⚠️ 但要把**原始的报错**一起带上：404 既可能是「这家没有 /models」，
+    //    也可能是「接口地址写错了」。只报「不支持拉取模型列表」会把人往错误方向带，
+    //    不如让 HTTP 那句话一起露出来，地址到底对不对一眼能判断。
     const catalog = catalogForBaseUrl(provider.baseUrl);
     if (catalog && looksLikeUnsupportedModelList(message)) {
       const hasExisting = String(el.p.models.value || '').trim().length > 0;
       const count = applyCatalogModels(catalog, !hasExisting);
       showToast(
-        `${catalog.name}不支持「拉取模型列表」，已${hasExisting ? '补充' : '填入'} ${count} 个已知模型，可直接保存`,
+        `${catalog.name}可能没有「模型列表」接口，已${hasExisting ? '补充' : '填入'} ${count} 个已知模型。` +
+          `若地址填错请先改地址 —— 服务端原话：${message}`,
         'ok'
       );
     } else {

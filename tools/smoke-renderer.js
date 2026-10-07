@@ -1503,6 +1503,329 @@ await scenario('无主状态字段：并回主角，不单开世界卡', async (
 });
 
 // ---------------------------------------------------------------------------
+//  场景 9.6：面板字段数到顶时，不能把认领不成的无主字段删掉
+//
+//  真 bug：absorbTopLevelIntoPlayer 的 claim() 只在「目标键真的建出来了」时才该
+//  把源字段划掉，但 remove.add(key) 是无条件执行的。字段数到了 MAX_PANEL_FIELDS(120)
+//  之后目标建不出来，源字段却照样被移除 —— 于是**所有**走规则 1/2 的无主字段
+//  连同值一起消失，120 个字段能当场塌成 1 个。
+//  旁边的规则 3/4 是显式 else if，走不到就什么都不做，两条路本来该一个脾气。
+// ---------------------------------------------------------------------------
+await scenario('状态字段：字段数到顶时不能把无主的删掉', async () => {
+  const panelMod = await import(new URL('js/data/panel.js', document.baseURI).href);
+  const libMod = await import(new URL('js/data/library.js', document.baseURI).href);
+  const key = (name, owner) => panelMod.panelKey(name, owner);
+
+  const card = libMod.characters()[0];
+  check('库里有卡可以拿来当「绑定角色」', !!card, JSON.stringify(libMod.characters().map((c) => c.name)));
+  if (!card) return;
+
+  // 合成一份「已经到顶」的会话：119 个无主字段 + 1 个角色持有字段 = 120
+  const atCap = {
+    id: 'panel-at-cap',
+    characterId: card.id,
+    player: null,
+    worldbookIds: [],
+    panel: {},
+    panelFields: [],
+    panelDefs: {},
+    messages: []
+  };
+  panelMod.appendPanelFields(atCap, [{ name: '已归属字段', value: '1', owner: card.id }]);
+  for (let i = 0; i < 119; i += 1) {
+    panelMod.appendPanelFields(atCap, [{ name: `无主${i}`, value: `v${i}` }]);
+  }
+  check(
+    '先造到 120 个字段（正好到顶）',
+    atCap.panelFields.length === panelMod.MAX_PANEL_FIELDS,
+    `字段数 ${atCap.panelFields.length} / 上限 ${panelMod.MAX_PANEL_FIELDS}`
+  );
+
+  const beforeCount = atCap.panelFields.length;
+  const beforeValue = atCap.panel[atCap.panelFields.find((k) => panelMod.panelFieldName(k) === '无主0')];
+  panelMod.absorbTopLevelIntoPlayer(atCap);
+
+  check(
+    '到顶之后字段数没有被清空',
+    atCap.panelFields.length === beforeCount,
+    `并完之后 ${atCap.panelFields.length} 个（原来 ${beforeCount} 个）`
+  );
+  check(
+    '无主字段的值还在（认领不成就不动它）',
+    atCap.panel[atCap.panelFields.find((k) => panelMod.panelFieldName(k) === '无主0')] === beforeValue,
+    JSON.stringify({ want: beforeValue })
+  );
+});
+
+// ---------------------------------------------------------------------------
+//  场景 9.8：分支持久化要照搬「视角设置 / 联网开关」
+//
+//  真 bug：branchSkeleton 的注释写着「戏本身的东西照搬：…视角设置」，实现却漏了
+//  narrationMode / paceMode（还有 webSearch）。convoNarrationMode 查不到就回落到
+//  默认档 —— 从「上帝视角 + 快节奏」分出来的新线悄悄变成「标准 + 一步一步」，
+//  提示词变了、顶栏档位标签没了，全程不报错。
+// ---------------------------------------------------------------------------
+await scenario('分支：视角设置与联网开关要跟着走', async () => {
+  const convMod = await import(new URL('js/data/conversations.js', document.baseURI).href);
+  const key = 'branch-skeleton-source';
+
+  const source = {
+    id: key,
+    title: '源会话',
+    characterId: null,
+    worldbookIds: [],
+    dialoguePresetIds: null,
+    player: { name: '阿甲' },
+    panel: {},
+    panelFields: [],
+    panelDefs: {},
+    gmMode: false,
+    narrationMode: 'god',
+    paceMode: 'brisk',
+    webSearch: true,
+    messages: [
+      { role: 'user', content: '一' },
+      { role: 'assistant', content: '二' },
+      { role: 'user', content: '三' }
+    ],
+    summaries: []
+  };
+
+  const branch = convMod.branchSkeleton(source, 2);
+  check('叙述模式跟着分叉走（不再回落到标准）', branch.narrationMode === 'god', JSON.stringify(branch.narrationMode));
+  check('推进节奏跟着分叉走（不再回落到一步一步）', branch.paceMode === 'brisk', JSON.stringify(branch.paceMode));
+  check('这一局的联网开关也跟着走', branch.webSearch === true, JSON.stringify(branch.webSearch));
+  check('前两条消息照常复制过去', (branch.messages || []).length === 2, String((branch.messages || []).length));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 9.9：数字设置框清空后不能静默变成 64 / 1 / 0
+//
+//  真 bug：`Number('')` 是 **0、不是 NaN**，所以 readSettingsForm 里所有
+//  `isNaN(x) ? 默认值 : ...` 的分支全是死代码。把「回复上限」清空再保存，
+//  存下去的是被夹到下限的 64（之后每条回复都被截断）；「对话轮数」变 1
+//  （历史等于没了）；递归深度变 0。界面重开还显示那个被夹过的值。
+//  现在的口径：清空 = 没改，退回原来存着的值。
+// ---------------------------------------------------------------------------
+await scenario('设置：清空数字框等于没改，不静默夹到下限', async () => {
+  click('#btn-settings');
+  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+
+  const before = ((await window.mimitale.getSettings()).settings || {});
+  const beforeMaxTokens = Number(before.maxTokens);
+  const beforeMaxTurns = Number(before.maxTurns);
+
+  // 先把两个框设成「一个不同于内置默认值的值」，再清空。
+  // 否则「退回原来存着的值」和「退回内置默认值」这两种实现分不出来 ——
+  // （回复上限的测试初值就是 512，而内置默认是 8192；对话轮数初值正好是 20=默认，
+  //   所以这个场景必须自己先改一下再清空。）
+  const probeTokens = beforeMaxTokens === 8192 ? 4096 : beforeMaxTokens;
+  const probeTurns = beforeMaxTurns === 20 ? 33 : beforeMaxTurns;
+  setValue('#s-maxtokens', String(probeTokens));
+  setValue('#s-max-turns', String(probeTurns));
+  click('#btn-save-settings');
+  await waitFor('探针值已保存', () => !shown('#settings-modal'));
+  await sleep(150);
+
+  click('#btn-settings');
+  await waitFor('设置弹窗打开（改完再清）', () => shown('#settings-modal'));
+  setValue('#s-maxtokens', '');
+  setValue('#s-max-turns', '');
+  click('#btn-save-settings');
+  await waitFor('设置已保存', () => !shown('#settings-modal'));
+  await sleep(150);
+
+  const after = ((await window.mimitale.getSettings()).settings || {});
+  check(
+    '清空「回复上限」不会变成夹取下限 64 / 内置默认 8192',
+    Number(after.maxTokens) === probeTokens,
+    JSON.stringify({ 探针值: probeTokens, 内置默认: 8192, after: after.maxTokens })
+  );
+  check(
+    '清空「对话轮数」不会变成 1 / 内置默认 20',
+    Number(after.maxTurns) === probeTurns,
+    JSON.stringify({ 探针值: probeTurns, 内置默认: 20, after: after.maxTurns })
+  );
+
+  // 收尾：还原成进这个场景之前的值，后面的场景还等着它们
+  click('#btn-settings');
+  await waitFor('设置弹窗再开', () => shown('#settings-modal'));
+  setValue('#s-maxtokens', String(beforeMaxTokens));
+  setValue('#s-max-turns', String(beforeMaxTurns));
+  click('#btn-save-settings');
+  await waitFor('设置已还原', () => !shown('#settings-modal'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 9.10：拉取模型列表失败时，「地址写错」不能被说成「这家没有这个接口」
+//
+//  真 bug：判据里除了状态码还有一段中文关键词匹配，而 main/http.js 给 404 写的
+//  提示正是「404 找不到接口：多半是「接口地址」写错了」、给 400 写的是
+//  「参数不被该服务商接受」—— 两个词都被撞上，于是地址写错会被当成
+//  「这家不支持拉取模型列表」，弹一句成功语气的兜底提示。
+// ---------------------------------------------------------------------------
+await scenario('设置：地址写错不会被误诊成「没有模型列表接口」', async () => {
+  const catMod = await import(new URL('js/views/settingsCatalog.js', document.baseURI).href);
+  const looks = catMod.looksLikeUnsupportedModelList;
+
+  // main/http.js 真实产出的那几句（照抄，别改口径）
+  const msg404 = '404 找不到接口：多半是「接口地址」写错了，应类似 https://api.deepseek.com。';
+  const msg400 = '400 请求被拒绝：多半是参数不被该服务商接受（比如 max_tokens 超范围、模型名不对）。';
+  const msg401 = '401 未授权：API Key 不对或已失效。';
+  const msg406 = '406 请求不被接受：服务端（或它前面的网关）拒绝了这次请求的格式。';
+  const msg405 = '405 Method Not Allowed';
+
+  check('400（参数/鉴权类）不算「没有模型列表接口」', looks(msg400) === false, JSON.stringify(msg400));
+  check('401 不算「没有模型列表接口」', looks(msg401) === false, JSON.stringify(msg401));
+  check('406 不算（是网关拒了，不是端点不存在）', looks(msg406) === false, JSON.stringify(msg406));
+
+  // 这些才是真的「这个端点不存在」
+  check('404 仍然算（兼容层没有 /models 就是它）', looks(msg404) === true, JSON.stringify(msg404));
+  check('405 仍然算', looks(msg405) === true, JSON.stringify(msg405));
+  check('501 仍然算', looks('501 Not Implemented') === true, '');
+});
+
+// ---------------------------------------------------------------------------
+//  场景 9.12：发不出去的消息不能把用户打的字吃掉
+//
+//  真 bug：发送按钮和回车都是「先把输入框清空、再调 sendMessage」，而 sendMessage
+//  有一堆早退路径（没配模型、没填 Key、正在生成中）。每一条都会把用户刚打的字丢掉，
+//  而且不报错、只弹一句提示 —— 全新安装时第一条「你好」就是这么没的
+//  （待发的图片反而是校验之后才清的，所以图还在、字没了）。
+//  现在的口径：sendMessage 返回「到底发出去没有」，只有真发出去了才清空。
+// ---------------------------------------------------------------------------
+await scenario('输入框：发不出去时字要留着', async () => {
+  const FILLED = '这段字不能被吃掉';
+
+  // --- 路径一：没填 API Key（最常见的第一次发送） ---
+  click('#btn-settings');
+  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  const keyBefore = byId('p-apikey').value;
+  setValue('#p-apikey', '');
+  click('#btn-save-settings');
+  await waitFor('设置已保存', () => !shown('#settings-modal'));
+  await sleep(150);
+
+  setValue('#input', FILLED);
+  click('#btn-send');
+  // 走的是「请先填写 XX 的 API Key」那条早退
+  await waitFor('弹出缺 Key 的提示', () => {
+    const t = byId('toast');
+    return t && /API Key/.test(t.textContent || '');
+  }, 5000);
+  check(
+    '没填 Key 时，输入框里的字还在（没被静默清掉）',
+    byId('input').value === FILLED,
+    JSON.stringify(byId('input').value)
+  );
+  // 那条提示确实弹出来了（不是「什么都没发生」）
+  check(
+    '并且给出了「先填 API Key」的说法',
+    /API Key/.test((byId('toast') || {}).textContent || ''),
+    JSON.stringify(((byId('toast') || {}).textContent) || '')
+  );
+
+  // 恢复 Key，别影响后面的场景
+  await sleep(200);
+  click('#btn-settings');
+  await waitFor('设置弹窗再开（恢复 Key）', () => shown('#settings-modal'));
+  setValue('#p-apikey', keyBefore || 'test-key');
+  click('#btn-save-settings');
+  await waitFor('Key 已恢复', () => !shown('#settings-modal'));
+  await sleep(150);
+
+  // --- 路径二：正在生成中按回车（输入框在流式期间并没有禁用） ---
+  setValue('#input', '正在生成时打的字');
+  // 手动把界面切成「流式中」：发送按钮禁用 + state.streaming
+  const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+  const prevStreaming = stateMod.state.streaming;
+  stateMod.state.streaming = true;
+  byId('btn-send').disabled = true;
+
+  const composerMod = await import(new URL('js/views/composer.js', document.baseURI).href);
+  const didSend = await composerMod.sendMessage('正在生成时打的字');
+  check('流式期间 sendMessage 明确报告「没发出去」', didSend === false, JSON.stringify(didSend));
+  check(
+    '流式期间也不会把输入框清掉',
+    byId('input').value === '正在生成时打的字',
+    JSON.stringify(byId('input').value)
+  );
+
+  stateMod.state.streaming = prevStreaming;
+  byId('btn-send').disabled = false;
+  setValue('#input', '');
+});
+
+// ---------------------------------------------------------------------------
+//  场景 9.11：数值字段不能把非数值内容写成「烦躁/100」
+// ---------------------------------------------------------------------------
+await scenario('状态字段：数值字段不吞非数值内容', async () => {
+  const panelMod = await import(new URL('js/data/panel.js', document.baseURI).href);
+  const key = (name, owner) => panelMod.panelKey(name, owner);
+
+  const convo = {
+    id: 'meter-guard',
+    characterId: null,
+    player: { name: '阿甲' },
+    worldbookIds: [],
+    panel: {},
+    panelFields: [],
+    panelDefs: {},
+    messages: []
+  };
+
+  // 数值字段（0-100）却收到一个中文值 —— 属性值输入框本来就是自由文本，
+  // 切类型也不会清掉已输入的内容，所以这条路很容易走到。
+  panelMod.appendPanelFields(convo, [
+    { name: '心情', type: 'meter', min: 0, max: 100, value: '烦躁', owner: 'player' }
+  ]);
+  const moodKey = convo.panelFields.find((k) => panelMod.panelFieldName(k) === '心情');
+  check(
+    '非数值内容不会被拼上「/100」',
+    convo.panel[moodKey] === '烦躁',
+    JSON.stringify(convo.panel[moodKey])
+  );
+
+  // 真的只写了分子时，仍要补齐分母（老行为不能丢）
+  panelMod.appendPanelFields(convo, [
+    { name: '体力', type: 'meter', min: 0, max: 100, value: '60', owner: 'player' }
+  ]);
+  const hpKey = convo.panelFields.find((k) => panelMod.panelFieldName(k) === '体力');
+  check(
+    '只写分子（60）时仍然补成 60/100',
+    convo.panel[hpKey] === '60/100',
+    JSON.stringify(convo.panel[hpKey])
+  );
+
+  // --- 幽灵字段：玩家没填名字时，注入用的前缀是「我」，
+  //     模型照着抄回来必须还能反查成 player，不能变成一条新的无主字段 ---
+  const nameless = {
+    id: 'ghost-owner',
+    characterId: null,
+    player: { name: '' },
+    worldbookIds: [],
+    panel: {},
+    panelFields: [],
+    panelDefs: {},
+    messages: []
+  };
+  panelMod.appendPanelFields(nameless, [
+    { name: '好感度', value: '80', owner: 'player' }
+  ]);
+  const label = panelMod.panelOwnerLabel(nameless, 'player');
+  check('没填名字时前缀是「我」', label === '我', JSON.stringify(label));
+
+  // 关键：注入用的是这个前缀，模型会照着抄回来 —— 它必须能被反查回 player，
+  // 否则「我·好感度」就成了一条新的无主字段（状态卡多一行重复、真字段停在旧值）
+  const backTo = panelMod.ownerIdByLabel(nameless, label);
+  check(
+    '「我」这个前缀能反查回 player（不会变成幽灵字段）',
+    backTo === 'player',
+    JSON.stringify({ label, backTo })
+  );
+});
+
+// ---------------------------------------------------------------------------
 //  场景 10：聊天 —— 发一条能收到回复
 // ---------------------------------------------------------------------------
 await scenario('聊天：发送与回复', async () => {
@@ -3938,6 +4261,9 @@ await scenario('流式：当前状态那段在显示前就砍掉', async () => {
   }
 
   if (mod && typeof mod.cutTrailingStatusBlock === 'function') {
+    // 这一局的面板字段名 —— 流式截断要靠它区分「面板字段」和「正文小标题」
+    const fields = ['时间', '地点', '心情', '好感度'];
+
     const streamed = [
       '*她抬头看向你，眼睛闪着期待。*',
       '',
@@ -3954,7 +4280,7 @@ await scenario('流式：当前状态那段在显示前就砍掉', async () => {
     ].join('\n');
 
     // --- 流式显示：从状态块起整体截断，正文保留 ---
-    const shown = mod.cutTrailingStatusBlock(streamed);
+    const shown = mod.cutTrailingStatusBlock(streamed, fields);
     check('流式显示只剩正文（动作描写还在）', shown.includes('她抬头看向你'), shown);
     check(
       '状态块整个被砍掉（抬头/分组/字段/选项都不在）',
@@ -3964,11 +4290,29 @@ await scenario('流式：当前状态那段在显示前就砍掉', async () => {
     );
 
     // --- 半截字段行也不该闪：只要行首是【，哪怕还没写到冒号，也照样被砍 ---
-    const partial = mod.cutTrailingStatusBlock('*正文*\n\n【时间】：夜');
+    const partial = mod.cutTrailingStatusBlock('*正文*\n\n【时间】：夜', fields);
     check('半截字段行（【时间】：夜）也被砍掉，不会闪一下', partial.trim() === '*正文*', JSON.stringify(partial));
 
+    // --- 回归：内心描写 / 上帝视角的【心理】【旁白】是正文小标题，不能被当状态块砍掉 ---
+    // 真 bug：以前只看「行首是【】」就砍，这几段在整个流式过程中都不显示，
+    // 直到最后重绘才一次性蹦出来。
+    const narrated = [
+      '她抬头看你。',
+      '',
+      '【心理】',
+      '其实她很想留下。',
+      '',
+      '【旁白】',
+      '雨还在下。'
+    ].join('\n');
+    const narratedShown = mod.cutTrailingStatusBlock(narrated, fields);
+    check(
+      '【心理】/【旁白】这种正文小标题不被砍掉',
+      narratedShown.includes('其实她很想留下') && narratedShown.includes('雨还在下'),
+      JSON.stringify(narratedShown)
+    );
+
     // --- 收尾渲染：cleanAssistantText 也要剥掉抬头 ---
-    const fields = ['时间', '地点', '心情', '好感度'];
     const groups = ['状态栏', '关系'];
     const final = mod.cleanAssistantText(streamed, fields, groups);
     check('收尾渲染只剩正文', final.includes('她抬头看向你'), final);
@@ -4000,7 +4344,7 @@ await scenario('流式：当前状态那段在显示前就砍掉', async () => {
     ].join('\n');
     const base = mod.cleanAssistantText(continuedBefore, fields, groups);
     const delta = '\n\n*再继续的正文。*\n\n【时间】：凌晨';
-    const composed = base + mod.cutTrailingStatusBlock(delta);
+    const composed = base + mod.cutTrailingStatusBlock(delta, fields);
     check(
       '继续时旧状态块被剥掉、夹在中间的正文都保住、本轮状态块被砍',
       composed.includes('第一轮正文') && composed.includes('继续后的正文') &&

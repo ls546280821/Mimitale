@@ -249,13 +249,24 @@ function normalizeSettings(saved) {
     s.activeModel = current.models[0] || allModels[0] || DEFAULT_MODEL;
   }
 
-  // 让「当前服务商」跟着「当前模型」走
-  const owner = s.providers.find((p) => p.models.includes(s.activeModel));
-  if (owner) {
-    s.activeProviderId = owner.id;
-  } else {
-    const current = s.providers.find((p) => p.id === s.activeProviderId);
-    if (current) current.models = [s.activeModel, ...current.models];
+  // 让「当前服务商」跟着「当前模型」走 —— 但要**先尊重已经选好的那一对**。
+  //
+  // 模型名在各个服务商之间是会重的（默认列表里 deepseek-chat 到处都是），
+  // 原来的写法是 `s.providers.find((p) => p.models.includes(s.activeModel))`，
+  // 也就是「谁第一个有这个模型名就是谁」：用户在顶栏显式切到 B 服务商，
+  // 只要 A 也列着同一个模型名，保存时就被静默改回 A ——
+  // 新会话、以及所有回落到全局默认的地方都用了 B 的地址和 Key，
+  // 表现是「刚切过去，新建一条又回去了」，而且不报错。
+  const current = s.providers.find((p) => p.id === s.activeProviderId);
+  const currentHasModel = !!(current && current.models.includes(s.activeModel));
+  if (!currentHasModel) {
+    // 当前服务商确实没有这个模型 → 才去找有它的那家
+    const owner = s.providers.find((p) => p.models.includes(s.activeModel));
+    if (owner) {
+      s.activeProviderId = owner.id;
+    } else if (current) {
+      current.models = [s.activeModel, ...current.models];
+    }
   }
 
   // 界面主题
@@ -354,8 +365,16 @@ function normalizeSettings(saved) {
 
   // 联网搜索：默认关。搜索按次单独计费，必须让用户明确知道自己在花这份钱。
   // Key 和聊天用的那些一样，落盘加密、内存明文（见 loadSettings / saveSettings）。
+  //
+  // ⚠️ 这里**不能**给 searchApiKey 加长度上限。归一化同时跑在两条路上：
+  //    · loadSettings() 读盘 → 拿到的已经是 encryptApiKey 出来的 **base64 密文**；
+  //    · saveSettings() 合并 → 拿到的是明文。
+  //    密文比明文长约 1.6 倍，`slice(0, 200)` 会把长一点的 Key 当场截断，
+  //    截完还是合法 base64、解密却必然失败，decryptApiKey 又把密文当明文返回 ——
+  //    于是拿着一段垃圾去请求（401），而且界面保存时还会把这段垃圾重新加密写回，
+  //    原 Key 就再也找不回来了。服务商那些 apiKey 本来也没有长度上限，这里保持一致。
   s.searchEnabled = raw.searchEnabled === true;
-  s.searchApiKey = typeof raw.searchApiKey === 'string' ? raw.searchApiKey.trim().slice(0, 200) : '';
+  s.searchApiKey = typeof raw.searchApiKey === 'string' ? raw.searchApiKey.trim() : '';
 
   const searchCount = Number(raw.searchCount);
   s.searchCount =
