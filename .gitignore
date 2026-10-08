@@ -57,9 +57,6 @@ tools/run-smoke.ps1
 tools/messages-utf8.txt
 tools/check-imports.cmd
 
-# 桌宠形象图的中间产物：都是 tools/pet/make-default-skin.py 生成出来的，
-# 需要时重跑即可，没必要进版本库（原图留档在 assets/pet/default/source/）
-tools/pet/crop-for-matte.png
-tools/pet/preview-checker.png
+# 桌宠窗口截图：tools/pet/capture-pet-window.js 跑一次就生成，
+# 需要时重跑即可，没必要进版本库。
 tools/pet/pet-window.png
-tools/pet/pet-window-checker.png

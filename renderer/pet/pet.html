@@ -13,8 +13,8 @@
   <link rel="stylesheet" href="pet.css" />
 </head>
 <body>
-  <!-- 整个 stage 铺满窗口。窗口是透明的，所以图片外面那圈本来就是「空」的 ——
-       真正需要对鼠标负责的只有 .hit 那几个元素（见 pet.js 的穿透判断）。 -->
+  <!-- 整个 stage 铺满窗口。窗口是透明的，所以形象外面那圈本来就是「空」的 ——
+       鼠标穿不穿透由 pet.js 逐像素判断（见那里的 inSprite / inBubble）。 -->
   <div id="stage" class="stage">
     <!-- 气泡做成绝对定位盖在上面，而不是跟宠物流式竖排。
          流式排的话，话一多就会把宠物往下挤、宠物当场「变小」——
@@ -26,10 +26,11 @@
     <!-- 没有 title 属性：这个 div 铺满整个窗口，挂 title 会让提示在
          「宠物旁边的透明区域」也弹出来，看起来像 bug。 -->
     <div id="sprite-wrap" class="sprite-wrap">
-      <img id="sprite" class="sprite" alt="" draggable="false" />
+      <!-- rig 形象（蓝白猫）的 canvas 由 cat.js 动态挂进来；这个占位框只在
+           rig 资产缺失 / WebGL 起不来时露出来。 -->
       <div id="sprite-empty" class="sprite-empty" hidden>
         <div class="sprite-empty-title">形象没加载出来</div>
-        <div class="sprite-empty-hint">右键 →「更换形象…」选一张图</div>
+        <div class="sprite-empty-hint">检查 assets/pet/cat 里的 model.json 和贴图</div>
       </div>
     </div>
   </div>

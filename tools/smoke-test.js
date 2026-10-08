@@ -713,7 +713,7 @@ function registerStubs() {
       {
         id: 'pet1',
         name: '蓝自',
-        look: { kind: 'png', source: 'assets', skin: 'default', file: 'smoke-pet.png' },
+        look: { kind: 'rig', source: 'assets', skin: 'cat' },
         visible: true,
         scale: 1,
         bounds: null,
@@ -737,7 +737,7 @@ function registerStubs() {
 
   const petPayload = () => ({
     config: { enabled: petStore.enabled, activeId: petStore.activeId },
-    pet: { ...petStore.pets[0], image: TINY_PNG },
+    pet: { ...petStore.pets[0] },
     models: [
       { providerId: 'p1', providerName: 'DeepSeek', model: 'deepseek-chat', label: 'DeepSeek · deepseek-chat' },
       { providerId: 'p1', providerName: 'DeepSeek', model: 'deepseek-reasoner', label: 'DeepSeek · deepseek-reasoner' }
@@ -745,7 +745,6 @@ function registerStubs() {
     memoryCount: petMemory.length,
     memoryDigest: '',
     persona: petPersona,
-    skins: [{ source: 'assets', skin: 'default', file: 'smoke-pet.png', label: '内置 · smoke-pet.png' }],
     mainProviderName: 'DeepSeek',
     mainModel: 'test-model'
   });
@@ -793,8 +792,6 @@ function registerStubs() {
     text: JSON.stringify({ 说明: '冒烟', 长期记忆: petMemory }, null, 2),
     fileName: '桌宠记忆-蓝自.json'
   }));
-  ipcMain.handle('pet:skin:pick', () => ({ ok: true, look: { kind: 'png', source: 'user', skin: 'user', file: 'x.png' } }));
-  ipcMain.handle('pet:skin:set', () => ({ ok: true }));
   ipcMain.handle('pet:window:setVisible', () => ({ ok: true, visible: true }));
 
   // --- 聊天：假装模型回了一句话，并且真的走一遍流式通道 ---
@@ -3455,7 +3452,7 @@ app.whenReady().then(async () => {
         settings: `
           document.querySelector('#btn-settings')?.click();
           await new Promise(r => setTimeout(r, 700));`,
-        // 桌宠区块（设置弹窗最下面那一段）：形象小图一排、预览框、记忆列表 ——
+        // 桌宠区块（设置弹窗最下面那一段）：预览框、人格、记忆列表 ——
         // 全是排版密集的地方，「挤成一行」「按钮换行」这类问题 DOM 断言看不出来，
         // 只能靠图。顺手点一次「生成一句」，让预览框里真的有内容（空框看不出高矮）。
         petSettings: `
@@ -3466,7 +3463,7 @@ app.whenReady().then(async () => {
           document.querySelector('#btn-pet-memory-refresh')?.click();
           await new Promise(r => setTimeout(r, 500));
           const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
-          // 滚到「记忆」那一块：这样形象小图、预览框、记忆列表三样能同框看见
+          // 滚到「记忆」那一块：这样预览框、记忆列表能同框看见
           //（区块的开关和数字在上面一屏，那张图用不到）
           document.querySelector('#s-pet-memory')?.scrollIntoView({ block: 'center' });
           await new Promise(r => setTimeout(r, 300));`,

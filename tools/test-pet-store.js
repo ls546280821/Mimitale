@@ -100,7 +100,18 @@ eq(blank.pets[0].speakEnabled, true, '默认允许主动发言');
 eq(blank.pets[0].useMainModel, true, '默认跟随主模型');
 eq(blank.pets[0].temperature, null, '默认温度跟随全局');
 eq(blank.pets[0].mutedUntil, 0, '默认没有静音');
-eq(blank.pets[0].look.file, '8cb9700671c063df79e4cdcfedd513c1.png', '默认形象文件名');
+eq(blank.pets[0].look.kind, 'rig', '默认形象是 rig 动态形象（第一版的 PNG 立绘已移除）');
+eq(blank.pets[0].look.skin, 'cat', '默认形象是蓝白猫');
+
+// 第一版的 png 立绘配置会被**迁移**成默认 rig —— 不能留一个指向不存在目录的 skin，
+// 那样宠物只会剩一个「形象没加载出来」占位框（老用户升级时会踩到）。
+eq(
+  petStore.normalizePetConfig({
+    pets: [{ look: { kind: 'png', source: 'assets', skin: 'default', file: 'x.png' } }]
+  }).pets[0].look,
+  { kind: 'rig', source: 'assets', skin: 'cat' },
+  '老配置里的 png 形象迁移成默认 rig 猫'
+);
 
 const clamped = petStore.normalizePetConfig({
   enabled: false,

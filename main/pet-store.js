@@ -5,19 +5,20 @@
 //
 //  桌宠的数据**分两半**，这条边界不能糊（星宝 2026-10-08 的需求第三条）：
 //
-//    assets/pet/         随软件分发的**只读**资源（形象 / 皮肤 / 动画 / Live2D）
-//      default/          默认形象
-//      skins/            以后：多套皮肤
-//      animations/       以后：帧动画
-//      live2d/           以后：Live2D 模型
+//    assets/pet/         随软件分发的**只读**资源（rig 形象包）
+//      cat/              蓝白猫：model.json + tex/ 部件贴图
+//      <name>/           以后：更多 rig 形象包（目录里有 model.json 即被认作形象）
 //
 //    <数据目录>/pet/      用户数据，**可写**
 //      config.json       桌宠设置（形状见下面的 DEFAULT_PET_CONFIG）
 //      persona/<id>.md   人格设定（**唯一真源**，用 md 是为了方便直接用编辑器改 / 分享）
 //      memory/long_term.json   长期记忆条目，按 petId 分开存
 //      memory/summaries.json   记忆被挤出上限后折叠成的摘要
-//      skins/            用户自己换的形象（从别处选进来的图拷贝到这儿）
+//      skins/            以后：用户自己导入的 rig 形象包
 //      cache/  logs/     缓存与日志
+//
+//  ⚠️ 形象**只有 rig 一种**。「一张静态立绘 PNG」那套（第一版，还没有 2D 形象时
+//     的临时方案）已经整个移除，别再把 png 分支加回来。
 //
 //  分开的好处就是星宝列的那三条：软件更新不会覆盖用户记忆和设置；
 //  换形象 / 加皮肤不用动代码；桌宠将来要成为软件整体形象时资源可以直接复用。
@@ -129,24 +130,33 @@ const DEFAULT_PERSONA = `你是「蓝自」，一只住在人家桌面上的蓝�
 - 不要提「我是 AI」「我是语言模型」这类话，你就是蓝自。
 `;
 
-/** 一只桌宠的默认形状 */
+/**
+ * 一只桌宠的默认形状。
+ * 形象只有一种：**rig 动态形象**（部件贴图 + model.json，由 renderer/pet 的
+ * rig.js + cat-figure.js + cat.js 渲染）。默认就是这套蓝白猫（assets/pet/cat）。
+ *
+ * ⚠️ 第一版那种「一张静态立绘 PNG」的形象已经**整个移除** —— 当初只是还没有
+ *    2D 形象时的临时方案。rig 资产缺失时宠物页面显示「形象没加载出来」占位，
+ *    不再回退任何静态图。
+ */
 function defaultPet(id) {
   return {
     id,
     name: '蓝自',
     // --- 长什么样 ---
-    // kind 现在只有 'png'；以后加 'sprite'（帧动画）/ 'live2d' 时只加分支，
-    // 不动上层（设置页只认 resolvePetImage 的结果）
+    // 只认 rig（部件贴图 + 变形器动画，走 renderer/pet/rig.js）。
+    // 结构里留着 kind 是为了以后加 'sprite' / 'live2d' 时只加分支、不动上层。
     look: {
-      kind: 'png',
-      source: 'assets', // 'assets' = 随软件分发；'user' = 用户自己换的，在 data/pet/skins
-      skin: 'default',
-      file: '8cb9700671c063df79e4cdcfedd513c1.png'
+      kind: 'rig',
+      source: 'assets', // 'assets' = 随软件分发；'user' = 用户自己导入的，在 data/pet/skins
+      skin: 'cat'
     },
     // --- 显示 ---
     visible: true,
     scale: 1,
     bounds: null, // { x, y, displayId }：桌面坐标 + 在哪个屏（拔屏后要能回主屏）
+    // --- 散步 ---
+    walkEnabled: true, // 在桌面上自己溜达（隔几分钟走一小段）
     // --- 发言 ---
     speakEnabled: true, // 主动发言总开关
     speakEveryTurns: 3, // 每隔几轮主对话说一次
@@ -187,12 +197,14 @@ function clampInt(value, min, max, fallback) {
 
 function normalizeLook(raw) {
   const look = raw && typeof raw === 'object' ? raw : {};
-  const kind = ['png', 'sprite', 'live2d'].includes(look.kind) ? look.kind : 'png';
+  // 只认 rig —— 第一版的 'png'（单张静态图）已经移除。
+  // 老配置里存的 png 形象会被**迁移**成默认那套 rig（skin: 'cat'）：
+  // 直接留一个指向不存在目录的 skin，宠物会只剩一个「形象没加载出来」占位框。
+  const known = ['rig', 'sprite', 'live2d'].includes(look.kind);
   return {
-    kind,
-    source: look.source === 'user' ? 'user' : 'assets',
-    skin: safeId(look.skin || 'default').toLowerCase(),
-    file: String(look.file || '').trim().slice(0, 200) || defaultPet('x').look.file
+    kind: known ? look.kind : 'rig',
+    source: known && look.source === 'user' ? 'user' : 'assets',
+    skin: safeId(known ? look.skin || 'cat' : 'cat').toLowerCase()
   };
 }
 
@@ -231,6 +243,7 @@ function normalizePet(raw, fallbackId) {
     // 缩放限制在 0.4~2，再大就铺满屏幕、再小就看不见了
     scale: Math.max(0.4, Math.min(2, Number.isFinite(Number(p.scale)) ? Number(p.scale) : 1)),
     bounds,
+    walkEnabled: p.walkEnabled !== false,
     speakEnabled: p.speakEnabled !== false,
     speakEveryTurns: clampInt(p.speakEveryTurns, SPEAK_EVERY_MIN, SPEAK_EVERY_MAX, base.speakEveryTurns),
     speakLines: clampInt(p.speakLines, SPEAK_LINES_MIN, SPEAK_LINES_MAX, base.speakLines),
@@ -311,9 +324,10 @@ function findPet(config, petId) {
 }
 
 // ---------------------------------------------------------------------------
-//  形象
+//  形象（只有 rig 一种）
 // ---------------------------------------------------------------------------
 
+/** 贴图扩展名 → MIME。rig 形象包的 tex/*.png 读出来转 dataUrl 时要用 */
 const IMAGE_MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -323,43 +337,6 @@ const IMAGE_MIME = {
   '.bmp': 'image/bmp',
   '.apng': 'image/apng'
 };
-
-/** 形象文件的绝对路径；找不到返回 '' */
-function petImagePath(look) {
-  const shape = normalizeLook(look);
-  if (shape.kind !== 'png') return ''; // 以后 sprite / live2d 走别的分支
-  const dir = shape.source === 'user' ? petUserSkinDir() : path.join(petAssetsDir(), shape.skin);
-  const file = path.join(dir, shape.file);
-  try {
-    return fs.statSync(file).isFile() ? file : '';
-  } catch (err) {
-    return '';
-  }
-}
-
-// 形象读出来转成 data URL 给宠物窗口用。
-// 为什么不用 file:// 直链：宠物窗口是独立文档，`assets/pet/` 不在它的相对路径上，
-// 而且打包后资源在 asar 里、用户换的形象又在数据目录里 —— 两处都要能显示，
-// 与其加一套自定义协议，不如读一次转 base64（一张图也就几百 KB，且只在形象变化时才重读）。
-let imageCache = { key: '', url: '' };
-
-function petImageDataUrl(look) {
-  const file = petImagePath(look);
-  if (!file) return '';
-  const key = `${file}:${statKey(file)}`;
-  if (imageCache.key === key) return imageCache.url;
-
-  try {
-    const buf = fs.readFileSync(file);
-    const mime = IMAGE_MIME[path.extname(file).toLowerCase()] || 'image/png';
-    const url = `data:${mime};base64,${buf.toString('base64')}`;
-    imageCache = { key, url };
-    return url;
-  } catch (err) {
-    console.warn('[pet] 读形象失败:', err.message);
-    return '';
-  }
-}
 
 /** 文件指纹（大小 + mtime）：用来判断缓存要不要失效 */
 function statKey(file) {
@@ -371,37 +348,117 @@ function statKey(file) {
   }
 }
 
-/** 把一张用户选中的图拷进 data/pet/skins，返回新的 look */
-function importPetSkin(sourcePath) {
-  const src = String(sourcePath || '');
-  const ext = path.extname(src).toLowerCase();
-  if (!IMAGE_MIME[ext]) throw new Error('只支持 png / jpg / gif / webp / bmp 图片');
+// ---------------------------------------------------------------------------
+//  rig 形象（部件贴图动画）
+//
+//  目录形状（与 Coopanion 形象包同构，pack_cat.py 产出）：
+//    assets/pet/<skin>/model.json   rig 数据（units / pivots / parts / feat / view）
+//    assets/pet/<skin>/tex/*.png    部件贴图（parts[].tex 同名）
+//    assets/pet/<skin>/feat/*.png   五官叠加层（feat[].tex 同名；可选，没有也不影响）
+//
+//  宠物页面 CSP 是 default-src 'none'（fetch 一律被拦），所以 model 和贴图
+//  都由这里读盘转成 JSON + dataUrl 推过去 —— 页面拿不到文件路径，只能这么给。
+// ---------------------------------------------------------------------------
 
-  fs.mkdirSync(petUserSkinDir(), { recursive: true });
-  const file = `skin-${Date.now().toString(36)}${ext}`;
-  fs.copyFileSync(src, path.join(petUserSkinDir(), file));
-  return { kind: 'png', source: 'user', skin: 'user', file };
+let rigCache = { key: '', pack: null };
+
+/** rig 皮肤目录；look 不是 rig 或目录不存在返回 '' */
+function rigSkinDir(look) {
+  const shape = normalizeLook(look);
+  if (shape.kind !== 'rig') return '';
+  const dir = shape.source === 'user'
+    ? path.join(petUserSkinDir(), shape.skin)
+    : path.join(petAssetsDir(), shape.skin);
+  try {
+    return fs.statSync(path.join(dir, 'model.json')).isFile() ? dir : '';
+  } catch (err) {
+    return '';
+  }
 }
 
-/** 列出可选形象：内置 default 目录 + 用户自己换进来的 */
-function listPetSkins() {
-  const out = [];
-  const push = (dir, source, skin) => {
-    let names = [];
+/**
+ * 读出一个 rig 形象包（model + 贴图 dataUrl）。
+ * 缺 model.json / 缺任何一张贴图 → 返回 null（宠物页面露出「形象没加载出来」占位）。
+ * 返回的 key 供渲染层判断「数据变没变」：pet:state 每次都全量推，
+ * 渲染层靠 key 跳过重复重建（GL 上下文重建不便宜）。
+ */
+function petRigPack(look) {
+  const dir = rigSkinDir(look);
+  if (!dir) return null;
+
+  const modelFile = path.join(dir, 'model.json');
+  let model;
+  try {
+    model = JSON.parse(fs.readFileSync(modelFile, 'utf8'));
+  } catch (err) {
+    console.warn('[pet] rig model.json 解析失败:', err.message);
+    return null;
+  }
+  if (!model || !Array.isArray(model.parts) || !model.parts.length || !model.units || !model.pivots) {
+    return null;
+  }
+
+  const key = `${dir}:${statKey(modelFile)}`;
+  if (rigCache.key === key) return rigCache.pack;
+
+  const tex = {};
+  for (const p of model.parts) {
+    const name = String(p.tex || '');
+    if (!name || tex[name]) continue; // 去重：多个部件可共用一张贴图
+    let file = '';
+    for (const ext of ['.png', '.webp', '.jpg']) {
+      const f = path.join(dir, 'tex', `${name}${ext}`);
+      try {
+        if (fs.statSync(f).isFile()) { file = f; break; }
+      } catch (err) { /* 试下一个扩展 */ }
+    }
+    if (!file) {
+      console.warn(`[pet] rig 形象缺贴图 tex/${name}.png —— 整包按无效处理`);
+      return null;
+    }
     try {
-      names = fs.readdirSync(dir);
+      const buf = fs.readFileSync(file);
+      const mime = IMAGE_MIME[path.extname(file).toLowerCase()] || 'image/png';
+      tex[name] = `data:${mime};base64,${buf.toString('base64')}`;
     } catch (err) {
-      return;
+      return null;
     }
-    for (const name of names) {
-      if (!IMAGE_MIME[path.extname(name).toLowerCase()]) continue;
-      out.push({ source, skin, file: name, label: source === 'user' ? `我换的 · ${name}` : `内置 · ${name}` });
+  }
+
+  // 五官叠加层（feat）：贴图在 feat/ 子目录，key 仍取 tex 名（rig 用 part.tex 索引）。
+  // 这一层是**可选**的：老形象包 model.feat 是空对象；就算某张图缺了也只跳过该张、
+  // 不整包作废 —— 顶多少了眼睛，不至于整只猫画不出来。
+  for (const fdef of Object.values(model.feat || {})) {
+    const name = String((fdef && fdef.tex) || '');
+    if (!name || tex[name]) continue; // 去重：feat 与 part 共用同一张也认
+    let file = '';
+    for (const ext of ['.png', '.webp', '.jpg']) {
+      const f = path.join(dir, 'feat', `${name}${ext}`);
+      try {
+        if (fs.statSync(f).isFile()) { file = f; break; }
+      } catch (err) { /* 试下一个扩展 */ }
     }
-  };
-  push(path.join(petAssetsDir(), 'default'), 'assets', 'default');
-  push(petUserSkinDir(), 'user', 'user');
-  return out;
+    if (!file) {
+      console.warn(`[pet] rig 形象缺五官贴图 feat/${name}.png —— 跳过这张`);
+      continue;
+    }
+    try {
+      const buf = fs.readFileSync(file);
+      const mime = IMAGE_MIME[path.extname(file).toLowerCase()] || 'image/png';
+      tex[name] = `data:${mime};base64,${buf.toString('base64')}`;
+    } catch (err) {
+      console.warn(`[pet] 五官贴图读取失败 feat/${name}.png:`, err.message);
+    }
+  }
+
+  const pack = { key, model, tex };
+  rigCache = { key, pack };
+  return pack;
 }
+
+// 形象只有内置 rig 一种，没有「从文件选一张图当形象」这条路了 ——
+// 原来的 importPetSkin / listPetSkins（都是围着静态 PNG 转的）已随之移除。
+// 以后要支持导入别人的 rig 形象包时，重新加一个**认 model.json 的目录扫描**即可。
 
 // ---------------------------------------------------------------------------
 //  人格
@@ -624,11 +681,9 @@ module.exports = {
   savePetConfigNow,
   patchPet,
   findPet,
-  // 形象
-  petImagePath,
-  petImageDataUrl,
-  importPetSkin,
-  listPetSkins,
+  // 形象（只有 rig）
+  petRigPack,
+  rigSkinDir,
   // 人格
   readPersona,
   writePersona,

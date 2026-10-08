@@ -113,8 +113,6 @@ contextBridge.exposeInMainWorld('mimitale', {
   petMemoryGet: (payload) => ipcRenderer.invoke('pet:memory:get', payload),
   petMemoryClear: (payload) => ipcRenderer.invoke('pet:memory:clear', payload),
   petMemoryExport: (payload) => ipcRenderer.invoke('pet:memory:export', payload),
-  petSkinPick: (payload) => ipcRenderer.invoke('pet:skin:pick', payload),
-  petSkinSet: (payload) => ipcRenderer.invoke('pet:skin:set', payload),
   petSetVisible: (payload) => ipcRenderer.invoke('pet:window:setVisible', payload),
 
   // 配置在别处被改了（比如右键菜单里点了「暂停主动发言」）→ 设置页要跟着刷新

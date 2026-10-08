@@ -25,11 +25,14 @@
 //  ────────────────────────────────────────────────────────────────────────
 // ============================================================================
 
-const sprite = document.getElementById('sprite');
 const spriteWrap = document.getElementById('sprite-wrap');
 const spriteEmpty = document.getElementById('sprite-empty');
 const bubble = document.getElementById('bubble');
 const bubbleLines = document.getElementById('bubble-lines');
+
+// 蓝白猫动态形象（rig 部件贴图渲染）。形象只有这一种 —— 第一版那张静态立绘
+// 的 <img> 渲染路径已经移除。
+import { catRig } from './cat.js';
 
 // alpha 低于这个值就当「这里是透明的」，鼠标穿过去。
 // 给 16 而不是 0：图片边缘半透明的抗锯齿像素不该咬住鼠标。
@@ -58,8 +61,6 @@ let streamBuffer = '';
 //  和主进程的来往
 // ---------------------------------------------------------------------------
 
-let appliedImage = '';
-
 function applyState(payload) {
   if (!payload) return;
   petState = payload;
@@ -68,21 +69,31 @@ function applyState(payload) {
   const scale = Math.max(0.4, Math.min(2, Number(pet.scale) || 1));
   document.documentElement.style.setProperty('--scale', String(scale));
 
-  const image = pet.image || '';
-  if (image && image !== appliedImage) {
-    appliedImage = image;
-    sprite.src = image;
-    sprite.hidden = false;
-    spriteEmpty.hidden = true;
-    // 换图之后原来的掩码作废；等图片解码完再重建
-    mask = null;
-  } else if (!image) {
-    appliedImage = '';
-    sprite.removeAttribute('src');
-    sprite.hidden = true;
+  // 形象只有 rig 一种：模型 + 贴图都由主进程转成 dataUrl 推来（CSP 拦 fetch），
+  // 渲染交给 cat.js。资产缺失时 rig 为 null → 露出「形象没加载出来」占位。
+  const rigData = pet.rig || null;
+  if (!rigData || !rigData.model) {
+    catRig.dispose();
     spriteEmpty.hidden = false;
     mask = null;
+    return;
   }
+
+  spriteEmpty.hidden = true;
+  catRig.mount(spriteWrap);
+  catRig.applyState(rigData)
+    .then(() => {
+      // 贴图解码 + 首帧渲染之后掩码才有像素可读；等一小会儿再重建
+      setTimeout(() => requestAnimationFrame(rebuildMask), 150);
+    })
+    .catch((err) => {
+      // WebGL 起不来之类的初始化失败：露出占位框，别让窗口空着什么都不显示
+      console.warn('[pet] 动态形象初始化失败:', err && err.message);
+      catRig.dispose();
+      spriteEmpty.hidden = false;
+      mask = null;
+    });
+  mask = null;
 }
 
 async function pullState() {
@@ -97,6 +108,11 @@ async function pullState() {
 //  不透明掩码
 // ---------------------------------------------------------------------------
 
+/** 掩码的像素源：rig 的 canvas（preserveDrawingBuffer 开着，能读像素）。 */
+function maskSource() {
+  return catRig.active ? catRig.canvas || null : null;
+}
+
 /**
  * 把当前显示尺寸的形象画进离屏 canvas，取 alpha 存成掩码。
  *
@@ -106,9 +122,10 @@ async function pullState() {
  */
 function rebuildMask() {
   mask = null;
-  if (!sprite.complete || !sprite.naturalWidth || sprite.hidden) return;
+  const src = maskSource();
+  if (!src) return;
 
-  const rect = sprite.getBoundingClientRect();
+  const rect = src.getBoundingClientRect();
   const w = Math.round(rect.width);
   const h = Math.round(rect.height);
   if (w <= 0 || h <= 0) return;
@@ -119,7 +136,7 @@ function rebuildMask() {
     canvas.height = h;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(sprite, 0, 0, w, h);
+    ctx.drawImage(src, 0, 0, w, h);
     const pixels = ctx.getImageData(0, 0, w, h).data;
 
     const alpha = new Uint8Array(w * h);
@@ -130,11 +147,6 @@ function rebuildMask() {
     mask = null;
   }
 }
-
-sprite.addEventListener('load', () => {
-  // 等一帧：load 时布局可能还没算完，getBoundingClientRect 会拿到 0
-  requestAnimationFrame(rebuildMask);
-});
 
 window.addEventListener('resize', () => requestAnimationFrame(rebuildMask));
 
@@ -151,12 +163,18 @@ function inBubble(x, y) {
 
 /** 点是不是落在宠物的**实体像素**上 */
 function inSprite(x, y) {
-  if (sprite.hidden) return false;
-  const r = sprite.getBoundingClientRect();
+  if (!catRig.active) return false;
+  const src = catRig.canvas;
+  if (!src) return false;
+  const mirrored = catRig.mirrored;
+  const r = src.getBoundingClientRect();
   if (x < r.left || x > r.right || y < r.top || y > r.bottom) return false;
   if (!mask) return true;
 
-  const px = Math.floor(((x - r.left) / r.width) * mask.w);
+  let px = Math.floor(((x - r.left) / r.width) * mask.w);
+  // 镜像（面朝左）时 canvas 像素没翻、显示翻了 —— 掩码索引要跟着反，
+  // 不然点击命中区是左右错位的（点尾巴才算点到脸）
+  if (mirrored) px = mask.w - 1 - px;
   const py = Math.floor(((y - r.top) / r.height) * mask.h);
   if (px < 0 || py < 0 || px >= mask.w || py >= mask.h) return false;
   return mask.alpha[py * mask.w + px] >= ALPHA_THRESHOLD;
@@ -262,9 +280,19 @@ window.petBridge.onState((payload) => {
   requestAnimationFrame(rebuildMask);
 });
 
+window.petBridge.onWalk?.((payload) => catRig.walk(payload));
+
+/**
+ * 这一轮「想」的过程中有没有真收到一句完整的 pet:say。
+ * 用来分辨「生成失败」和「生成成功」—— 两条路的收尾都是 busy:false（见 onBusy）。
+ */
+let saidThisCycle = false;
+
 window.petBridge.onBusy((busy) => {
+  catRig.setBusy(busy === true);
   spriteWrap.classList.toggle('busy', busy === true);
   if (busy === true) {
+    saidThisCycle = false;
     streaming = true;
     streamBuffer = '';
     clearBubbleTimers();
@@ -276,16 +304,29 @@ window.petBridge.onBusy((busy) => {
     bubbleLines.appendChild(p);
   } else {
     streaming = false;
+    // 失败 / 被停掉时，主进程只发 busy:false、**不发 pet:say**，而收气泡的
+    // hideBubble 只有 showLines（成功那条路）会调，也没有任何定时器会来收 ——
+    // 不在这里收掉的话，「嗯…我想想…」会一直挂在宠物头上，要等下一次成功
+    // 说话才被顶掉（没配 API Key / 网络错的时候就能看到）。
+    // 成功那条路是「先 say 再 busy:false」，所以拿这个标志避开它，别把刚说出来的话抹了。
+    if (!saidThisCycle) hideBubble();
   }
 });
 
 window.petBridge.onChunk((text) => {
+  catRig.chunk();
   if (!streaming) {
-    // 没收到 busy 就先来了增量（比如窗口刚起来），补一个占位
+    // 没收到 busy 就先来了增量（比如窗口刚起来 / 热重载 / 重新启用桌宠），
+    // 补一个占位节点再往下写。少了 appendChild 这一句，下面的
+    // firstElementChild 就是 null，整段增量会被白白攒进 streamBuffer
+    // 而一个字都不显示，只有最后 pet:say 才一次性铺出来。
     streaming = true;
     streamBuffer = '';
     bubble.hidden = false;
     bubbleLines.replaceChildren();
+    const p = document.createElement('p');
+    p.className = 'bubble-line typing';
+    bubbleLines.appendChild(p);
   }
   streamBuffer += String(text || '');
   const node = bubbleLines.firstElementChild;
@@ -296,12 +337,15 @@ window.petBridge.onChunk((text) => {
 });
 
 window.petBridge.onSay((payload) => {
+  saidThisCycle = true;
   streaming = false;
+  catRig.said();
   spriteWrap.classList.remove('busy');
   const lines = payload && Array.isArray(payload.lines) ? payload.lines : [];
   if (lines.length) showLines(lines);
   else if (payload && payload.text) showOne(payload.text);
-  // 空回复：什么都不说就好，别留一个空气泡挂在那儿
+  // 空回复：什么都不说就好，别留一个空气泡挂在那儿（占位那句也一起收掉）
+  else hideBubble();
 });
 
 // ---------------------------------------------------------------------------
@@ -316,12 +360,16 @@ spriteWrap.addEventListener('mousedown', (event) => {
   // 不加这道判断的话，在宠物旁边的透明区域按一下也会把宠物拖走。
   if (!inSprite(event.clientX, event.clientY)) return;
   dragging = true;
+  catRig.dragBegin();
   spriteWrap.classList.add('dragging');
   window.petBridge.dragStart();
   event.preventDefault();
 });
 
 document.addEventListener('mousemove', (event) => {
+  // 视线跟踪的原料：相对窗口中心的偏移（cat.js 内部会 clamp / 衰减）
+  const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+  catRig.mouseMove((event.clientX - cx) / 40, (event.clientY - cy) / 40);
   // 拖动中一律不穿透：窗口跟着光标跑，中途一穿透就可能把 mouseup 弄丢
   if (dragging) {
     setClickThrough(false);
@@ -333,6 +381,7 @@ document.addEventListener('mousemove', (event) => {
 document.addEventListener('mouseup', async (event) => {
   if (!dragging || event.button !== 0) return;
   dragging = false;
+  catRig.dragEnd();
   spriteWrap.classList.remove('dragging');
   // 拖完光标可能停在透明区域上，主动重算一次
   setClickThrough(!(inBubble(event.clientX, event.clientY) || inSprite(event.clientX, event.clientY)));
@@ -349,7 +398,7 @@ document.addEventListener('mouseup', async (event) => {
     // 「点一下」= 摸它一下：主进程在本地给一句应声，不调模型、不花钱
     try {
       const res = await window.petBridge.poke();
-      if (res && res.text) showOne(res.text);
+      if (res && res.text) { catRig.poked(); showOne(res.text); }
     } catch (err) {
       /* 摸不到不该报错 */
     }
@@ -361,6 +410,7 @@ document.addEventListener('mouseup', async (event) => {
 window.addEventListener('blur', () => {
   if (!dragging) return;
   dragging = false;
+  catRig.dragEnd();
   spriteWrap.classList.remove('dragging');
   window.petBridge.dragEnd();
 });

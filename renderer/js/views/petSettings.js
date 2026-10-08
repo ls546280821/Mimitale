@@ -110,67 +110,6 @@ function renderModelSelect() {
   if (!select.value || select.selectedIndex < 0) select.selectedIndex = 0;
 }
 
-function renderSkins() {
-  const cache = petState();
-  const pet = currentPet();
-  const box = el.pet.skins;
-  if (!box || !pet) return;
-
-  clear(box);
-  const skins = (cache && cache.skins) || [];
-  if (!skins.length) {
-    box.appendChild(h('div', { class: 'field-help', text: '没找到形象文件（assets/pet/default 里应该是空的）' }));
-    return;
-  }
-
-  for (const item of skins) {
-    const active =
-      pet.look &&
-      pet.look.source === item.source &&
-      pet.look.skin === item.skin &&
-      pet.look.file === item.file;
-
-    box.appendChild(
-      h(
-        'button',
-        {
-          type: 'button',
-          class: ['pet-skin', active && 'active'],
-          title: item.label,
-          onclick: async () => {
-            await api.petSkinSet({ petId: pet.id, source: item.source, skin: item.skin, file: item.file });
-            await refreshPetCache();
-            renderPetSettings();
-          }
-        },
-        h('img', { src: petImageUrlFor(cache, item), alt: '' }),
-        h('span', { class: 'pet-skin-name', text: item.file })
-      )
-    );
-  }
-}
-
-/**
- * 皮肤小图。
- * ⚠️ 只有**当前正在用的那张**能拿到 data URL（主进程只在状态里带了宠物的形象），
- *    其余的用一个中性占位方块 —— 为了画一排缩略图把每张图都读成 base64
- *    递过来，代价比收益大得多（形象是几百 KB 的图，一排就是几 MB）。
- */
-function petImageUrlFor(cache, item) {
-  const pet = currentPet();
-  if (
-    pet &&
-    pet.look &&
-    pet.look.source === item.source &&
-    pet.look.skin === item.skin &&
-    pet.look.file === item.file &&
-    pet.image
-  ) {
-    return pet.image;
-  }
-  return '';
-}
-
 function renderMemory(items, digest) {
   const box = el.pet.memory;
   if (!box) return;
@@ -236,7 +175,6 @@ export function renderPetSettings() {
   el.pet.btnMute.textContent = remain > 0 ? `取消静音（剩 ${Math.ceil(remain / 60000)} 分）` : '静音 1 小时';
 
   renderModelSelect();
-  renderSkins();
   renderStatusLine();
 }
 
@@ -390,19 +328,6 @@ export function initPetSettings(opts) {
     showToast('已还原成内置人格', 'ok');
   });
 
-  // ---- 形象 ----
-
-  el.pet.btnSkinPick.addEventListener('click', async () => {
-    const result = await api.petSkinPick({}).catch((err) => ({ ok: false, error: err && err.message }));
-    if (result && result.ok) {
-      await refreshPetCache();
-      renderPetSettings();
-      showToast('形象换好了', 'ok');
-    } else if (result && result.error) {
-      showToast(`换形象失败：${result.error}`, 'error');
-    }
-  });
-
   // ---- 状态按钮 ----
 
   el.pet.btnSpeak.addEventListener('click', async () => {
@@ -483,7 +408,15 @@ export function initPetSettings(opts) {
   //
   // 弹窗关着的时候不画：表单在 DOM 里一直存在，没必要为一个看不见的界面
   // 反复重排，而且那还会在用户下次打开前把正在编辑的内容冲掉一次。
-  api.onPetChanged(() => {
+  api.onPetChanged(async () => {
+    // 缓存**永远**要刷：右键菜单（在宠物窗口上）改的就是这份配置，而
+    // maybePetAutoSpeak 的几个闸门（总开关 / 主动发言 / 隐藏 / 静音 / 轮数）
+    // 读的正是 petCache。弹窗关着就不刷的话，「隐藏桌宠」「暂停主动发言」
+    // 这些刚落盘的设置要等到下一次成功说话才生效 —— 表现就是
+    // 「我明明点了隐藏，过几轮它又自己冒出来」。
+    await refreshPetCache();
+    // 表单只在看得见的时候重画：弹窗关着时重排没意义，而且会在你下次打开前
+    // 把正在编辑的内容冲掉一次。
     if (el.modal && el.modal.classList.contains('hidden')) return;
     onPetStateChanged();
   });

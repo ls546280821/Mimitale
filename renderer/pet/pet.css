@@ -42,10 +42,10 @@ body {
 }
 
 /* ⚠️ 这一条**必须**有。
-   `.sprite` 和 `.sprite-empty` 都显式写了 `display`，而类选择器的优先级高于
-   浏览器默认的 `[hidden] { display: none }` —— 也就是说给它们加 `hidden`
+   `.sprite-empty` 显式写了 `display`，而类选择器的优先级高于
+   浏览器默认的 `[hidden] { display: none }` —— 也就是说给它加 `hidden`
    属性**根本不会隐藏**。症状就是「形象明明加载出来了，上面还压着一块
-   『形象没加载出来』」。（实际踩到过，还一度以为是图片路径的问题。） */
+   『形象没加载出来』」。（实际踩到过，还一度以为是形象路径的问题。） */
 [hidden] {
   display: none !important;
 }
@@ -53,7 +53,7 @@ body {
 .stage {
   position: absolute;
   inset: 0;
-  /* 默认整块不接鼠标：窗口是矩形的、宠物不是，只有 .hit 那几个元素才接管 */
+  /* 默认整块不接鼠标：窗口是矩形的、宠物不是 —— 命中判断在 pet.js 里逐像素做 */
   pointer-events: none;
 }
 
@@ -61,6 +61,8 @@ body {
    宠物
    --------------------------------------------------------------------------- */
 
+/* 事件都挂在这一层（拖拽 / 点一下 / 右键）。rig 的 canvas 由 cat.js 以
+   绝对定位挂进来，不受这里的 flex 影响 —— 留着 flex 只为让占位框居中。 */
 .sprite-wrap {
   position: absolute;
   inset: 0;
@@ -73,48 +75,6 @@ body {
 
 .sprite-wrap.dragging {
   cursor: grabbing;
-}
-
-.sprite {
-  max-width: 100%;
-  max-height: 100%;
-  width: auto;
-  height: auto;
-  object-fit: contain;
-  object-position: bottom center;
-  display: block;
-  pointer-events: none; /* 事件统一交给 .sprite-wrap，图片本身不参与命中判断 */
-  /* 生成中轻轻晃一下 —— 只动 transform，别动布局（动布局会触发重排，宠物会抖） */
-}
-
-.sprite-wrap.busy .sprite {
-  animation: pet-bob 1.1s ease-in-out infinite;
-}
-
-.sprite-wrap.talking .sprite {
-  animation: pet-nod 1.6s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .sprite-wrap.idle .sprite {
-    animation: pet-breathe 4.2s ease-in-out infinite;
-  }
-}
-
-@keyframes pet-breathe {
-  0%, 100% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(calc(-2px * var(--scale))) scale(1.006); }
-}
-
-@keyframes pet-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(calc(-5px * var(--scale))); }
-}
-
-@keyframes pet-nod {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(-1.2deg); }
-  75% { transform: rotate(1.2deg); }
 }
 
 .sprite-empty {

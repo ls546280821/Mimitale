@@ -23,7 +23,7 @@
 //  ────────────────────────────────────────────────────────────────────────
 // ============================================================================
 
-const { ipcMain, Menu, dialog } = require('electron');
+const { ipcMain, Menu } = require('electron');
 
 const { loadSettings } = require('./providers.js');
 const { getMainWindow, sendToRenderer } = require('./window.js');
@@ -33,9 +33,6 @@ const {
   savePetConfigNow,
   patchPet,
   findPet,
-  petImageDataUrl,
-  importPetSkin,
-  listPetSkins,
   petMemoryItems,
   petMemoryDigest,
   appendPetMemory,
@@ -52,6 +49,7 @@ const {
   SPEAK_LINES_MAX
 } = require('./pet-store.js');
 const { generatePetSpeech } = require('./pet-brain.js');
+const { startWalkLoop, stopWalkLoop, pauseWalk, resumeWalk, refreshWalk } = require('./pet-walk.js');
 const {
   createPetWindow,
   destroyPetWindow,
@@ -59,6 +57,7 @@ const {
   sendToPet,
   setPetVisible,
   pushPetState,
+  buildPetStatePayload,
   applyScale,
   startDrag,
   stopDrag
@@ -116,7 +115,7 @@ function flattenModels(settings) {
 
 /**
  * 给主界面（设置页）用的完整状态。
- * 和给宠物窗口的那份不是一回事：这边还要人格正文、记忆条数、可选形象，
+ * 和给宠物窗口的那份不是一回事：这边还要人格正文、记忆条数，
  * 那些宠物页面都用不上（它连人格都不该知道）。
  */
 function mainStatePayload() {
@@ -126,12 +125,11 @@ function mainStatePayload() {
 
   return {
     config,
-    pet: pet ? { ...pet, image: petImageDataUrl(pet.look) } : null,
+    pet: pet || null,
     models: flattenModels(settings),
     memoryCount: pet ? petMemoryItems(pet.id).length : 0,
     memoryDigest: pet ? petMemoryDigest(pet.id) : '',
     persona: pet ? readPersona(pet.id) : '',
-    skins: listPetSkins(),
     mainProviderName: settings.activeProviderId
       ? (settings.providers.find((p) => p.id === settings.activeProviderId) || {}).name || ''
       : '',
@@ -146,15 +144,7 @@ function broadcastState() {
   if (win) pushPetState();
 }
 
-/** 宠物窗口要的那一份：够它渲染就行，别把人格、记忆、别的宠物都递过去 */
-function petWindowState() {
-  const config = loadPetConfig();
-  const pet = findPet(config, config.activeId);
-  return {
-    config: { enabled: config.enabled, activeId: config.activeId },
-    pet: pet ? { ...pet, image: petImageDataUrl(pet.look) } : null
-  };
-}
+/** 宠物窗口要的那份状态统一走 pet-window.js 的 buildPetStatePayload（rig 形象包） */
 
 // ---------------------------------------------------------------------------
 //  说话
@@ -181,6 +171,14 @@ async function speakOnce(payload) {
   // 否则用户点了没反应，会以为坏了
   if (reason === 'auto' && pet.mutedUntil > Date.now()) {
     return { ok: false, skipped: true, error: '正在静音' };
+  }
+
+  // 隐藏 = 不说话。这里再挡一道的理由和上面静音那条一样：主界面那份缓存有可能
+  // 晚一拍（用户是在宠物窗口上右键改的配置），而这里读的是刚落盘的 config，最准。
+  // 少了这一道，speakOnce 后面那句 setPetVisible(true) 会把用户刚藏起来的猫
+  // 重新顶到桌面上来。
+  if (reason === 'auto' && !pet.visible) {
+    return { ok: false, skipped: true, error: '桌宠已隐藏' };
   }
 
   // 上一次还没说完：直接掐掉重来（宠物不该排队说两遍）
@@ -394,15 +392,19 @@ function popupPetMenu() {
     { label: '切换模型', submenu: modelSubmenu(pet, settings) },
     { type: 'separator' },
     { label: '桌宠设置…', click: () => openSettingsInMain('') },
-    { label: '更换形象…', click: () => pickAndSetSkin(null) },
     { label: '记忆', submenu: memorySubmenu(pet) },
     { type: 'separator' },
+    {
+      label: pet.walkEnabled ? '暂停散步（原地待着）' : '允许散步（在桌面上溜达）',
+      click: () => patchPet(pet.id, { walkEnabled: !pet.walkEnabled }).then(broadcastState)
+    },
     pet.visible
       ? { label: '隐藏桌宠', click: () => setVisibleAndRemember(pet, false) }
       : { label: '显示桌宠', click: () => setVisibleAndRemember(pet, true) },
     {
       label: '退出桌宠',
       click: () => {
+        stopWalkLoop();
         destroyPetWindow();
         savePetConfig({ ...loadPetConfig(), enabled: false }).then(broadcastState);
       }
@@ -418,27 +420,7 @@ function setVisibleAndRemember(pet, visible) {
   return patchPet(pet.id, { visible }).then(broadcastState);
 }
 
-/** 换形象：弹文件框 → 拷进 data/pet/skins → 写回配置 */
-async function pickAndSetSkin(petId) {
-  const parent = getMainWindow();
-  const result = await dialog.showOpenDialog(parent || undefined, {
-    title: '选一张图当桌宠形象',
-    properties: ['openFile'],
-    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }]
-  });
-  if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
-
-  try {
-    const look = importPetSkin(result.filePaths[0]);
-    const config = loadPetConfig();
-    const pet = findPet(config, petId || config.activeId);
-    await patchPet(pet.id, { look });
-    broadcastState();
-    return { ok: true, look };
-  } catch (err) {
-    return { ok: false, error: (err && err.message) || '换形象失败' };
-  }
-}
+// 「换形象」已移除：形象只有内置 rig 一种，没有「从文件选一张图」这条路了。
 
 // ---------------------------------------------------------------------------
 //  窗口位置记忆（pet-window.js 里是懒 require 调过来的）
@@ -482,10 +464,11 @@ function registerPetIpc() {
     const pet = findPet(config, config.activeId);
     if (pet) {
       applyScale(pet);
-      if (!config.enabled) destroyPetWindow();
+      if (!config.enabled) { stopWalkLoop(); destroyPetWindow(); }
       else setPetVisible(pet.visible);
     }
 
+    refreshWalk(); // walkEnabled / visible / enabled 都可能刚被改
     broadcastState();
     return mainStatePayload();
   });
@@ -565,26 +548,13 @@ function registerPetIpc() {
     };
   });
 
-  ipcMain.handle('pet:skin:pick', (_event, payload) => pickAndSetSkin(payload && payload.petId));
-
-  ipcMain.handle('pet:skin:set', async (_event, payload) => {
-    const data = payload || {};
-    const config = loadPetConfig();
-    const pet = findPet(config, data.petId || config.activeId);
-    if (!pet) return { ok: false, error: '没有可用的桌宠' };
-    await patchPet(pet.id, {
-      look: { kind: 'png', source: data.source === 'user' ? 'user' : 'assets', skin: data.skin || 'default', file: data.file }
-    });
-    broadcastState();
-    return { ok: true };
-  });
-
   ipcMain.handle('pet:window:setVisible', async (_event, payload) => {
     const visible = !(payload && payload.visible === false);
     const config = loadPetConfig();
     const pet = findPet(config, config.activeId);
     if (!pet) return { ok: false, error: '没有可用的桌宠' };
     await setVisibleAndRemember(pet, visible);
+    refreshWalk(); // 猫刚藏起来/冒出来，散步条件变了
     return { ok: true, visible };
   });
 
@@ -592,10 +562,10 @@ function registerPetIpc() {
 
   ipcMain.on('pet:ready', () => pushPetState());
 
-  ipcMain.handle('pet:state:get', () => petWindowState());
+  ipcMain.handle('pet:state:get', () => buildPetStatePayload());
 
-  ipcMain.on('pet:drag-start', () => startDrag());
-  ipcMain.handle('pet:drag-end', () => stopDrag());
+  ipcMain.on('pet:drag-start', () => { pauseWalk(); startDrag(); });
+  ipcMain.handle('pet:drag-end', () => { resumeWalk(); return stopDrag(); });
 
   ipcMain.on('pet:set-click-through', (_event, ignore) => {
     const win = getPetWindow();
@@ -632,10 +602,12 @@ function startPet() {
   // 用 showInactive：启动时宠物冒出来**不该抢焦点**，
   // 否则用户一开软件光标就被从输入框里挤走了
   if (win) win.showInactive();
+  startWalkLoop(); // 散步循环跟窗口一起起（条件不满足时它自己会不动）
 }
 
 /** 关软件时的收尾：把位置同步写下去（异步写盘可能来不及） */
 function shutdownPet() {
+  stopWalkLoop();
   const config = loadPetConfig();
   const win = getPetWindow();
   if (win && !win.isDestroyed()) {

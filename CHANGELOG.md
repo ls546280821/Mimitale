@@ -4,6 +4,104 @@
 
 ---
 
+## 2026-10-09 桌宠形象：补齐五官叠加层（眼睛 / 嘴）+ 眨眼
+
+rig 猫的脸一直是**没有五官**的：`face` 贴图是沿「洋红遮罩」从母版抠的，而洋红版
+编辑图不给五官内部上色，于是眼睛在遮罩里就是洞 —— 抠出来的脸在眼睛位置只剩
+`solidify` 填进去的一点残迹，嘴也被抹掉。这次把五官做成**独立叠加层**补上。
+
+### 做法
+
+五官**不重做脸**，而是从**母版原图**直接抠成独立贴图，画在脸之上、走 `headFeat`
+变形器（与 `face` 的 `headMid` 同一组视差参数 → 五官与脸同步动）。这样换眼型 /
+闭眼 / 以后的表情只换叠加层，脸不用动。
+
+- `eye_open.png` —— 蓝像素(B−R>18) 取左右眼主块 → 外扩纳入黑色眼线 → 凸包成椭圆，
+  RGB 取母版（自带瞳孔 / 高光 / 眼线）
+- `eye_closed.png` —— 程序化：每只眼一条上凸弧，线色取母版眼线上缘的中位色
+- `mouth.png` —— 比皮肤更红的像素 → 凸包成实心椭圆
+- 眉毛：母版里被刘海盖住，**没有**，不做
+
+同时把 `face.png` 的眼形区补成**不透明肤色** —— 原本那儿是透明洞，睁眼时被叠加层
+盖住看不出来，但**闭眼**时会露出洞。
+
+### 眨眼
+
+`eye_open` / `eye_closed` 同 box 同 z，靠 `rig.render(st)` 的 `st.alpha` 交叉切换。
+随机 1.6~5 秒眨一次，一次 0.15 秒（`|cos(πp)|` 包络，闭上再睁开）；`mode === 'sleep'`
+时强制全闭。**`rig.js` 一行没改** —— `st.alpha` / `st.z` / `opts.hidden` 本来就是
+它的能力。
+
+### 契约与管线
+
+`model.json` 的 `feat` 从空 `{}` 变成 `{ id: { id, tex, z, parent, grid, box } }`
+（与 `parts[]` 同构），贴图放 `assets/pet/<skin>/feat/*.png`。
+
+- 管线新增第 7 步 `feat_eyes.py`（母版抠五官 + 修 face 眼区），`run_all.py` 由 8 → **9 步**
+- `pack_cat.py` 读 `pack/feat/boxes.json`，按同一套 S/X0/FEET 换算 rig box 写进 `model.json`
+- `install_cat.py` 多拷一个 `feat/`
+- `pet-store.js` 的 `petRigPack` 读完 parts 后追加遍历 `model.feat`
+  （**缺图只 warn、不整包作废** —— feat 是可选层）
+- `cat-figure.js` 把 feat 精灵拼进 parts + 眨眼逻辑；`cat.js` **不用改**（它全量加载 tex）
+
+### 测试
+
+- `tools/test-pet-store.js` → 57/57
+- `npm run smoke` → 1140/1140、控制台报错 0
+- 宠物窗口**不在冒烟覆盖内**（冒烟只加载主窗口 `index.html`），所以另外用 electron
+  把猫渲染出来截图核对：睁眼 / 闭眼两态的位置、层级、切换都正确
+
+### 仍然缺的（下一步）
+
+**侧发 / 后发 / 呆毛的白底** —— `pack_cat.py` 里早就注明「尚未拆件」。母版两侧垂到
+胸口的蓝白长发、脑后那一整片、以及呆毛的白色部分都还没拆出来，渲染出来的猫头发
+明显比母版少一大截。要补得照五官这套再加一组叠加层 / 部件。
+
+## 2026-10-09 桌宠：移除第一版的静态立绘，形象只留 rig 动态猫
+
+第一版桌宠的形象是**一张静态立绘 PNG**（`assets/pet/default/`，用 `tools/pet/make-default-skin.py`
+把人设海报抠出来），那只是「还没有 2D 形象」时的临时方案。有了 rig 动态蓝白猫（第二版）之后，
+这条路径**整个移除** —— 桌宠形象只有 rig 一种了。
+
+### 去掉的东西
+
+- **代码**：`pet-store.js` 的 `DEFAULT_PNG_LOOK` / `petImagePath` / `petImageDataUrl` /
+  `importPetSkin` / `listPetSkins`；`look` 不再有 `file` 字段、`kind` 只认 `rig`。
+  `pet-ipc.js` 的「更换形象…」「用回蓝白猫」两个右键项 + `pet:skin:pick` / `pet:skin:set` 通道。
+  `preload.js` 的 `petSkinPick` / `petSkinSet`。
+  宠物页的 `<img id="sprite">` 静态图渲染路径（`renderer/pet/pet.html` / `pet.js` / `pet.css`）。
+  设置页的「形象」区块（`renderer/index.html` + `core/dom.js` + `style.css`）。
+- **资源**：`assets/pet/default/`、`tools/pet/make-default-skin.py` —— ✅ 已删除
+  （清理记录见文末「要删的文件」一节）。
+
+### 老配置的迁移
+
+盘上 `data/pet/config.json` 里存的 `look: { kind: 'png', skin: 'default', … }` 会被
+`normalizeLook` **迁移**成默认 rig 猫（`{ kind: 'rig', source: 'assets', skin: 'cat' }`）——
+不然宠物只剩一个「形象没加载出来」占位框。测试里专门加了一条断言盯着这个迁移。
+
+rig 资产缺失 / WebGL 起不来时，宠物页面显示「形象没加载出来」占位（**不再**回退静态图）。
+
+### 要删的文件（✅ 已全部删掉）
+
+```
+assets/pet/default/8cb9700671c063df79e4cdcfedd513c1.png   第一版抠好的立绘      ✅ 已删
+assets/pet/default/source/original-1024.png               原图留档              ✅ 已删
+tools/pet/make-default-skin.py                            生成上述立绘的脚本     ✅ 已删
+tools/pet/crop-for-matte.png / preview-checker.png        该脚本的中间产物      从没落过盘
+```
+`assets/pet/default/` 整个目录（连 `source/`）已经删掉；`data/pet/skins/` 本来就不存在。
+`.gitignore` 里那几条给这个脚本产物用的忽略规则也一并清掉了 —— 只留
+`tools/pet/pet-window.png`（那是 `tools/pet/capture-pet-window.js` 的产物，还在用）。
+
+### 测试
+
+- `tools/test-pet-store.js`：原来那条「默认形象文件名 = 8cb97….png」的断言是照第一版写的，
+  早就过期（跑必红）—— 改成盯 `look.kind === 'rig'` / `look.skin === 'cat'`，并补了一条
+  **png → rig 迁移**的断言（现在 **57 条**）。
+- `tools/smoke-test.js`：假后端的 `look` 改成 rig，去掉 `image` / `skins` 字段和 `pet:skin:*` 桩；
+  `--shot=petSettings` 场景的注释同步（不再有「形象小图一排」）。
+
 ## 2026-10-08 补：「叙述模式无效」的真因是渲染层；台词加粗加正反例 + 末尾提醒
 
 用户拿着真实回复来报：「角色说话的句子没加粗和变色呀，而且叙述模式依旧无效」。

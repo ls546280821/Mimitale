@@ -167,6 +167,10 @@ export async function maybePetAutoSpeak() {
 
   if (!config || !config.enabled || !pet) return { ok: false, skipped: true, why: 'off' };
   if (!pet.speakEnabled) return { ok: false, skipped: true, why: 'paused' };
+  // 「隐藏桌宠」= 用户不想看见它，那也不该听见它。和上面几个闸门同一个口径：
+  // 返回在**计数之前**，所以隐藏期间不攒轮数，重新显示后要重新攒够 N 轮才开口
+  // （否则一显示出来就立刻蹦一句，像是「隐藏根本没用」）。
+  if (!pet.visible) return { ok: false, skipped: true, why: 'hidden' };
   if (pet.mutedUntil > Date.now()) return { ok: false, skipped: true, why: 'muted' };
 
   const convo = activeConvo();

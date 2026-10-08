@@ -5532,53 +5532,6 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   pointer-events: none;
 }
 
-/* 形象列表：一排小方块，当前那个描一圈强调色 */
-.pet-skins {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.pet-skin {
-  width: 76px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elev);
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  transition: border-color 0.15s, box-shadow 0.15s;
-}
-
-.pet-skin:hover { border-color: var(--border-hover); }
-
-.pet-skin.active {
-  border-color: var(--accent-border);
-  box-shadow: var(--focus-ring);
-}
-
-/* 形象是带透明通道的图，给它一个浅色棋盘底才看得出边界 */
-.pet-skin img {
-  width: 100%;
-  height: 56px;
-  object-fit: contain;
-  background: var(--bg-input);
-  border-radius: 8px;
-}
-
-.pet-skin-name {
-  max-width: 100%;
-  font-size: 10.5px;
-  color: var(--text-faint);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* 预览框：多行文本 + 保留换行（宠物是一句一行地说的，挤成一坨就看不出句数） */
 .pet-preview {
   margin-top: 8px;

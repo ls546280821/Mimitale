@@ -1,0 +1,175 @@
+'use strict';
+
+// ============================================================================
+//  main/pet-walk.js —— 桌宠散步（让蓝白猫在桌面上自己溜达）
+//
+//  为什么放在主进程：窗口的位置只有主进程能动（渲染层只知道自己窗口内的事），
+//  而且和拖动走的是同一套「16ms 轮询 setPosition」机制 —— 不经过渲染层转发
+//  坐标，就不会抖、也不会跟系统缩放打架（见 pet-window.js 文件头）。
+//
+//  行为节奏（一期 deliberately 从简）：
+//    等 90~360 秒（随机） → 在**当前显示器的工作区**里挑一个相距 120~420px 的
+//    目标点 → 以 40px/s 匀速走过去 → 到达即停 → 回到等待。
+//
+//  中断规则：
+//    · 拖拽中不散（用户拎着它呢）—— pet-ipc 的 drag-start / drag-end 会调 pause/resume
+//    · 隐藏 / 退出桌宠 / walkEnabled 关掉 → 循环整个停下（条件恢复时重新起）
+//    · 说话不打断：边走边吐槽是它的自由
+//
+//  对渲染层只推一个事件：pet:walk { walking, facing } —— 猫切步态 / 转身。
+//  散步期间的窗口移动会连发 'moved' → pet-window 的防抖存位在停步后落一次盘，
+//  正好把散步终点记下来（重启后猫从上次溜达完的地方出现）。
+// ============================================================================
+
+const { screen } = require('electron');
+
+const { loadPetConfig, findPet } = require('./pet-store.js');
+const { getPetWindow, sendToPet } = require('./pet-window.js');
+
+/** 等待间隔（秒）：两次散步之间 */
+const WAIT_MIN = 90;
+const WAIT_MAX = 360;
+/** 单趟距离（px）与速度（px/s） */
+const TRIP_MIN = 120;
+const TRIP_MAX = 420;
+const SPEED = 40;
+/** 步进间隔（ms）—— 和拖动同款 */
+const STEP_MS = 16;
+
+let planTimer = null;   // 等待下一趟的定时器
+let walkTimer = null;   // 一趟中的 16ms 步进
+let target = null;      // { x, y } 目标窗口左上角
+let paused = false;     // 拖拽等临时暂停（不拆整个循环）
+
+// ---------------------------------------------------------------------------
+//  条件与生命周期
+// ---------------------------------------------------------------------------
+
+/** 散步的总开关条件：功能开着 + 这只猫可见 + 允许散步 + 窗口在 */
+function walkAllowed() {
+  const config = loadPetConfig();
+  if (!config.enabled) return false;
+  const pet = findPet(config, config.activeId);
+  if (!pet || !pet.visible || pet.walkEnabled === false) return false;
+  const win = getPetWindow();
+  return !!(win && !win.isDestroyed() && win.isVisible());
+}
+
+/** 状态变化后调：条件满足就保证循环在跑，不满足就整个停下 */
+function refreshWalk() {
+  if (walkAllowed()) {
+    if (!planTimer && !walkTimer) scheduleNextTrip();
+  } else {
+    stopTrip(false);
+    clearTimeout(planTimer);
+    planTimer = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  一趟散步
+// ---------------------------------------------------------------------------
+
+function scheduleNextTrip() {
+  clearTimeout(planTimer);
+  planTimer = setTimeout(() => {
+    planTimer = null;
+    // 暂停 / 条件不满足时**不自动重排**——等外部（resumeWalk / refreshWalk）
+    // 在状态变化时再排，避免暂停期间每几分钟空转一次
+    if (paused || !walkAllowed()) return;
+    startTrip();
+  }, (WAIT_MIN + Math.random() * (WAIT_MAX - WAIT_MIN)) * 1000);
+}
+
+function startTrip() {
+  const win = getPetWindow();
+  if (!win || win.isDestroyed()) return;
+
+  const bounds = win.getBounds();
+  const work = screen.getDisplayMatching(bounds).workArea;
+  const margin = 24; // 离屏幕边至少留这么多，别贴边或压任务栏
+
+  // 目标点：当前附近 120~420px，clamp 进工作区（窗口完整可见）
+  const dist = TRIP_MIN + Math.random() * (TRIP_MAX - TRIP_MIN);
+  const angle = Math.random() * Math.PI * 2;
+  let x = bounds.x + Math.cos(angle) * dist;
+  let y = bounds.y + Math.sin(angle) * dist * 0.6; // 桌面是横向的，纵向少走点
+  x = Math.round(Math.max(work.x + margin, Math.min(work.x + work.width - bounds.width - margin, x)));
+  y = Math.round(Math.max(work.y + margin, Math.min(work.y + work.height - bounds.height - margin, y)));
+  target = { x, y };
+
+  const dx = x - bounds.x;
+  if (Math.abs(dx) < 8) { stopTrip(true); return; } // 几乎是原地，不值得走
+
+  const facing = dx > 0 ? 1 : -1;
+  sendToPet('pet:walk', { walking: true, facing });
+
+  let last = Date.now();
+  clearInterval(walkTimer);
+  walkTimer = setInterval(() => {
+    const w = getPetWindow();
+    if (!w || w.isDestroyed() || paused || !target) { stopTrip(false); return; }
+    const now = Date.now();
+    const step = SPEED * Math.max(0.001, (now - last) / 1000);
+    last = now;
+    const b = w.getBounds();
+    const ddx = target.x - b.x, ddy = target.y - b.y;
+    const d = Math.hypot(ddx, ddy);
+    if (d <= Math.max(2, step)) {
+      w.setPosition(target.x, target.y);
+      stopTrip(true);
+      return;
+    }
+    w.setPosition(Math.round(b.x + (ddx / d) * step), Math.round(b.y + (ddy / d) * step));
+  }, STEP_MS);
+}
+
+/**
+ * 结束当前这趟（或取消还没开始的这趟）。
+ * notify=true 时告诉渲染层「停下了」（猫从步态回站立）。
+ */
+function stopTrip(notify) {
+  clearInterval(walkTimer);
+  walkTimer = null;
+  target = null;
+  if (notify) sendToPet('pet:walk', { walking: false });
+  if (!planTimer) scheduleNextTrip();
+}
+
+// ---------------------------------------------------------------------------
+//  对外
+// ---------------------------------------------------------------------------
+
+/** 启动散步循环（pet-ipc 注册时调） */
+function startWalkLoop() {
+  paused = false;
+  refreshWalk();
+}
+
+/** 整个停下（退出桌宠 / 关软件） */
+function stopWalkLoop() {
+  paused = false;
+  stopTrip(false);
+  clearTimeout(planTimer);
+  planTimer = null;
+}
+
+/** 临时暂停（拖拽中）：取消当前趟，条件恢复后重新等下一趟 */
+function pauseWalk() {
+  if (!planTimer && !walkTimer) return;
+  paused = true;
+  if (walkTimer) stopTrip(true); // 推 walking:false，猫停下步态
+}
+
+function resumeWalk() {
+  paused = false;
+  refreshWalk();
+}
+
+module.exports = {
+  startWalkLoop,
+  stopWalkLoop,
+  pauseWalk,
+  resumeWalk,
+  refreshWalk
+};

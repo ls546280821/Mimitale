@@ -35,7 +35,7 @@
 const path = require('node:path');
 const { BrowserWindow, screen, shell } = require('electron');
 
-const { loadPetConfig, findPet, petImageDataUrl } = require('./pet-store.js');
+const { loadPetConfig, findPet, petRigPack } = require('./pet-store.js');
 
 /** 1 倍缩放下的窗口尺寸（内容区）。缩放直接乘在这个上面 —— 见 applyScale */
 const BASE_WIDTH = 300;
@@ -243,7 +243,10 @@ function createPetWindow() {
       preload: petPreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // 设计记录 + CHANGELOG 写的就是「contextIsolation:true + sandbox:true 全开」，
+      // 而主窗口 main/window.js 没写这行（= Electron 默认 true）。宠物窗口拿到的
+      // 权限本来就比主界面窄，别让它反而比主窗口宽松。
+      sandbox: true,
       spellcheck: false,
       backgroundThrottling: false
     }
@@ -315,16 +318,27 @@ function setPetVisible(visible) {
 }
 
 /**
- * 宠物页面加载好了 —— 把当前该渲染的东西一次推给它。
- * 页面每次刷新（比如开发模式热重载）都会重新来一遍，所以这里必须是**幂等**的。
+ * 构造给宠物窗口的那份状态。
+ * 两个入口（页面 ready 时的主动推送、页面主动拉取 pet:state:get）都走这里，
+ * 保证数据形状一致 —— 尤其 rig 字段两边必须一样，否则先到的「无 rig」那份
+ * 会让渲染层把刚挂好的动态猫拆掉（只剩占位框）。
+ *
+ * rig 形象（蓝白猫）：model + 贴图转 dataUrl 一起推。宠物页面 CSP 是
+ * default-src 'none'，fetch 一律被拦，只能由主进程读盘转好递过去。
+ * 页面每次刷新（开发模式热重载等）都会重新来一遍，所以这里必须是**幂等**的。
  */
-function pushPetState() {
+function buildPetStatePayload() {
   const config = loadPetConfig();
   const pet = findPet(config, config.activeId);
-  sendToPet('pet:state', {
-    config,
-    pet: pet ? { ...pet, image: petImageDataUrl(pet.look) } : null
-  });
+  const rig = pet ? petRigPack(pet.look) : null;
+  return {
+    config: { enabled: config.enabled, activeId: config.activeId },
+    pet: pet ? { ...pet, rig } : null
+  };
+}
+
+function pushPetState() {
+  sendToPet('pet:state', buildPetStatePayload());
 }
 
 module.exports = {
@@ -337,6 +351,10 @@ module.exports = {
   sendToPet,
   setPetVisible,
   pushPetState,
+  // ⚠️ 必须导出：main/pet-ipc.js 的 `pet:state:get` 通道直接调它。
+  //    漏掉的话那个 handler 每次抛 TypeError，宠物页面 pullState() 永远拿不到状态
+  //    （只剩 pet:ready 的推送那条路，拉取那条是哑的）。
+  buildPetStatePayload,
   applyScale,
   startDrag,
   stopDrag,

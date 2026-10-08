@@ -55,5 +55,8 @@ contextBridge.exposeInMainWorld('petBridge', {
   // 流式增量（走的是 pet:chunk 这个**独立频道**，不是主对话的 chat:chunk）
   onChunk: (handler) => on('pet:chunk', handler),
   // 正在生成 / 生成结束，用来切「思考中」的表情
-  onBusy: (handler) => on('pet:busy', handler)
+  onBusy: (handler) => on('pet:busy', handler),
+  // 散步状态（主进程的 pet-walk 推来 { walking, facing }）——
+  // 渲染层用它切换步态；方向变了猫要转身（镜像）
+  onWalk: (handler) => on('pet:walk', handler)
 });

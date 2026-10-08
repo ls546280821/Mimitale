@@ -1,0 +1,341 @@
+{
+ "units": {
+  "S": 0.1847,
+  "X0": 736,
+  "FEET": 1470,
+  "DS": 0.6,
+  "featDS": 1
+ },
+ "pivots": {
+  "body": [
+   128.0,
+   256.0
+  ],
+  "waist": [
+   128.0,
+   169.19
+  ],
+  "neck": [
+   128.0,
+   136.5
+  ],
+  "armNear": [
+   92.54,
+   163.65
+  ],
+  "armFar": [
+   161.06,
+   166.42
+  ],
+  "legBack": [
+   113.04,
+   205.21
+  ],
+  "legFront": [
+   141.67,
+   207.98
+  ],
+  "tail": [
+   161.06,
+   182.12
+  ],
+  "earNear": [
+   95.49,
+   56.52
+  ],
+  "earFar": [
+   158.29,
+   64.84
+  ],
+  "ahoge": [
+   133.36,
+   26.97
+  ],
+  "head": [
+   126.52,
+   102.33
+  ]
+ },
+ "parts": [
+  {
+   "id": "tail",
+   "tex": "tail",
+   "z": 1.5,
+   "parent": "tailBend",
+   "grid": [
+    10,
+    4
+   ],
+   "box": [
+    159.58,
+    174.18,
+    51.72,
+    46.54
+   ]
+  },
+  {
+   "id": "arm_right",
+   "tex": "arm_right",
+   "z": 4.5,
+   "parent": "armFar",
+   "grid": [
+    3,
+    5
+   ],
+   "box": [
+    152.38,
+    167.71,
+    22.35,
+    25.49
+   ]
+  },
+  {
+   "id": "leg_left",
+   "tex": "leg_left",
+   "z": 4.0,
+   "parent": "legBack",
+   "grid": [
+    3,
+    10
+   ],
+   "box": [
+    101.59,
+    205.76,
+    23.64,
+    45.81
+   ]
+  },
+  {
+   "id": "leg_right",
+   "tex": "leg_right",
+   "z": 3.0,
+   "parent": "legFront",
+   "grid": [
+    3,
+    10
+   ],
+   "box": [
+    129.48,
+    208.35,
+    26.6,
+    47.65
+   ]
+  },
+  {
+   "id": "torso_up",
+   "tex": "torso_up",
+   "z": 5.0,
+   "parent": "waist",
+   "grid": [
+    6,
+    6
+   ],
+   "box": [
+    99.0,
+    134.84,
+    66.68,
+    29.55
+   ]
+  },
+  {
+   "id": "collar",
+   "tex": "collar",
+   "z": 5.1,
+   "parent": "waist",
+   "grid": [
+    4,
+    3
+   ],
+   "box": [
+    111.93,
+    127.26,
+    36.39,
+    18.47
+   ]
+  },
+  {
+   "id": "skirt",
+   "tex": "skirt",
+   "z": 5.2,
+   "parent": "skirt",
+   "grid": [
+    8,
+    6
+   ],
+   "box": [
+    90.32,
+    172.52,
+    76.28,
+    34.17
+   ]
+  },
+  {
+   "id": "apron",
+   "tex": "apron",
+   "z": 5.4,
+   "parent": "skirt",
+   "grid": [
+    6,
+    5
+   ],
+   "box": [
+    99.37,
+    162.73,
+    47.28,
+    36.94
+   ]
+  },
+  {
+   "id": "arm_left",
+   "tex": "arm_left",
+   "z": 6.0,
+   "parent": "armNear",
+   "grid": [
+    4,
+    6
+   ],
+   "box": [
+    83.86,
+    164.39,
+    17.36,
+    20.5
+   ]
+  },
+  {
+   "id": "ear_right",
+   "tex": "ear_right",
+   "z": 7.0,
+   "parent": "earFar",
+   "grid": [
+    4,
+    3
+   ],
+   "box": [
+    152.01,
+    12.75,
+    42.48,
+    52.09
+   ]
+  },
+  {
+   "id": "face",
+   "tex": "face",
+   "z": 8.0,
+   "parent": "headMid",
+   "grid": [
+    6,
+    6
+   ],
+   "box": [
+    94.38,
+    68.53,
+    64.28,
+    67.6
+   ]
+  },
+  {
+   "id": "ear_left",
+   "tex": "ear_left",
+   "z": 11.0,
+   "parent": "earNear",
+   "grid": [
+    4,
+    3
+   ],
+   "box": [
+    75.36,
+    7.58,
+    40.82,
+    49.68
+   ]
+  },
+  {
+   "id": "bangs",
+   "tex": "bangs",
+   "z": 13.0,
+   "parent": "bangsSway",
+   "grid": [
+    8,
+    10
+   ],
+   "box": [
+    91.43,
+    32.7,
+    67.78,
+    65.2
+   ]
+  },
+  {
+   "id": "ahoge",
+   "tex": "ahoge",
+   "z": 14.0,
+   "parent": "ahoge",
+   "grid": [
+    5,
+    4
+   ],
+   "box": [
+    121.35,
+    0.01,
+    23.83,
+    26.78
+   ]
+  }
+ ],
+ "feat": {
+  "eye_open": {
+   "id": "eye_open",
+   "tex": "eye_open",
+   "z": 8.5,
+   "parent": "headFeat",
+   "grid": [
+    4,
+    4
+   ],
+   "box": [
+    99.19,
+    89.4,
+    55.96,
+    19.76
+   ]
+  },
+  "eye_closed": {
+   "id": "eye_closed",
+   "tex": "eye_closed",
+   "z": 8.5,
+   "parent": "headFeat",
+   "grid": [
+    4,
+    4
+   ],
+   "box": [
+    99.56,
+    93.46,
+    55.23,
+    8.87
+   ]
+  },
+  "mouth": {
+   "id": "mouth",
+   "tex": "mouth",
+   "z": 8.6,
+   "parent": "headFeat",
+   "grid": [
+    3,
+    3
+   ],
+   "box": [
+    120.24,
+    114.52,
+    8.5,
+    4.99
+   ]
+  }
+ },
+ "view": [
+  52,
+  -12,
+  240,
+  276
+ ]
+}

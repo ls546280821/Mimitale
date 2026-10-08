@@ -365,8 +365,6 @@ export const el = {
     style: $('s-pet-style'),
     persona: $('s-pet-persona'),
     btnPersonaReset: $('btn-pet-persona-reset'),
-    skins: $('s-pet-skins'),
-    btnSkinPick: $('btn-pet-skin-pick'),
     preview: $('s-pet-preview'),
     btnPreview: $('btn-pet-preview'),
     btnSay: $('btn-pet-say'),
