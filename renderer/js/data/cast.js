@@ -213,11 +213,15 @@ export function findCardById(convo, id) {
 const SCENE_OWNER = 'scene';
 
 /**
- * 状态卡入口条要显示的人：我（玩家，永远第一）+ 要显示状态的角色卡。
+ * 本局有状态的每个人：我（玩家，永远第一）+ 要显示状态的角色卡。
  * 单角色聊天绑的卡永远显示；世界书副本只有 showInPanel === true 才显示
  * （属性照旧种进面板，只是不显示）。AI 现编的 NPC 没有卡，不列。
  * 返回 [{ owner, kind, name, avatar, card }]，owner 直接喂给 openStateCard。
  * card 是这张卡本身（找不到就是 null），给状态卡取形象图 / 表情图用。
+ *
+ * 这是**数据层**的全量名单：提示词注入（data/messages.js）和状态卡排序
+ * （views/stateCard.js）用它，玩家字段照常生效。
+ * 入口条那条横幅别直接用它 —— 走 panelCastForDisplay（普通聊天不显示「我」）。
  */
 export function panelEntities(convo) {
   if (!convo) return [];
@@ -282,6 +286,21 @@ export function panelEntities(convo) {
   }
 
   return out;
+}
+
+/**
+ * 「在场角色」入口条要显示的人（panelEntities 的显示版）。
+ *
+ * 「我」只在**玩世界书**的会话里出现 —— 普通聊天（绑角色 / 空白会话）里
+ * 玩家状态不占一个头像；这样一来只剩「我」的会话名单为空，
+ * 入口条整条收掉（panelUi 按空名单隐藏横幅）。
+ * 普通聊天里想给「我」加状态，点自己消息的头像照样能开那张卡。
+ */
+export function panelCastForDisplay(convo) {
+  if (!convo) return [];
+  const entities = panelEntities(convo);
+  if (convoWorldbookIds(convo).length) return entities;
+  return entities.filter((e) => e.owner !== 'player');
 }
 
 /**

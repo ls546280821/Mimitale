@@ -6,8 +6,9 @@
 //  这里以前是一块「当前状态」面板（折叠字段列表），现已去掉 —— 字段按 owner
 //  分给了各人的状态卡（views/stateCard.js），面板成了重复。
 //
-//  现在这一条只干一件事：**列出本局有状态的每个人**（我 + 场景 + 各角色），
-//  点头像打开那张状态卡。字段的看和改全在卡里。
+//  现在这一条只干一件事：**列出本局有状态的角色**，点头像打开那张状态卡。
+//  字段的看和改全在卡里。「我」只在玩世界书时出现（见 cast.js 的
+//  panelCastForDisplay）；普通聊天里想给自己加状态，点自己消息的头像。
 //
 //  不在这里的：
 //    · 解析、归一化、范围夹取、注入提示词 —— 都在 data/panel.js
@@ -19,20 +20,20 @@ import { el } from '../core/dom.js';
 import { activeConvo } from '../core/util.js';
 import { h, clear } from '../ui/build.js';
 import { entityTone } from '../ui/avatarTone.js';
-import { panelEntities } from '../data/cast.js';
+import { panelCastForDisplay } from '../data/cast.js';
 import { onRefresh } from './refresh.js';
 import { openStateCard } from './stateCard.js';
 
 /**
- * 铺「本局有谁」的头像条：我 + 本局出现过的角色卡。点头像开那张状态卡。
- * 只列真的持有字段的人（AI 现编的 NPC 没卡、不在这里）。玩家永远排第一。
+ * 铺「本局有谁」的头像条。点头像开那张状态卡。
+ * 名单是显示版（panelCastForDisplay）：普通聊天不列「我」，
+ * 只列真的持有字段的人（AI 现编的 NPC 没卡、不在这里）。
  */
-function renderPanelCast(convo) {
+function renderPanelCast(entities) {
   const host = el.panelCast;
   if (!host) return;
   clear(host);
 
-  const entities = convo ? panelEntities(convo) : [];
   // 标题上的「在场角色 N」跟着这一条走 —— 数出来的就是下面头像的个数，
   // 两处各算一次迟早会不一致（比如头像被过滤掉一个）。
   if (el.panelCastCount) el.panelCastCount.textContent = String(entities.length);
@@ -54,20 +55,21 @@ function renderPanelCast(convo) {
 }
 
 /**
- * 入口条只在「有会话」时出现 —— 里面永远至少有「我」一个头像，
- * 随时能点开给自己加状态。
+ * 入口条只在「场上真的有可看的角色状态」时出现。
  *
- * 没有会话时**整条收掉**，别留一条空条占着消息区上面那行。
+ * 普通聊天的名单不含「我」，所以空白会话 / 只剩「我」时**整条收掉**，
+ * 别留一条空条占着消息区上面那行；玩世界书时「我」在名单里，照旧常驻。
  * （2026-09-30 之前还要顺手开关右栏 `#panel-rail`；右栏已去掉，
  * 卡片改回悬浮，那一段判断跟着删了。）
  */
 export function renderPanel() {
   const convo = activeConvo();
+  const entities = convo ? panelCastForDisplay(convo) : [];
 
-  el.panelBox.classList.toggle('hidden', !convo);
+  el.panelBox.classList.toggle('hidden', !entities.length);
   // 「收起」是旧面板的东西，入口条只有一行头像，不需要
   el.panelBox.classList.remove('collapsed');
-  renderPanelCast(convo);
+  renderPanelCast(entities);
 }
 
 /**

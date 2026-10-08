@@ -1076,40 +1076,13 @@ await scenario('属性：从角色卡种到状态面板', async () => {
     );
   }
 
-  // --- 浮动卡：开两张必须**自动并排**（2026-09-30 换回悬浮卡的核心诉求）---
-  // 当初「浮动卡」被换成固定右栏，就是因为两张会叠在一起。现在靠 layoutSideBySide
-  // 按整卡宽铺开 —— 这条就是那个契约的守门人，别让它退化成"错开 26px 叠着"。
+  // --- 入口条上不显示「我」（2026-10-08：普通聊天不显示玩家状态）---
+  // 「我」只在玩世界书时上入口条；普通聊天里只剩「我」时整条横幅都会收掉。
+  // 这场绑了角色，所以横幅在、但上面只有那个角色。两张卡并排的契约挪到
+  // 下面「发出一条消息」之后验 —— 玩家卡从自己消息的头像开。
   {
     const myAvatarBtn = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner === 'player');
-    check('入口条上有「我」的头像', !!myAvatarBtn);
-    click(myAvatarBtn);
-    await waitFor('第二张状态卡也开了', () => $$('#state-cards .state-card').length >= 2);
-
-    const host = byId('state-cards');
-    const cards = $$('#state-cards .state-card');
-    check(
-      '状态卡是浮层（卡片绝对定位 + 容器本身不挡鼠标）',
-      cards.every((c) => getComputedStyle(c).position === 'absolute') &&
-        getComputedStyle(host).position === 'absolute' &&
-        getComputedStyle(host).pointerEvents === 'none',
-      `${getComputedStyle(cards[0]).position} / ${getComputedStyle(host).pointerEvents}`
-    );
-
-    const box = (n) => n.getBoundingClientRect();
-    const [a, b] = cards.map(box);
-    const overlap = a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-    check(
-      '开两张卡时自动并排，不互相压',
-      !overlap,
-      `A=${Math.round(a.left)},${Math.round(a.top)} B=${Math.round(b.left)},${Math.round(b.top)}`
-    );
-
-    // 头部是拖动把手 —— 光标得给 grab，别让用户猜这里能拖
-    check(
-      '卡片头部是拖动把手（光标 grab）',
-      getComputedStyle(cards[0].querySelector('.sc-head')).cursor === 'grab',
-      getComputedStyle(cards[0].querySelector('.sc-head')).cursor
-    );
+    check('普通聊天的入口条没有「我」的头像', !myAvatarBtn);
   }
 
   // --- 顶栏：头像 + 标题旁的小胶囊（2026-09-30 按设计稿的 .top / .pill-tag 加的）---
@@ -1184,6 +1157,50 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   setValue('#input', '冒烟测试：属性注入');
   click('#btn-send');
   await waitFor('收到回复', () => $('#messages').textContent.includes('冒烟测试回复'), 8000);
+
+  // --- 浮动卡：开两张必须**自动并排**（2026-09-30 换回悬浮卡的核心诉求）---
+  // 当初「浮动卡」被换成固定右栏，就是因为两张会叠在一起。现在靠 layoutSideBySide
+  // 按整卡宽铺开 —— 这条就是那个契约的守门人，别让它退化成"错开 26px 叠着"。
+  // 普通聊天的入口条没有「我」，玩家卡从自己消息的头像开（普通聊天里剩下的入口）。
+  {
+    const myMsgAvatar = $$('#messages .msg.user .msg-avatar').pop();
+    check(
+      '自己消息的头像是「我」状态卡的入口',
+      !!myMsgAvatar && myMsgAvatar.classList.contains('clickable')
+    );
+    click(myMsgAvatar);
+    await waitFor('第二张状态卡也开了', () => $$('#state-cards .state-card').length >= 2);
+
+    const host = byId('state-cards');
+    const cards = $$('#state-cards .state-card');
+    check(
+      '状态卡是浮层（卡片绝对定位 + 容器本身不挡鼠标）',
+      cards.every((c) => getComputedStyle(c).position === 'absolute') &&
+        getComputedStyle(host).position === 'absolute' &&
+        getComputedStyle(host).pointerEvents === 'none',
+      `${getComputedStyle(cards[0]).position} / ${getComputedStyle(host).pointerEvents}`
+    );
+
+    const box = (n) => n.getBoundingClientRect();
+    const [a, b] = cards.map(box);
+    const overlap = a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    check(
+      '开两张卡时自动并排，不互相压',
+      !overlap,
+      `A=${Math.round(a.left)},${Math.round(a.top)} B=${Math.round(b.left)},${Math.round(b.top)}`
+    );
+
+    // 头部是拖动把手 —— 光标得给 grab，别让用户猜这里能拖
+    check(
+      '卡片头部是拖动把手（光标 grab）',
+      getComputedStyle(cards[0].querySelector('.sc-head')).cursor === 'grab',
+      getComputedStyle(cards[0].querySelector('.sc-head')).cursor
+    );
+
+    // 收掉「我」那张，别挡着后面对角色卡的编辑
+    click($('#state-cards .state-card[data-owner="player"] .sc-close'));
+    await sleep(150);
+  }
 
   // --- 5) 超范围的数值要被夹回来 ---
   // 在卡片的编辑态里手填一个越界值（模拟模型写了 150/100），失焦即落盘。
@@ -1326,18 +1343,21 @@ await scenario('状态卡入口条：常驻 + 点头像开卡', async () => {
   const boxH = Math.round(byId('panel-box').getBoundingClientRect().height);
   check('入口条一直可见（一条细条）', boxH > 0 && boxH < 90, `${boxH}px`);
 
-  // 头像行就是入口：第一个永远是「我」
+  // 头像行就是入口。普通聊天不显示「我」（2026-10-08），
+  // 这条会话绑了角色，所以头像行上只有那个角色。
   const owners = $$('#panel-cast .panel-avatar').map((b) => b.dataset.owner);
-  check('入口条上第一个头像是「我」', owners[0] === 'player', JSON.stringify(owners));
+  check('普通聊天的入口条没有「我」，只有绑定的角色', owners.length === 1 && owners[0] !== 'player', JSON.stringify(owners));
   const avatarBox = $$('#panel-cast .panel-avatar')[0].getBoundingClientRect();
   check('头像可见可点', avatarBox.height > 0 && avatarBox.width > 0, `${Math.round(avatarBox.width)}×${Math.round(avatarBox.height)}`);
 
-  // 点「我」的头像 → 开我的状态卡；再点 ✕ 收掉
+  // 点头像 → 开那个角色的状态卡；再点 ✕ 收掉
+  const firstOwner = owners[0];
+  const cardOf = () => $(`#state-cards .state-card[data-owner="${CSS.escape(firstOwner)}"]`);
   click($$('#panel-cast .panel-avatar')[0]);
-  await waitFor('我的状态卡从入口条打开', () => !!$('#state-cards .state-card[data-owner="player"]'));
-  click($('#state-cards .state-card[data-owner="player"] .sc-close'));
+  await waitFor('状态卡从入口条打开', () => !!cardOf());
+  click(cardOf().querySelector('.sc-close'));
   await sleep(150);
-  check('点 ✕ 把卡收掉了', !$('#state-cards .state-card[data-owner="player"]'));
+  check('点 ✕ 把卡收掉了', !cardOf());
 
   // 顶栏那个「状态」按钮早就去掉了，别再回来
   check('顶栏的「状态」按钮已移除', !byId('btn-panel-toggle'));
@@ -4568,7 +4588,7 @@ await scenario('状态卡：点头像查看与编辑', async () => {
   await sleep(150);
   check('点 ✕ 把卡收掉了', !myCard());
 
-  // --- 绑了角色的会话：头像行是「我 + 那个角色」，点角色头像开它的卡 ---
+  // --- 绑了角色的会话：头像行只有那个角色（普通聊天不显示「我」），点它开卡 ---
   const charConvo = $$('#convo-list .convo-item').find((it) => {
     const t = it.querySelector('.convo-title');
     return t && t.textContent.trim().startsWith('选项测试');
@@ -4578,8 +4598,8 @@ await scenario('状态卡：点头像查看与编辑', async () => {
     await sleep(400);
     const owners = $$('#panel-cast .panel-avatar').map((b) => b.dataset.owner);
     check(
-      '绑了角色的会话里「我」和那个角色都在头像行上',
-      owners.includes('player') && owners.length >= 2,
+      '绑了角色的会话里入口条只有那个角色（没有「我」）',
+      !owners.includes('player') && owners.length === 1,
       JSON.stringify(owners)
     );
 
@@ -4600,10 +4620,11 @@ await scenario('状态卡：点头像查看与编辑', async () => {
     // 所以单角色聊天里「姓名/性别」这类名字是加不进玩家卡的。
     // ⚠️ 以前这里只查「整张面板有没有这个名字」，于是玩家卡明明没有也会报
     //    「已经有了」—— 用户会懵（「我没加啊」）。现在必须说清是**角色**占了。
-    const playerBtn = $$('#panel-cast .panel-avatar').find((b) => b.dataset.owner === 'player');
-    if (playerBtn) {
-      click(playerBtn);
-      await sleep(250);
+    // 普通聊天的入口条没有「我」（2026-10-08），玩家卡从自己消息的头像开。
+    const myMsgAvatar = $$('#messages .msg.user .msg-avatar').pop();
+    if (myMsgAvatar) {
+      click(myMsgAvatar);
+      await waitFor('我的状态卡从自己消息的头像打开', () => !!$('#state-cards .state-card[data-owner="player"]'));
       click($('#state-cards .state-card[data-owner="player"] .sc-edit'));
       await sleep(250);
 
@@ -7097,8 +7118,9 @@ await scenario('开聊前先定「你是谁」', async () => {
 
   const castAvatars = $$('#panel-cast .panel-avatar');
   check(
-    '挑卡当自己后，绑定的角色仍在入口条里',
-    castAvatars.length >= 2 && castAvatars.some((a) => a.dataset.owner !== 'player'),
+    '挑卡当自己后，绑定的角色仍在入口条里（普通聊天不显示「我」）',
+    castAvatars.some((a) => a.dataset.owner !== 'player') &&
+      !castAvatars.some((a) => a.dataset.owner === 'player'),
     `入口条 ${castAvatars.length} 个：` + castAvatars.map((a) => a.dataset.owner).join('、')
   );
 
@@ -7108,6 +7130,21 @@ await scenario('开聊前先定「你是谁」', async () => {
   check('视角弹窗里不再有「我是谁」', !byId('p-player-name') && !byId('p-player-char'));
   click('#btn-close-perspective');
   await sleep(60);
+});
+
+// ---------------------------------------------------------------------------
+//  「＋ 新对话」：直接建空白会话；场上没有角色时「在场角色」整条收掉
+//
+//  2026-10-08 两处行为变化一起钉住：
+//    · 「＋ 新对话」不再先跳角色库，点下去就建一个空白会话并切回聊天屏；
+//    · 普通聊天的入口条不显示「我」—— 空白会话名单为空，横幅整条隐藏。
+// ---------------------------------------------------------------------------
+await scenario('新对话：直接建空白会话，只剩「我」时入口条收起', async () => {
+  const before = $$('#convo-list .convo-item').length;
+  click('#btn-new');
+  await waitFor('会话列表多了一条', () => $$('#convo-list .convo-item').length === before + 1);
+  await waitFor('切回聊天视图', () => shown('#view-chat'));
+  check('空白会话里「在场角色」入口条整条收掉', !shown('#panel-box'));
 });
 
 // 帮助页：纯静态内容，只验「切得过去、小节齐全、目录锚点对得上、复制按钮接对了」。

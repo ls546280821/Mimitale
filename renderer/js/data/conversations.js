@@ -26,9 +26,9 @@ import { persistConversations } from './persist.js';
 /**
  * 新建一个会话并（默认）切过去。
  *
- * 不再继承上一个会话的角色：现在「＋ 新对话」会先带你去角色列表页挑一个，
- * 角色由 applyCharacterChoice 在选完之后绑上。
- * 这里建出来的是「还没选角色」的会话（删光会话后的兜底也走这里）。
+ * 不继承上一个会话的角色：「＋ 新对话」建出来的就是「还没选角色」的空白会话
+ * （删光会话后的兜底也走这里）。要跟某个角色聊，由角色列表页的「聊天」
+ * 建会话后经 applyCharacterChoice 把角色绑上。
  */
 export function createConvo(activate) {
   const convo = {

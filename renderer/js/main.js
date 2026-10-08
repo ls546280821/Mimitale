@@ -181,14 +181,16 @@ function registerRefreshListeners() {
 // ---------------------------------------------------------------------------
 
 function bindEvents() {
-  // 「＋ 新对话」= 带你去角色列表页挑一个角色，
-  // 点那张卡上的「聊天」才算真正把会话建出来。
+  // 「＋ 新对话」= 直接建一个空白会话并切到聊天屏。
+  // 想跟某个角色聊，去角色库点卡片上的「聊天」—— 那条路会自己建会话并绑角色。
   el.btnNew.addEventListener('click', () => {
     if (state.streaming) {
       showToast('正在生成回答，先停止再新建会话');
       return;
     }
-    showView('chars');
+    createConvo(true);
+    showView('chat');
+    renderAll({ forceScroll: true });
   });
 
   /**
