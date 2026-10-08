@@ -197,10 +197,37 @@ Say (T 'STARTING_1') 'DarkGray'
 Say (T 'STARTING_2') 'DarkGray'
 Say ''
 
-& $npmCmd.Source start
+# --- sandbox memory (see 4b) ----------------------------------------------
+# On some machines Chromium cannot initialise its sandbox, so `electron .` dies
+# with STATUS_BREAKPOINT during startup (see 4b for the details). The first
+# time that happens we retry with --no-sandbox -- but doing that on EVERY
+# launch costs a crash, a wait, and a notice that reads like an error, every
+# single time, forever. So once we have measured it we drop a marker file and
+# later launches go straight to the no-sandbox command, silently.
+#
+# The marker's own timestamp (file mtime) expires after 30 days: on a machine
+# that got fixed (new Electron build, updated security software, different
+# account) the launcher retries the normal path on its own instead of being
+# stuck on the workaround forever.
+$noSandboxMarker = Join-Path $scriptRoot '.mimitale-no-sandbox'
+$noSandboxMaxAge = 30 * 24 * 60 * 60
+$noSandboxKnown = $false
+if (Test-Path -LiteralPath $noSandboxMarker) {
+  try {
+    $markerAge = ([DateTime]::UtcNow - (Get-Item -LiteralPath $noSandboxMarker).LastWriteTimeUtc).TotalSeconds
+    if ($markerAge -lt $noSandboxMaxAge) { $noSandboxKnown = $true }
+  } catch { }
+}
+
+if ($noSandboxKnown) {
+  & $npmCmd.Source run start:no-sandbox
+} else {
+  & $npmCmd.Source start
+}
 
 $code = $LASTEXITCODE
-$sandboxTried = $false
+$sandboxTried = $noSandboxKnown
+$sandboxLearned = $false   # true only on the launch that drops the marker
 
 # ---------- 4b. sandbox fallback -------------------------------------------
 # Electron aborts during startup with STATUS_BREAKPOINT (0x80000003) when
@@ -215,6 +242,15 @@ if ($code -eq -2147483645) {
   Say (T 'SANDBOX_WHY') 'DarkGray'
   Say (T 'SANDBOX_RETRY') 'Cyan'
   Say ''
+
+  # Remember the finding so the next launch skips the crash entirely.
+  # Failing to write it is fine -- worst case we crash-and-retry again.
+  try {
+    [System.IO.File]::WriteAllText($noSandboxMarker, (T 'SANDBOX_MARKER'), (New-Object System.Text.UTF8Encoding $false))
+    $sandboxLearned = $true
+    Say (T 'SANDBOX_REMEMBERED') 'DarkGray'
+    Say ''
+  } catch { }
 
   & $npmCmd.Source run start:no-sandbox
   $code = $LASTEXITCODE
@@ -241,6 +277,8 @@ if ($code -ne 0) {
 }
 
 Say (T 'EXIT_OK') 'Green'
-if ($sandboxTried) { Say (T 'SANDBOX_OK') 'Yellow' }
+# Only mention it on the launch that actually discovered the problem; after
+# that the launcher is silent about it on purpose.
+if ($sandboxLearned) { Say (T 'SANDBOX_OK') 'Yellow' }
 if (-not $msgLoaded) { Say (T 'NO_MSG_FILE') 'DarkGray' }
 Wait-Exit 0

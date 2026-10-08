@@ -67,6 +67,11 @@ SANDBOX_TIP1|要是这次仍然起不来，注意看有没有这行：Chromium �
 SANDBOX_TIP2|（Lock file can not be created: 拒绝访问）—— 那说明是这台机器上的安全软件
 SANDBOX_TIP3|或权限策略在拦 Chromium，换一个普通账户、或临时关掉杀毒再试。
 
+# 记住「这台机器沙箱起不来」，下次启动直接走 no-sandbox，不再先崩一次 + 不再打印提示。
+# 标记文件是项目目录里的 .mimitale-no-sandbox（已在 .gitignore 里），30 天后自动重试一次沙箱。
+SANDBOX_REMEMBERED|已记住这台机器的情况：以后启动会直接按「关闭沙箱」的方式走，不再重试、也不再提示。
+SANDBOX_MARKER|Mimitale 启动器留下的标记：这台机器上 Electron 的沙箱起不来，所以改用「关闭沙箱」的方式启动（功能一样，少一层进程隔离）。删掉本文件，下次启动会重新试一次沙箱；不删的话 30 天后也会自动重试。
+
 # ---------- 其他 ----------
 NO_MSG_FILE|[提示] 没找到 messages-utf8.txt，本次只显示英文提示（不影响功能）。
 PRESS_ENTER|按回车键关闭这个窗口
