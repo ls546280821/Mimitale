@@ -134,9 +134,6 @@ const DEFAULT_SETTINGS = {
   chatFontSize: 14,     // 消息正文字号（px）
   chatBoldColor: '',    // **加粗** 用什么颜色，空 = 跟随主题
   chatBackground: '',   // 消息区背景图（dataURL），空 = 没有
-  // 纯对话视图：只留对话本身 —— 藏掉状态卡入口条和剧情选项，消息上的操作按钮
-  // 也收进悬停才出现的「⋯」。同样是纯显示开关，不进提示词。
-  plainChatView: false,
   // --- 下面两个是界面自己写得出来的键，**必须列在这儿** ---
   // saveSettings 的白名单是「默认设置里有 or 磁盘上本来就有」。这两个键当初漏在
   // DEFAULT_SETTINGS 之外，靠的就是「用户磁盘上早写过了」才没被拦 ——
@@ -305,9 +302,6 @@ function normalizeSettings(saved) {
   const bg = typeof raw.chatBackground === 'string' ? raw.chatBackground : '';
   s.chatBackground =
     bg.startsWith('data:image/') && bg.length <= MAX_CHAT_BACKGROUND_CHARS ? bg : '';
-
-  // 纯对话视图：纯显示开关，只认 true
-  s.plainChatView = raw.plainChatView === true;
 
   // 常用属性候选词：去重、去空、限个数。
   // 注意判断的是「磁盘上有没有这个键」—— 用户把清单清空是合法操作，

@@ -43,12 +43,12 @@ import { el } from './core/dom.js';
 import { activeConvo, asArray } from './core/util.js';
 
 import { showToast } from './ui/toast.js';
-import { applyTheme, toggleTheme, applyAccent, toggleAccent } from './ui/theme.js';
+import { applyTheme, applyAccent } from './ui/theme.js';
+import { toggleModalMax, initModalMax } from './ui/modalMax.js';
 import { esc } from './ui/markdown.js';
 import { applyFieldIcons } from './ui/icons.js';
 import { initMoreMenu } from './ui/menu.js';
 import { initModelMenu } from './ui/modelMenu.js';
-import { initPlainView, applyPlainView } from './ui/plainView.js';
 
 import { persistCharacters, persistLibrary, persistPresets, markWorldbooksLoaded, markPresetsLoaded } from './data/persist.js';
 import { currentEndpoint, isBridgeProvider } from './data/providers.js';
@@ -254,15 +254,35 @@ function bindEvents() {
     if (event.target === el.playerModal) closePlayerModal();
   });
 
-  // 左上角的昼夜切换
-  el.btnTheme.addEventListener('click', toggleTheme);
+  // 主题配色 / 夜间模式已经不在这里了 —— 2026-10-08 挪进「外观」弹窗，
+  // 点击由 views/appearance.js 接（那边才有它们的控件）。
 
-  // 左上角的配色方案切换（草莓奶昔 → 苏打气泡 → 抹茶奶绿，循环）
-  if (el.btnAccent) el.btnAccent.addEventListener('click', toggleAccent);
-
-  el.btnFolder.addEventListener('click', () => {
-    api.openDataFolder('config').catch(() => {});
+  // 打开数据文件夹。主进程回 { ok, path, error } —— 失败时得说一句人话：
+  // 以前这里 .catch(() => {}) 什么都吞，用户只看到 Windows 自己弹的那个框
+  // （「Windows 无法访问指定设备、路径或文件」），既不知道哪一步失败，
+  // 也拿不到路径。
+  el.btnFolder.addEventListener('click', async () => {
+    let result = null;
+    try {
+      result = await api.openDataFolder('config');
+    } catch (err) {
+      showToast(`打不开数据文件夹：${(err && err.message) || '未知错误'}`, 'error');
+      return;
+    }
+    if (result && result.ok === false) {
+      console.error('打开数据文件夹失败', result.error);
+      showToast(`打不开数据文件夹：${result.path}`, 'error');
+    }
   });
+
+  // 四个编辑弹窗头上的「放大」：把**那个弹窗**铺满应用窗口，再点还原。
+  // 传的是按钮本身（模块靠 closest('.modal') 找到它所属的弹窗），所以各弹窗互不影响。
+  // 逐个绑而不是循环数组 —— tools/audit-buttons.js 是按「el.xxx 后面同一行有没有
+  // addEventListener」查漏绑的，写成数组它会把这四个全报成没绑。
+  el.btnFsChars.addEventListener('click', () => toggleModalMax(el.btnFsChars));
+  el.btnFsWorldbooks.addEventListener('click', () => toggleModalMax(el.btnFsWorldbooks));
+  el.btnFsSettings.addEventListener('click', () => toggleModalMax(el.btnFsSettings));
+  el.btnFsPreset.addEventListener('click', () => toggleModalMax(el.btnFsPreset));
 
   el.input.addEventListener('input', autoGrowInput);
 
@@ -476,7 +496,9 @@ async function importWorldbooks() {
 
   renderCharacterPage();
   renderWorldbookChars();
-  await persistLibrary();
+
+  // 写盘失败就别报「已导入」—— 提示由 persistLibrary 弹（导进来的东西留在界面上）
+  if (!(await persistLibrary())) return;
 
   const parts = [];
   if (freshBooks.length) parts.push(`${freshBooks.length} 本世界书`);
@@ -501,17 +523,6 @@ async function init() {
   // 只绑事件、不参与整体重绘的模块
   // 顶栏「⋯」下拉菜单：纯开关，菜单里的功能各有各的归属（见 ui/menu.js）
   initMoreMenu();
-  // 「⋯」里的「纯对话视图」：只切一个 body 类，具体藏什么写在 style.css 里。
-  // 状态存进设置（plainChatView）—— 存设置是跨进程的活，所以由这里注入。
-  initPlainView({
-    onChange: async (on) => {
-      try {
-        state.settings = await api.saveSettings({ plainChatView: on });
-      } catch (err) {
-        showToast((err && err.message) || '这个开关没记住，下次启动会退回原来的样子', 'error');
-      }
-    }
-  });
   // 顶栏「切换模型」弹层：同上，纯开关。列表内容由 renderModelSwitch 铺，
   // 选中之后干什么这边接给 applyModelChoice —— 它俩不互相认识，免得绕出 import 环。
   initModelMenu({ onPick: applyModelChoice });
@@ -521,6 +532,8 @@ async function init() {
   initRequestLog();
   // 外观弹窗同理：改完即时生效 + 落盘，没有需要整体重绘的 DOM。
   initAppearance();
+  // 弹窗「放大」状态：关弹窗时自动摘掉，下次打开回到正常大小。
+  initModalMax();
   // 「用户在看历史就别自动跟随」挂在消息区上，自己绑自己。
   initStreamFollow();
   // 加图按钮自己绑；配图成功后要重绘对话区、没配生图要弹设置 —— 都是入口层的动作。
@@ -602,8 +615,6 @@ async function init() {
   applyTheme(state.settings.theme);
   // 配色方案同理（粉色默认，蓝色按设置；preload 已先打标记）
   applyAccent(state.settings.accent);
-  // 纯对话视图：只是给 body 挂个类，所以放在这里一次到位
-  applyPlainView(state.settings.plainChatView);
   applyChatAppearance();
 
   state.characters = asArray(storedChars && storedChars.characters);

@@ -16,18 +16,57 @@ import { characters, worldbooks, dialoguePresets } from './library.js';
 
 let saveTimer = null;
 
+/**
+ * 写盘失败后**隔一会儿自动再试一次**。
+ *
+ * 主进程那边已经有一套退避重试（30·70·150·250ms，合计约 0.5 秒），但实测不够：
+ * Windows 上安全软件扫一个刚写过的文件，占上几百毫秒到一两秒都算正常。
+ * 撞上这种情况原来就是一次失败到底 —— 用户看到「没能写进磁盘」，得自己发现、
+ * 自己再点一次，而且多半不知道刚才那下其实没生效。
+ *
+ * 这里补的是**更晚的那一次**：绝大多数时候用户完全无感，只有两次都失败才会看到
+ * 提示、界面才会回滚。调用方拿到的语义不变：
+ *   resolve = 真的写进去了；reject = 两次都没成，可以按失败处理了。
+ *
+ * ⚠️ 传进来的是个**取数据的函数**而不是现成的 payload —— 重试那一下要带上
+ *    「重试这一刻」的最新状态，而不是 1.2 秒前那份快照。
+ */
+const WRITE_RETRY_DELAY_MS = 1200;
+
+async function writeWithOneLateRetry(writeOnce) {
+  try {
+    return await writeOnce();
+  } catch (firstErr) {
+    console.warn(`[persist] 写盘失败，${WRITE_RETRY_DELAY_MS} 毫秒后自动再试一次`, firstErr);
+    await new Promise((r) => setTimeout(r, WRITE_RETRY_DELAY_MS));
+    return writeOnce();
+  }
+}
+
+/**
+ * 写盘失败时统一的说法。
+ *
+ * 主进程的写盘是「先写 .tmp 再 rename」，被拒时最常见的原因是
+ * **安全软件临时独占**或**文件带了只读属性**（见 main/store.js 的 tryBackup 注释）——
+ * 说清楚这两条比笼统的「请检查磁盘空间」有用得多。
+ * 只有真撞上 ENOSPC 才说磁盘满（那确实也是可能的：角色卡的头像是内嵌 base64，
+ * 几十张卡就能吃掉不少空间）。
+ */
+function writeFailedText(what, err) {
+  const msg = String((err && err.message) || '');
+  if (msg.includes('ENOSPC')) return `${what}没能写进磁盘：磁盘空间不够了`;
+  return `${what}没能写进磁盘，这次改动没有生效（文件可能被杀软临时占用或带了只读属性）`;
+}
+
 export function persistConversations(delay) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    api
-      .saveConversations({ conversations: state.conversations, activeId: state.activeId })
-      .then(() => {
-        // 保存成功，静默
-      })
-      .catch((err) => {
-        console.error('保存会话失败', err);
-        showToast('保存会话失败，请检查磁盘空间', 'error');
-      });
+    writeWithOneLateRetry(() =>
+      api.saveConversations({ conversations: state.conversations, activeId: state.activeId })
+    ).catch((err) => {
+      console.error('保存会话失败（已自动重试过）', err);
+      showToast(writeFailedText('会话', err), 'error');
+    });
   }, typeof delay === 'number' ? delay : 350);
 }
 
@@ -69,44 +108,51 @@ export function persistPresets(immediate) {
     return Promise.resolve(false);
   }
 
-  const payload = { presets: dialoguePresets() };
+  const buildPayload = () => ({ presets: dialoguePresets() });
 
   if (immediate) {
-    api.savePresetsNow(payload);
+    api.savePresetsNow(buildPayload());
     return Promise.resolve(true);
   }
 
-  return api
-    .savePresets(payload)
+  return writeWithOneLateRetry(() => api.savePresets(buildPayload()))
     .then(() => true)
     .catch((err) => {
-      console.error('保存预设失败', err);
-      showToast('预设没能保存到磁盘，请检查磁盘空间', 'error');
+      console.error('保存预设失败（已自动重试过）', err);
+      showToast(writeFailedText('预设', err), 'error');
       return false;
     });
 }
 
 /**
- * 把当前角色库写回磁盘。
+ * 把当前角色库写回磁盘。**返回是否真的写成功了**（调用方靠它决定要不要报「已保存」）。
  *
  * 角色和世界书分开存两个文件，主进程允许一次请求同时带上 worldbooks；
  * 但只在世界书确实读进来了时才带 —— 否则「存一次角色」会把 worldbooks.json 写空。
  *
  * immediate = true 时立刻写、不等下一帧（关闭窗口前那种必须落地的场景）。
+ * 那条路走的是 ipcRenderer.send，没有回执，只能尽力而为 ——
+ * 反正关窗口时也来不及让用户看提示了。
  */
 export function persistCharacters(immediate) {
-  const payload = { characters: characters() };
-  if (worldbooksLoaded) payload.worldbooks = worldbooks();
+  const buildPayload = () => {
+    const payload = { characters: characters() };
+    if (worldbooksLoaded) payload.worldbooks = worldbooks();
+    return payload;
+  };
 
   if (immediate) {
-    api.saveCharactersNow(payload);
-    return Promise.resolve(payload);
+    api.saveCharactersNow(buildPayload());
+    return Promise.resolve(true);
   }
 
-  return api.saveCharacters(payload).catch((err) => {
-    console.error('保存角色失败', err);
-    showToast('角色没能保存到磁盘，请检查磁盘空间', 'error');
-  });
+  return writeWithOneLateRetry(() => api.saveCharacters(buildPayload()))
+    .then(() => true)
+    .catch((err) => {
+      console.error('保存角色失败（已自动重试过）', err);
+      showToast(writeFailedText('角色', err), 'error');
+      return false;
+    });
 }
 
 /**
@@ -124,11 +170,13 @@ export async function persistLibrary() {
   }
 
   try {
-    await api.saveCharacters({ characters: characters(), worldbooks: worldbooks() });
+    await writeWithOneLateRetry(() =>
+      api.saveCharacters({ characters: characters(), worldbooks: worldbooks() })
+    );
     return true;
   } catch (err) {
-    console.error('保存世界书失败', err);
-    showToast('世界书没能保存到磁盘', 'error');
+    console.error('保存世界书失败（已自动重试过）', err);
+    showToast(writeFailedText('世界书', err), 'error');
     return false;
   }
 }

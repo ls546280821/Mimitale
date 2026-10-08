@@ -115,7 +115,10 @@ async function importCards() {
   renderCharacterPage();
   // 直接打开刚导入的第一个角色，方便马上核对设定对不对
   if (freshChars.length) actions.openEditor(freshChars[0].id);
-  await persistCharacters();
+
+  // 写盘失败就别报「已导入」了：提示由 persistCharacters 弹，导入的东西留在界面上，
+  // 用户还能再点一次导入（或者重启前先解决占用它的那个程序）。
+  if (!(await persistCharacters())) return;
 
   const parts = [];
   if (freshChars.length) parts.push(`${freshChars.length} 个角色：${freshChars.map((c) => c.name).join('、')}`);

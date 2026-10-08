@@ -33,8 +33,8 @@ export const el = {
   btnPresets: $('btn-presets'),
   // 帮助页（内容是静态文本，没有 render 函数，只靠 viewSwitch 显隐）
   btnHelp: $('btn-help'),
-  btnTheme: $('btn-theme'),
-  btnAccent: $('btn-accent'),
+  // 主题配色 / 夜间模式原先在品牌区挂了两颗图标按钮（btnAccent / btnTheme），
+  // 2026-10-08 挪进「外观」弹窗了，引用跟着搬到了下面 appearance 那一段。
   modal: $('settings-modal'),
   btnCloseSettings: $('btn-close-settings'),
   btnSaveSettings: $('btn-save-settings'),
@@ -57,9 +57,13 @@ export const el = {
   btnCardsAll: $('btn-cards-all'),
   // 浮动状态卡的容器（铺满对话列、本身不挡鼠标，只有卡片实体可交互）
   stateCards: $('state-cards'),
-  // 对话窗口外观
+  // 外观（主题配色 + 明暗管整个界面，字号 / 加粗色 / 背景图只管聊天区）
   btnAppearance: $('btn-appearance'),
   appearanceModal: $('appearance-modal'),
+  // 「主题配色」三选一：容器里是三个 [data-accent] 按钮，选中态由 ui/theme.js 刷
+  appearanceAccents: $('appearance-accents'),
+  // 「明暗」两态：容器里是两个 [data-mode] 按钮，同上
+  appearanceModes: $('appearance-modes'),
   appearanceFontSize: $('appearance-fontsize'),
   appearanceFontSizeValue: $('appearance-fontsize-value'),
   appearanceBoldColor: $('appearance-boldcolor'),
@@ -70,13 +74,17 @@ export const el = {
   btnBoldColorReset: $('btn-boldcolor-reset'),
   btnCloseAppearance: $('btn-close-appearance'),
   btnCloseAppearance2: $('btn-close-appearance-2'),
+  // 编辑类弹窗头上的「放大」按钮：把**这个弹窗自己**铺满应用窗口（编辑时能多看见几行）。
+  // ⚠️ 不是把窗口切成系统全屏（那版做过、已撤掉，见 ui/modalMax.js 顶部注释）。
+  btnFsChars: $('btn-fs-chars'),
+  btnFsWorldbooks: $('btn-fs-worldbooks'),
+  btnFsSettings: $('btn-fs-settings'),
+  btnFsPreset: $('btn-fs-preset'),
   // 视角设置
   btnPerspective: $('btn-perspective'),
   // 顶栏「⋯」菜单：记忆 / 复制全文 / 导出 / 清空对话 都收在里面（见 ui/menu.js）
   btnMore: $('btn-more'),
   moreMenu: $('topbar-more'),
-  // 「⋯」里的「纯对话视图」开关（开合逻辑在 js/ui/plainView.js）
-  btnPlainView: $('btn-plain-view'),
   // 「⋯」上的小圆点：菜单里藏着东西（比如有记忆摘要）时提示一下，不然收起来就看不见了
   moreDot: $('more-dot'),
   // 「帮我想想」的建议条

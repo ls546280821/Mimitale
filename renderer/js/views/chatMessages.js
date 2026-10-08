@@ -417,22 +417,6 @@ function messageNode(message, index, character, labels, ctx) {
     actions.appendChild(branch);
   }
 
-  // 纯对话视图下操作按钮平时不露头，用这颗「⋯」开合（样式在 style.css，
-  // 普通视图里它是 display:none —— 那边操作按钮本来就跟着悬停浮出，不需要它）
-  const more = document.createElement('button');
-  more.type = 'button';
-  more.className = 'mini-btn msg-more';
-  more.textContent = '⋯';
-  more.title = '更多操作';
-  more.setAttribute('aria-label', '更多操作');
-  more.setAttribute('aria-expanded', 'false');
-  more.addEventListener('click', () => {
-    const open = actions.classList.toggle('open');
-    more.setAttribute('aria-expanded', open ? 'true' : 'false');
-    more.textContent = open ? '收起' : '⋯';
-  });
-
-  body.appendChild(more);
   body.appendChild(actions);
 
   wrap.appendChild(avatar);

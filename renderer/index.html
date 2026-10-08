@@ -10,27 +10,12 @@
   <div class="app">
     <!-- ================= 左侧边栏 ================= -->
     <aside class="sidebar">
+      <!-- 品牌区只留标记 + 名字。配色方案和夜间模式原来在这挂了两颗图标，
+           现在挪进「外观」弹窗（顶栏那颗按钮）—— 那里才是「改外观」的地方，
+           而且弹窗里能用文字写清楚每套配色叫什么，图标只能靠猜。 -->
       <div class="brand">
         <span class="brand-dot"></span>
         <span class="brand-name">♪ 如我所书</span>
-        <button id="btn-accent" class="icon-btn brand-theme" type="button" title="切换为苏打气泡" aria-label="切换为苏打气泡" aria-pressed="false">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="13.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
-            <circle cx="17.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" />
-            <circle cx="8.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" />
-            <circle cx="6.5" cy="12.5" r="1.2" fill="currentColor" stroke="none" />
-            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c1.9 0 3-1.4 3-3.1 0-.8-.3-1.5-.8-2-.5-.5-.8-1.2-.8-2 0-1.6 1.2-2.9 2.8-2.9H19c1.7 0 3-1.3 3-3C22 5.6 17.5 2 12 2z" />
-          </svg>
-        </button>
-        <button id="btn-theme" class="icon-btn brand-theme" type="button" title="切换为夜间模式" aria-label="切换为夜间模式" aria-pressed="false">
-          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-          </svg>
-          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4" />
-            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
-          </svg>
-        </button>
       </div>
 
       <button id="btn-new" class="btn btn-primary btn-block btn-new" aria-label="创建新对话">＋ 新对话</button>
@@ -103,10 +88,6 @@
               <button id="btn-memory" class="menu-item" type="button" role="menuitem">记忆<span id="memory-count" class="memory-badge hidden"></span></button>
               <button id="btn-copy-all" class="menu-item" type="button" role="menuitem">复制全文</button>
               <button id="btn-export-convo" class="menu-item" type="button" role="menuitem">导出</button>
-              <!-- 纯粹的显示开关：藏掉状态卡入口条、剧情选项，消息上的操作按钮也收进悬停才出现的「⋯」。
-                   状态记在设置里（plainChatView），开合逻辑在 js/ui/plainView.js。 -->
-              <button id="btn-plain-view" class="menu-item" type="button" role="menuitemcheckbox"
-                      aria-checked="false" title="只留对话本身：藏掉状态卡入口条、剧情选项和消息上的按钮">纯对话视图</button>
               <!-- 排查用：把最近几次真正发出去的请求原样摊开。
                    它不是显示开关，是一次性的动作，所以用普通 menuitem。 -->
               <button id="btn-request-log" class="menu-item" type="button" role="menuitem"
@@ -615,6 +596,16 @@
           <h2 id="settings-title">设置</h2>
           <p class="modal-sub">配置模型接口与对话行为</p>
         </div>
+        <!-- 放大：把这个弹窗铺满整个应用窗口（不是把窗口切成全屏），写长文本时能多看见几行；
+             再点还原。两个图标靠弹窗自己的 .modal-max 二选一显示（见 style.css 的 .fs-btn）。 -->
+        <button id="btn-fs-settings" class="icon-btn fs-btn" type="button" title="放大到窗口大小" aria-label="放大到窗口大小" aria-pressed="false">
+          <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+          </svg>
+          <svg class="icon-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 8h3a2 2 0 0 0 2-2V3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
+          </svg>
+        </button>
         <button id="btn-close-settings" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭设置">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M18 6 6 18M6 6l12 12" />
@@ -923,6 +914,14 @@
           <h2 id="chars-title">编辑角色</h2>
           <p id="chars-sub" class="modal-sub"></p>
         </div>
+        <button id="btn-fs-chars" class="icon-btn fs-btn" type="button" title="放大到窗口大小" aria-label="放大到窗口大小" aria-pressed="false">
+          <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+          </svg>
+          <svg class="icon-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 8h3a2 2 0 0 0 2-2V3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
+          </svg>
+        </button>
         <button id="btn-close-chars" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M18 6 6 18M6 6l12 12" />
@@ -1259,6 +1258,14 @@
           <h2 id="worldbooks-title">世界书</h2>
           <p class="modal-sub">一条条目 = 一组关键词 + 一段设定；关键词命中才会注入提示词</p>
         </div>
+        <button id="btn-fs-worldbooks" class="icon-btn fs-btn" type="button" title="放大到窗口大小" aria-label="放大到窗口大小" aria-pressed="false">
+          <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+          </svg>
+          <svg class="icon-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 8h3a2 2 0 0 0 2-2V3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
+          </svg>
+        </button>
         <button id="btn-close-worldbooks" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭世界书">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M18 6 6 18M6 6l12 12" />
@@ -1428,6 +1435,14 @@
           <h2 id="preset-title">编辑预设</h2>
           <p id="preset-sub" class="modal-sub">叠在对话上的一层指令</p>
         </div>
+        <button id="btn-fs-preset" class="icon-btn fs-btn" type="button" title="放大到窗口大小" aria-label="放大到窗口大小" aria-pressed="false">
+          <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+          </svg>
+          <svg class="icon-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 8h3a2 2 0 0 0 2-2V3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
+          </svg>
+        </button>
         <button id="btn-close-preset" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭预设编辑器">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M18 6 6 18M6 6l12 12" />
@@ -1634,16 +1649,19 @@
     </div>
   </div>
 
-  <!-- ================= 对话窗口外观 =================
-       只管怎么显示，不碰发给 AI 的内容。改完立即生效。 -->
+  <!-- ================= 外观 =================
+       两档东西：
+         ① 主题配色 + 明暗 —— 整个界面都跟着变（侧栏、按钮、所有弹窗）
+         ② 字号 / 加粗色 / 背景图 —— 只管聊天区怎么显示
+       都不碰发给 AI 的内容，改完立即生效。 -->
   <div id="appearance-modal" class="modal hidden">
     <div class="modal-card appearance-card" role="dialog" aria-modal="true" aria-labelledby="appearance-title">
       <header class="modal-head">
         <div class="modal-heading">
-          <h2 id="appearance-title">对话窗口</h2>
-          <p class="modal-sub">只影响聊天区怎么显示，不影响发给 AI 的内容</p>
+          <h2 id="appearance-title">外观</h2>
+          <p class="modal-sub">主题和明暗管整个界面，下面三样只管聊天区。都不影响发给 AI 的内容</p>
         </div>
-        <button id="btn-close-appearance" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭对话窗口设置">
+        <button id="btn-close-appearance" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭外观设置">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
@@ -1651,6 +1669,39 @@
       </header>
 
       <div class="modal-body">
+        <!-- 管整个界面的两样并成一行两栏：单栏堆着的话弹窗会长出可视区，
+             底部那几样得滚动才看得见。 -->
+        <div class="appearance-global">
+          <div class="field field-stack">
+            <span class="field-label">主题配色</span>
+            <!-- 三选一。原来是左上角一颗「循环」按钮：点一下换下一套，
+                 想知道「一共有几套、现在在哪套」只能一路点下去。 -->
+            <div id="appearance-accents" class="accent-swatches" role="radiogroup" aria-label="主题配色">
+              <button class="accent-swatch" type="button" data-accent="pink" role="radio" aria-checked="false">
+                <span class="accent-dot" aria-hidden="true"></span>草莓奶昔
+              </button>
+              <button class="accent-swatch" type="button" data-accent="blue" role="radio" aria-checked="false">
+                <span class="accent-dot" aria-hidden="true"></span>苏打气泡
+              </button>
+              <button class="accent-swatch" type="button" data-accent="matcha" role="radio" aria-checked="false">
+                <span class="accent-dot" aria-hidden="true"></span>抹茶奶绿
+              </button>
+            </div>
+            <span class="field-help">整个界面的主色调。</span>
+          </div>
+
+          <div class="field field-stack">
+            <span class="field-label">明暗</span>
+            <div id="appearance-modes" class="seg-group" role="radiogroup" aria-label="明暗">
+              <button class="seg-btn" type="button" data-mode="light" role="radio" aria-checked="false">白天</button>
+              <button class="seg-btn" type="button" data-mode="dark" role="radio" aria-checked="false">夜间</button>
+            </div>
+            <span class="field-help">和配色是两回事，各挑各的。</span>
+          </div>
+        </div>
+
+        <hr class="appearance-divider" />
+
         <label class="field field-stack">
           <span class="field-label">正文字号</span>
           <div class="appearance-row">

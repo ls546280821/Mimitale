@@ -113,7 +113,9 @@ function createWindow() {
   // Electron 默认只绑了 Ctrl+Shift+I，从浏览器过来的人会习惯性按 F12，
   // 那一下在 Electron 里是没反应的，所以这里补上。
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.type === 'keyDown' && input.key === 'F12') {
+    if (input.type !== 'keyDown') return;
+
+    if (input.key === 'F12') {
       event.preventDefault();
       mainWindow.webContents.toggleDevTools();
     }

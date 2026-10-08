@@ -671,7 +671,12 @@ function registerStubs() {
     return { ok: true, dataUrl: TINY_PNG, model: (payload && payload.model) || '' };
   });
   ipcMain.handle('util:copy', () => true);
-  ipcMain.handle('util:openPath', () => true);
+  // 打开数据文件夹。真主进程现在回 { ok, path, error }（以前只回路径字符串，
+  // 失败时界面拿不到任何信息），这里跟着给同样的形状。
+  ipcMain.handle('util:openPath', () => ({ ok: true, path: 'C:\\fake\\userData' }));
+
+  // 注意：编辑弹窗头上那颗按钮**没有 IPC** —— 「放大」是纯渲染层的
+  // （给弹窗挂 .modal-max，CSS 撑满），不碰 BrowserWindow，所以这里没有对应桩。
 
   // 「导出」：不弹真的保存框，但把渲染层交上来的东西原样收下 ——
   // 宿主侧再拿它跑一遍真正的「写 PNG → 读 PNG」往返
@@ -2773,8 +2778,6 @@ function probeSettingsWhitelist(result) {
     'ragEnabled', 'embeddingProviderId', 'embeddingModel',
     'commonAttributes',
     'assistantPersonas',
-    // ui/plainView.js（顶栏「⋯」里的显示开关）
-    'plainChatView',
     // appearance.js / theme.js
     'chatFontSize', 'chatBoldColor', 'chatBackground', 'theme', 'accent'
   ];
@@ -3276,22 +3279,24 @@ app.whenReady().then(async () => {
     try {
       win.show();
       if (shotDark) {
-        // 点真实的主题按钮（只点按钮，不调内部函数）
-        await win.webContents.executeJavaScript(`document.querySelector('#btn-theme')?.click(); true`);
+        // 点真实的明暗按钮（只点按钮，不调内部函数）。
+        // 控件在外观弹窗里 —— 不用先把弹窗打开，click() 对隐藏元素照样生效。
+        await win.webContents.executeJavaScript(
+          `document.querySelector('#appearance-modes [data-mode="dark"]')?.click(); true`
+        );
         await new Promise((r) => setTimeout(r, 300));
       }
       // --shot-accent=<pink|blue|matcha>：切到指定配色再截图。
-      // 配置按钮是「循环」的，所以不写死点几次，一路点到 data-accent 等于目标为止
-      // （最多 4 次，认不出的值循环一圈回到原地，不会卡死）。
+      // 现在弹窗里是三个色点，直接点对应的那一颗就行（以前是循环按钮，
+      // 得一路点到 data-accent 等于目标为止）。
       const shotAccent = (process.argv.find((a) => a.startsWith('--shot-accent')) || '').split('=')[1];
       if (shotAccent) {
+        const accentSel = `#appearance-accents [data-accent="${shotAccent}"]`;
         await win.webContents.executeJavaScript(`
           (async () => {
-            for (let i = 0; i < 4; i++) {
-              if (document.documentElement.getAttribute('data-accent') === ${JSON.stringify(shotAccent)}) break;
-              document.querySelector('#btn-accent')?.click();
-              await new Promise((r) => setTimeout(r, 150));
-            }
+            const btn = document.querySelector(${JSON.stringify(accentSel)});
+            if (btn) btn.click();
+            await new Promise((r) => setTimeout(r, 150));
             return document.documentElement.getAttribute('data-accent');
           })()
         `);
@@ -3302,6 +3307,11 @@ app.whenReady().then(async () => {
         settings: `
           document.querySelector('#btn-settings')?.click();
           await new Promise(r => setTimeout(r, 700));`,
+        // 外观弹窗：主题配色 + 明暗 + 聊天区那几样都在里面，
+        // 布局（色点会不会换行、分段按钮会不会被 grid 拉满）得靠图看
+        appearance: `
+          document.querySelector('#btn-appearance')?.click();
+          await new Promise(r => setTimeout(r, 400));`,
         panel: `
           const $$ = (s) => Array.from(document.querySelectorAll(s));
           const $ = (s) => document.querySelector(s);
@@ -3531,6 +3541,60 @@ app.whenReady().then(async () => {
           $('#btn-clear-avatar')?.classList.remove('hidden');
           $('#btn-clear-portrait')?.classList.remove('hidden');
           await nap(200);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 弹窗「放大到窗口」：卡片该铺满整个内容区（1440×900）—— 四条边贴到窗口边、
+        // 圆角和描边都没了、内部该滚的还在自己滚。这种「整页感」只有图看得出来。
+        modalMax: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-chars')?.click();
+          await nap(400);
+          const card = $$('#char-page-grid .char-card')[0];
+          const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (btn) btn.click();
+          await nap(600);
+          $('#btn-fs-chars')?.click();
+          await nap(400);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 同上，但换成世界书编辑器 —— 它自己把卡片写成 `height: 94vh`，
+        // 「放大高度没铺满」就是这么来的，单独留一张盯着高度。
+        modalMaxWorldbook: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-worldbooks')?.click();
+          await nap(450);
+          const card = $$('#wb-page-grid .char-card')[0];
+          const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (btn) btn.click();
+          await nap(650);
+          $('#btn-fs-worldbooks')?.click();
+          await nap(400);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 同上，换成预设编辑器 —— 它的卡片是 `width: min(720px, 94vw)`，
+        // 「放大宽度没铺满」就是这么来的，单独留一张盯着宽度。
+        modalMaxPreset: `
+          const $$ = (s) => Array.from(document.querySelectorAll(s));
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-presets')?.click();
+          await nap(500);
+          const card = $$('#preset-page-grid .char-card')[0];
+          const btn = card && Array.from(card.querySelectorAll('button')).find(b => b.textContent.trim() === '编辑');
+          if (btn) btn.click();
+          await nap(650);
+          $('#btn-fs-preset')?.click();
+          await nap(400);
+          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
+        // 同上，换成设置弹窗（它没有自己的尺寸规则，做对照组）
+        modalMaxSettings: `
+          const $ = (s) => document.querySelector(s);
+          const nap = (ms) => new Promise(r => setTimeout(r, ms));
+          $('#btn-settings')?.click();
+          await nap(700);
+          $('#btn-fs-settings')?.click();
+          await nap(400);
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 属性区的分组标签栏：新建一张卡，按真实交互铺出几个分组再截图 ——
         // 空卡只有一个「未分组」标签，看不出分层的样子。
@@ -4028,10 +4092,27 @@ app.whenReady().then(async () => {
             personality: h('#c-personality'),
             scenario: h('#c-scenario'),
             first: h('#c-first'),
-            example: h('#c-example')
+            example: h('#c-example'),
+            // 当前那个可见弹窗的卡片实测尺寸 vs 内容区。放大状态应该刚好等于
+            // window.innerWidth × innerHeight —— 「差几 px 没铺满」在缩略图上
+            // **根本看不出来**，所以这里给数字。
+            modal: (() => {
+              const m = document.querySelector('.modal:not(.hidden)');
+              if (!m) return '(无弹窗)';
+              const c = m.querySelector('.modal-card');
+              if (!c) return '(无卡片)';
+              const r = c.getBoundingClientRect();
+              const tag = m.classList.contains('modal-max') ? '已放大' : '常规';
+              // ⚠️ 这里**不能**再写一层反引号模板 —— 整段是嵌在宿主的模板字符串里的，
+              // 里面的反引号会当场把外层字符串截断（tools/smoke-test.js 直接语法错误，
+              // npm run smoke 一行都跑不出来）。只用字符串拼接。
+              return Math.round(r.width) + 'x' + Math.round(r.height) + ' ' + tag +
+                '（内容区 ' + window.innerWidth + 'x' + window.innerHeight + '）';
+            })()
           };
         })()`);
         console.log(`  主题=${probe.theme} 弹窗底=${probe.card} 属性卡=${probe.panel} 标签栏=${probe.tabs} 值框=${probe.value}`);
+        console.log(`  弹窗卡片=${probe.modal}`);
         if (shotArg === 'charTextareas') {
           console.log(`  长文本框实高(px) 描述=${probe.desc} 性格=${probe.personality} 场景=${probe.scenario} 开场白=${probe.first} 示例对话=${probe.example}`);
         }

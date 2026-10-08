@@ -18,6 +18,7 @@ import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { el } from '../core/dom.js';
 import { showToast } from '../ui/toast.js';
+import { setAccent, setTheme } from '../ui/theme.js';
 
 const CHAT_FONT_MIN = 12;
 const CHAT_FONT_MAX = 22;
@@ -172,7 +173,7 @@ export function closeAppearanceModal() {
   el.input.focus();
 }
 
-/** 绑定外观弹窗的所有事件（打开 / 关闭 / 字号 / 配色 / 背景图） */
+/** 绑定外观弹窗的所有事件（打开 / 关闭 / 配色 / 明暗 / 字号 / 加粗色 / 背景图） */
 export function initAppearance() {
   // 对话窗口外观：改完立即生效 + 落盘，所以没有「保存」按钮
   el.btnAppearance.addEventListener('click', openAppearanceModal);
@@ -181,6 +182,22 @@ export function initAppearance() {
   el.appearanceModal.addEventListener('click', (event) => {
     if (event.target === el.appearanceModal) closeAppearanceModal();
   });
+
+  // 主题配色 / 明暗：整块界面的东西，放在弹窗最上面。
+  // 用事件委托而不是逐个绑 —— 色点是三颗、以后加配色就有四颗，
+  // 逐个绑的话每加一套配色都得回来补一行。选中态由 ui/theme.js 统一刷。
+  if (el.appearanceAccents) {
+    el.appearanceAccents.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-accent]');
+      if (btn) setAccent(btn.dataset.accent);
+    });
+  }
+  if (el.appearanceModes) {
+    el.appearanceModes.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-mode]');
+      if (btn) setTheme(btn.dataset.mode);
+    });
+  }
 
   // 字号：拖动时实时预览，松手才落盘 —— 不然拖一次要写几十遍配置文件
   el.appearanceFontSize.addEventListener('input', () => {

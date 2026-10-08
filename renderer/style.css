@@ -357,18 +357,8 @@ body {
   margin-right: auto;
 }
 
-/* 品牌行右侧的昼夜切换按钮：只显示「将要切到的那个模式」的图标 */
-.brand-theme {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-}
-
-.brand-theme .icon-sun { display: none; }
-.brand-theme .icon-moon { display: block; }
-
-[data-theme='dark'] .brand-theme .icon-sun { display: block; }
-[data-theme='dark'] .brand-theme .icon-moon { display: none; }
+/* 品牌行右侧原来挂着配色/昼夜两颗图标，2026-10-08 挪进「外观」弹窗了，
+   .brand-theme 那套样式随之删掉 —— 别在这里重加图标按钮。 */
 
 .sidebar-label {
   font-size: 11px;
@@ -777,13 +767,6 @@ body {
 .menu-pop .menu-item-danger:hover { background: var(--danger-bg-hover); color: var(--danger-hover); }
 /* 菜单项里的段数角标：它本来是按幽灵按钮上的位置调的，这里跟着文字走就行 */
 .menu-pop .memory-badge { margin-left: 6px; }
-/* 开关型菜单项（「纯对话视图」）：开着的时候整行改主色、右边补一个勾 */
-.menu-pop .menu-item[aria-checked='true'] { color: var(--accent); }
-.menu-pop .menu-item[aria-checked='true']::after {
-  content: '✓';
-  margin-left: auto;
-  padding-left: 14px;
-}
 
 /* --------------------------- 顶栏：切换模型 --------------------------- */
 
@@ -1279,23 +1262,6 @@ body {
   border-color: var(--danger-border);
 }
 
-/* ---------------------- 纯对话视图（body.plain-view） ----------------------
-   只留对话本身：状态卡入口条和剧情选项整块不画，消息上的操作按钮也不再跟着
-   悬停冒出来 —— 改成点那一颗「⋯」才展开（按钮在 chatMessages.js 里建）。
-   侧栏、输入区、顶栏都不动，所以这只是「少看几样东西」，不是另一个界面。 */
-body.plain-view #panel-box,
-body.plain-view .msg-options {
-  display: none !important;
-}
-
-body.plain-view .msg-actions { display: none; }
-body.plain-view .msg-actions.open { display: flex; }
-
-/* 「⋯」只在纯对话视图里出现；平时操作按钮本来就跟着悬停浮出，不需要它 */
-.msg-more { display: none; }
-body.plain-view .msg-more { display: inline-flex; }
-body.plain-view .msg-more[aria-expanded='true'] { color: var(--accent); }
-
 /* ---------------------- 剧情选项（跟在 AI 回复气泡下面） ----------------------
    模型每轮给几个可点选项，就画在最新一条回复的气泡下面：点一下当作玩家说了
    这句话发出去。底下一条小工具行：「⟳ 换一批」+「✕」收起。 */
@@ -1707,6 +1673,10 @@ body.plain-view .msg-more[aria-expanded='true'] { color: var(--accent); }
   border-radius: 16px;
   box-shadow: var(--shadow-lg);
   animation: card-in 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  /* 点了「放大到窗口」时让卡片长过去，而不是啪一下跳满 —— 几个长度值之间
+     可以插值（px ↔ %），所以能平滑过渡。width 也要带上：#preset-modal 那边
+     基线是 `width: min(720px, 94vw)`，只动 max-width 的话它不会变。 */
+  transition: width 0.18s ease, max-width 0.18s ease, max-height 0.18s ease, border-radius 0.18s ease;
 }
 
 /* 头部：标题 + 关闭 */
@@ -1721,7 +1691,10 @@ body.plain-view .msg-more[aria-expanded='true'] { color: var(--accent); }
   background: transparent;
 }
 
-.modal-heading { min-width: 0; }
+/* 撑满剩余宽度，把右边那几颗图标按钮挤到一处。
+   不写这句的话，头里三个孩子（标题 / 全屏 / 关闭）会被 space-between
+   平分两端 —— 全屏按钮孤零零飘在正中间，跟关闭离了十万八千里。 */
+.modal-heading { flex: 1 1 auto; min-width: 0; }
 
 .modal-head h2 {
   margin: 0;
@@ -4540,7 +4513,140 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 
 /* ------------------------------ 对话窗口外观弹窗 ------------------------------ */
 
-.appearance-card { max-width: 560px; }
+/* 比别的弹窗宽一点：「主题配色」三个色点要能并排站一行 */
+.appearance-card { max-width: 620px; }
+
+/* 「主题配色」和「明暗」并排一行。单栏堆着的话弹窗会长出可视区，
+   底部那几样得滚动才看得见。两栏比例靠配色那边宽些（三个色点比两颗按钮宽）。 */
+.appearance-global {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+.appearance-global > * { min-width: 0; }
+
+/* 「主题配色」的三个色点。
+   原来是左上角一颗「循环」按钮：点一下换下一套，想知道一共有几套、现在在哪套
+   只能一路点下去。摊成三选一之后一眼看全，选中的那项用主题色描边 + 淡底，
+   跟界面上其它「选中态」是同一套语言。 */
+.accent-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.accent-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.accent-swatch:hover { border-color: var(--border-hover); color: var(--text); }
+.accent-swatch:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.accent-swatch[aria-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* 色点里那颗圆：三套配色的主色写死在这儿（对应 :root / [data-accent] 里的 --accent）。
+   ⚠️ 以后改配色，这三行的色值要跟着一起改。 */
+.accent-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.1);
+}
+.accent-swatch[data-accent='pink'] .accent-dot { background: #d92968; }
+.accent-swatch[data-accent='blue'] .accent-dot { background: #1670b8; }
+.accent-swatch[data-accent='matcha'] .accent-dot { background: #1a7d52; }
+
+/* 「白天 / 夜间」——分段控件的画法：一条淡底轨道，选中项填主题色。
+   ⚠️ 外层 .field 是 grid，item 默认 stretch 会把轨道拉满整行，
+   所以必须 justify-self: start（写成 align-self 在 grid 里不管用）。 */
+.seg-group {
+  display: inline-flex;
+  justify-self: start;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-input);
+}
+
+.seg-btn {
+  height: 28px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.seg-btn:hover { color: var(--text); }
+.seg-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.seg-btn[aria-checked='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+/* 外观弹窗里「管整个界面」和「只管聊天区」之间那道分界线 */
+.appearance-divider {
+  margin: 2px 0 14px;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* 编辑弹窗头上的「放大到窗口」按钮：只显示「点了会变成什么」的那个图标
+   （正常大小 → 展开图标；已放大 → 还原图标），跟原来那颗昼夜按钮同一个套路。 */
+.fs-btn .icon-restore { display: none; }
+.modal-max .fs-btn .icon-expand { display: none; }
+.modal-max .fs-btn .icon-restore { display: block; }
+
+/* 弹窗「放大到窗口大小」：卡片铺满整个 .modal。
+   .modal 本身就是 `position:fixed; inset:0` 的整窗遮罩，所以把它那圈 24px 内边距
+   去掉、卡片撑满，就等于「这个弹窗占了整个应用窗口」—— 不动 BrowserWindow。
+
+   ⚠️ 四个尺寸一个都不能漏（width / max-width / height / max-height）。
+   只清 max-* 是不够的，因为各弹窗自己把 width / height 写死过：
+     · `#preset-modal .modal-card { width: min(720px, 94vw) }` → 光清 max-width，它还是 720px 宽
+     · `.worldbook-card { height: 94vh }`                    → 光清 max-height，它只长到 94vh
+   （这两条正好就是「预设宽度没满 / 世界书高度没满」两个反馈。）
+   height 给 auto 而不是 100%：让下面的 align-items:stretch 说了算，
+   这样 max-height 那条 transition 能把它一路顺下来，不会「宽度在动、高度啪一下跳」。
+
+   ⚠️ `#chars-modal …` / `#preset-modal …` 那两支是 **id 选择器**，权重比
+   `.modal.modal-max …` 高 —— 不把 id 带进选择器里，整条规则对它们无效。 */
+.modal.modal-max {
+  padding: 0;
+  align-items: stretch;
+}
+
+.modal.modal-max .modal-card,
+#chars-modal.modal-max .modal-card,
+#preset-modal.modal-max .modal-card {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 100%;
+  border-width: 0;
+  border-radius: 0;
+}
 
 /* 一行控件：滑块/色盘 + 输入框 + 按钮 */
 .appearance-row {

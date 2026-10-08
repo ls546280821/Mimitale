@@ -1068,7 +1068,9 @@ async function saveCharacter() {
       renderWorldbookChars();
       renderWorldbookPage();
     }
-    await persistCharacters();
+    // 写盘失败就别报「已创建」—— 提示已经由 persistCharacters 弹过了，
+    // 弹窗也留着，用户能直接再点一次「保存角色」重试。
+    if (!(await persistCharacters())) return;
     showToast(`角色「${character.name}」已创建`, 'ok');
     // 草稿已经提交（charDraft 清空），这里不会再弹「放弃新建？」那个确认框
     await closeCharsModal();
@@ -1087,8 +1089,9 @@ async function saveCharacter() {
     renderWorldbookPage();
   }
 
-  await persistCharacters();
-  showToast(`角色「${character.name}」已保存`, 'ok');
+  // 失败提示由 persistCharacters 弹（界面上的改动留着，用户能直接再存一次）；
+  // 成功了才报「已保存」—— 两条都弹的话后一条会把前一条盖掉。
+  if (await persistCharacters()) showToast(`角色「${character.name}」已保存`, 'ok');
 }
 
 /**
@@ -1097,6 +1100,12 @@ async function saveCharacter() {
  *
  * 两个入口共用这一份逻辑：角色卡右上角的 ×，和编辑弹窗底部的「删除角色」。
  * 以前它俩是「谁打开编辑器谁负责」，所以在卡片上删不了 —— 得先点进编辑。
+ *
+ * ⚠️ 写盘失败时**要把内存也退回去**，不能只弹个提示就完了。
+ *    2026-10-08 的「删掉了、重开还有」就是这里：杀软临时锁住 characters.json，
+ *    写盘抛 EPERM，界面却已经把卡片移掉、还弹了「已删除」—— 用户以为删干净了，
+ *    重启一看又回来了（而且中间的会话解绑也白做）。
+ *    「写不进磁盘 = 没删掉」才和用户看到的东西一致。
  */
 export async function deleteCharacterById(id, scope) {
   const inBook = scope === 'worldbook';
@@ -1119,36 +1128,60 @@ export async function deleteCharacterById(id, scope) {
   if (inBook) {
     const book = currentWorldbook();
     if (book) {
-      book.characters = worldbookCharacters(book).filter((c) => c.id !== character.id);
+      const beforeChars = worldbookCharacters(book);
+      book.characters = beforeChars.filter((c) => c.id !== character.id);
       book.updatedAt = now();
-    }
-  } else {
-    state.characters = characters().filter((c) => c.id !== character.id);
 
-    // 把绑定了这个角色的会话解绑，免得留下一个指向空气的 id
-    for (const convo of state.conversations) {
-      if (convo.characterId === character.id) convo.characterId = null;
+      // 书里的副本不受会话影响，只需要刷新书那边的界面
+      renderWorldbookChars();
+      renderWorldbookPage();
+
+      if (!(await persistCharacters())) {
+        // 写盘失败 → 把副本放回去，界面跟磁盘保持一致
+        book.characters = beforeChars;
+        renderWorldbookChars();
+        renderWorldbookPage();
+        return;
+      }
+      showToast(`已移除「${character.name}」`);
+      return;
     }
+  }
+
+  // --- 从角色库删 ---------------------------------------------------------
+  // 记住改之前的样子，写盘失败时按这几样退回去
+  const beforeChars = characters();
+  const unbound = [];
+
+  state.characters = beforeChars.filter((c) => c.id !== character.id);
+
+  // 把绑定了这个角色的会话解绑，免得留下一个指向空气的 id
+  for (const convo of state.conversations) {
+    if (convo.characterId === character.id) {
+      convo.characterId = null;
+      unbound.push(convo);
+    }
+  }
+
+  actions.rerender();
+
+  if (!(await persistCharacters())) {
+    state.characters = beforeChars;
+    for (const convo of unbound) convo.characterId = character.id;
+    actions.rerender();
+    return;
   }
 
   // 编辑器如果正开在这个角色上，就没有可编辑的对象了 —— 关掉它。
   // （从卡片删的时候编辑器根本没开，这一段会跳过。）
+  // 放在写盘成功之后：失败时角色还在，编辑器不该被关掉。
   if (editingCharacterId === character.id) {
     editingCharacterId = null;
     if (!el.charsModal.classList.contains('hidden')) closeCharsModal();
   }
 
-  if (inBook) {
-    // 书里的副本不受会话影响，只需要刷新书那边的界面
-    renderWorldbookChars();
-    renderWorldbookPage();
-  } else {
-    actions.rerender();
-    persistConversations(0);
-  }
-  await persistCharacters();
-
-  showToast(inBook ? `已移除「${character.name}」` : `已删除「${character.name}」`);
+  persistConversations(0);
+  showToast(`已删除「${character.name}」`);
 }
 
 /** 编辑弹窗底部的「删除角色」：删的就是编辑器里正在编辑的这个 */

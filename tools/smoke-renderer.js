@@ -219,59 +219,89 @@ await scenario('启动', async () => {
 });
 
 // ---------------------------------------------------------------------------
-//  场景 2：主题切换（顺带验证 settings 落盘）
+//  场景 2：明暗切换（顺带验证 settings 落盘）
+//  控件在「外观」弹窗里：2026-10-08 之前是左上角一颗「点一下切一下」的图标，
+//  并进弹窗之后换成「白天 / 夜间」两颗 —— 点哪个是哪个，不再是盲切。
 // ---------------------------------------------------------------------------
-await scenario('主题切换', async () => {
-  const before = document.documentElement.getAttribute('data-theme');
-  click('#btn-theme');
-  await waitFor('data-theme 变化', () => document.documentElement.getAttribute('data-theme') !== before);
+await scenario('明暗切换', async () => {
+  click('#btn-appearance');
+  await waitFor('外观弹窗打开', () => shown('#appearance-modal'));
 
-  const after = document.documentElement.getAttribute('data-theme');
-  check('data-theme 变了', after !== before, `${before} → ${after}`);
+  const modeBtn = (m) => $(`#appearance-modes [data-mode="${m}"]`);
+  const before = document.documentElement.getAttribute('data-theme');
+  const target = before === 'dark' ? 'light' : 'dark';
+
+  click(`#appearance-modes [data-mode="${target}"]`);
+  await waitFor('data-theme 变化', () => document.documentElement.getAttribute('data-theme') === target);
+  check('data-theme 切过去了', document.documentElement.getAttribute('data-theme') === target, `${before} → ${target}`);
+  check('选中的那颗标成 aria-checked', modeBtn(target).getAttribute('aria-checked') === 'true');
+  check('另一颗没标', modeBtn(before).getAttribute('aria-checked') === 'false');
 
   await sleep(150);
   const settings = (await window.mimitale.getSettings()).settings;
-  check('主题已落盘', settings.theme === after, `落盘的是 ${settings.theme}`);
+  check('主题已落盘', settings.theme === target, `落盘的是 ${settings.theme}`);
 
-  click('#btn-theme'); // 切回去，别影响后面的场景
+  // 切回去，别影响后面的场景
+  click(`#appearance-modes [data-mode="${before}"]`);
   await waitFor('主题切回', () => document.documentElement.getAttribute('data-theme') === before);
+  check('切回后 aria-checked 也跟着换', modeBtn(before).getAttribute('aria-checked') === 'true');
+
+  click('#btn-close-appearance');
+  await waitFor('外观弹窗关闭', () => !shown('#appearance-modal'));
 });
 
 // ---------------------------------------------------------------------------
-//  场景 2b：配色方案切换（草莓 → 苏打 → 抹茶 → 草莓，顺带验证 data-accent 与 CSS 变量 + 落盘）
-//  按钮是「循环」不是开关：切回原配色不是再点一下，得顺着循环转完一圈。
+//  场景 2b：主题配色（顺带验证 data-accent 与 CSS 变量 + 落盘）
+//  同样在「外观」弹窗里：原来是左上角一颗「循环」按钮（点一下换下一套，
+//  想知道一共有几套只能一路点下去），现在是三个色点，点哪个是哪个。
+//  起点不写死 —— 前面哪个场景动过配色都不该让这里假红。
 // ---------------------------------------------------------------------------
-await scenario('配色方案切换', async () => {
+await scenario('主题配色', async () => {
+  click('#btn-appearance');
+  await waitFor('外观弹窗打开', () => shown('#appearance-modal'));
+
+  const ALL = ['pink', 'blue', 'matcha'];
+  const swatch = (a) => $(`#appearance-accents [data-accent="${a}"]`);
+  check('三个色点都在', ALL.every((a) => !!swatch(a)));
+
   const readAttr = () => document.documentElement.getAttribute('data-accent');
   const readAccent = () => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-  const before = readAttr();
-  const accentBefore = readAccent();
 
-  click('#btn-accent');
-  await waitFor('data-accent 变化', () => readAttr() !== before);
+  const start = readAttr();
+  const startAccent = readAccent();
 
-  const after = readAttr();
-  check('data-accent 变了', after !== before, `${before} → ${after}`);
+  const next = ALL.find((a) => a !== start);
+  click(`#appearance-accents [data-accent="${next}"]`);
+  await waitFor('data-accent 变化', () => readAttr() === next);
 
-  const accentAfter = readAccent();
-  check('--accent 变量跟着变', accentAfter !== accentBefore, `${accentBefore} → ${accentAfter}`);
+  const nextAccent = readAccent();
+  check('data-accent 切过去了', readAttr() === next, `${start} → ${next}`);
+  check('--accent 变量跟着变', nextAccent !== startAccent, `${startAccent} → ${nextAccent}`);
+  check('选中的色点标了 aria-checked', swatch(next).getAttribute('aria-checked') === 'true');
+  check(
+    '没选中的色点没标',
+    ALL.filter((a) => a !== next).every((a) => swatch(a).getAttribute('aria-checked') === 'false')
+  );
 
   await sleep(150);
   const settings = (await window.mimitale.getSettings()).settings;
-  check('配色已落盘', settings.accent === after, `落盘的是 ${settings.accent}`);
+  check('配色已落盘', settings.accent === next, `落盘的是 ${settings.accent}`);
 
-  // 再点一下应该到第三套 —— 验证它真的是三态循环，而不是粉/蓝两态开关
-  click('#btn-accent');
-  await waitFor('切到第三套配色', () => readAttr() !== after);
-  const third = readAttr();
-  const accentThird = readAccent();
-  check('第三套和前两套都不同', third !== after && third !== before, `${before} → ${after} → ${third}`);
-  check('第三套的 --accent 也换了', accentThird !== accentAfter && accentThird !== accentBefore);
+  // 再点第三个，确认三个色点各对应一套（不是只认「切换」两态）
+  const third = ALL.find((a) => a !== start && a !== next);
+  click(`#appearance-accents [data-accent="${third}"]`);
+  await waitFor('切到第三套配色', () => readAttr() === third);
+  const thirdAccent = readAccent();
+  check('第三套和前两套都不同', third !== next && third !== start, `${start} → ${next} → ${third}`);
+  check('第三套的 --accent 也换了', thirdAccent !== startAccent && thirdAccent !== nextAccent);
 
-  // 再点一下正好转完一圈回到起点，别影响后面的场景
-  click('#btn-accent');
-  await waitFor('配色转回起点', () => readAttr() === before);
-  check('转一圈回到起点', readAccent() === accentBefore);
+  // 点回起点，别影响后面的场景
+  click(`#appearance-accents [data-accent="${start}"]`);
+  await waitFor('配色转回起点', () => readAttr() === start);
+  check('转回起点后 --accent 也回到原值', readAccent() === startAccent);
+
+  click('#btn-close-appearance');
+  await waitFor('外观弹窗关闭', () => !shown('#appearance-modal'));
 });
 
 // ---------------------------------------------------------------------------
@@ -295,7 +325,7 @@ await scenario('顶栏「⋯」菜单', async () => {
     .join(', ');
   check(
     '菜单里的项目齐全、顺序没变',
-    menuIds === 'btn-memory, btn-copy-all, btn-export-convo, btn-plain-view, btn-request-log, btn-clear',
+    menuIds === 'btn-memory, btn-copy-all, btn-export-convo, btn-request-log, btn-clear',
     menuIds
   );
 
@@ -2218,14 +2248,19 @@ await scenario('给剧情配图（生图）', async () => {
 });
 
 // ---------------------------------------------------------------------------
-//  场景 15：对话窗口外观（字号 / 加粗颜色 / 背景图）
+//  场景 15：外观弹窗里「只管聊天区」的那几样（字号 / 加粗颜色 / 背景图）
+//  主题配色和明暗在场景 2 / 2b，它们在同一个弹窗但管整个界面。
 // ---------------------------------------------------------------------------
-await scenario('对话窗口外观', async () => {
+await scenario('外观：聊天区那几样', async () => {
   click('#btn-appearance');
   await waitFor('外观弹窗打开', () => shown('#appearance-modal'));
   check(
-    '三样控件都在（字号 / 颜色 / 背景）',
+    '聊天区三样控件都在（字号 / 颜色 / 背景）',
     !!byId('appearance-fontsize') && !!byId('appearance-boldcolor-text') && !!byId('btn-pick-bg')
+  );
+  check(
+    '管整个界面的两样也在这个弹窗里（配色 / 明暗）',
+    !!byId('appearance-accents') && !!byId('appearance-modes')
   );
 
   const bubble = $('#messages .bubble');
@@ -2291,6 +2326,71 @@ await scenario('对话窗口外观', async () => {
 
   click('#btn-close-appearance');
   await waitFor('外观弹窗关闭', () => !shown('#appearance-modal'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 15b：编辑类弹窗头上的「放大到窗口」按钮
+//  四个弹窗各一颗（角色卡 / 世界书 / 设置 / 预设），行为一样：把**那个弹窗自己**
+//  铺满应用窗口（纯渲染层：给 .modal 挂 modal-max，CSS 撑满；不碰 BrowserWindow，
+//  所以这里没有假后端可验 —— 验的就是 class + 按钮状态）。
+//  ⚠️ 场景结束必须把两个弹窗都关掉、且不留 modal-max：后面的截图/布局断言
+//     都按「弹窗是正常大小」算，留着放大的状态会拍出一张铺满屏幕的图。
+// ---------------------------------------------------------------------------
+await scenario('编辑弹窗的放大按钮', async () => {
+  const ids = ['btn-fs-chars', 'btn-fs-worldbooks', 'btn-fs-settings', 'btn-fs-preset'];
+  const maxed = (id) => byId(id).classList.contains('modal-max');
+  check('四个编辑弹窗头上都有放大按钮', ids.every((id) => !!byId(id)));
+
+  // --- 开一下、放大、还原 ---
+  click('#btn-settings');
+  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  check('刚打开时不是放大状态', !maxed('settings-modal'));
+
+  click('#btn-fs-settings');
+  await waitFor('弹窗放大', () => maxed('settings-modal'));
+  check('点一下把弹窗放大到窗口', maxed('settings-modal'));
+  // 图标是「四角向外 / 向内」两张 SVG 二选一，只看 class 验不出来；
+  // aria-pressed 和 title 是读屏 / 悬停唯一能读到的状态，必须跟着走。
+  check('放大后按钮标成「已按下」', byId('btn-fs-settings').getAttribute('aria-pressed') === 'true');
+  check('放大后按钮改说「还原」', /还原/.test(byId('btn-fs-settings').getAttribute('title') || ''));
+
+  click('#btn-fs-settings');
+  await waitFor('弹窗还原', () => !maxed('settings-modal'));
+  check('再点一下还原回正常大小', !maxed('settings-modal'));
+  check('还原后按钮回到「未按下」', byId('btn-fs-settings').getAttribute('aria-pressed') === 'false');
+
+  // --- 状态挂在各自的弹窗上：放大了设置，别的不该跟着放大 ---
+  click('#btn-fs-settings');
+  await waitFor('设置再放大', () => maxed('settings-modal'));
+  check('放大只作用于它自己那个弹窗',
+    !maxed('worldbooks-modal') && !maxed('chars-modal') && !maxed('preset-modal'));
+
+  // --- 关掉弹窗时把放大状态摘掉，下次打开别记住 ---
+  click('#btn-close-settings');
+  await waitFor('设置弹窗关闭', () => !shown('#settings-modal'));
+  check('关掉弹窗时放大状态被摘掉', !maxed('settings-modal'));
+
+  click('#btn-settings');
+  await waitFor('设置弹窗重开', () => shown('#settings-modal'));
+  check('重新打开回到正常大小（不记住上次放大）', !maxed('settings-modal'));
+  click('#btn-close-settings');
+  await waitFor('设置弹窗再关', () => !shown('#settings-modal'));
+
+  // --- 另一颗按钮管的是它自己那个弹窗 ---
+  // 弹窗得真的打开再点：按钮在 .modal-head 里，弹窗没开时它压根不可见。
+  // 注意 #btn-worldbooks 进的是**列表页**，编辑器得再从卡片上点「编辑」才出来。
+  click('#btn-worldbooks');
+  await waitFor('切到世界书列表页', () => shown('#view-worldbooks'));
+  click(buttonByText($$('#wb-page-grid .char-card')[0], '编辑'));
+  await waitFor('世界书编辑器打开', () => shown('#worldbooks-modal'));
+  click('#btn-fs-worldbooks');
+  await waitFor('世界书放大', () => maxed('worldbooks-modal'));
+  check('世界书那颗按钮放大的是世界书弹窗', maxed('worldbooks-modal') && !maxed('settings-modal'));
+  click('#btn-close-worldbooks');
+  await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
+
+  check('收尾后没有任何弹窗还留着放大状态',
+    ['settings-modal', 'worldbooks-modal', 'chars-modal', 'preset-modal'].every((id) => !maxed(id)));
 });
 
 // ---------------------------------------------------------------------------
@@ -7418,77 +7518,38 @@ await scenario('默认人设：按模型可编辑，并注入没绑卡的对话'
   await waitFor('流式结束', () => byId('btn-send').disabled === false, 8000);
 });
 
-await scenario('纯对话视图：显示收干净', async () => {
+await scenario('消息操作按钮：平时收起来、悬停才浮出', async () => {
   const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
-  const convMod = await import(new URL('js/data/conversations.js', document.baseURI).href);
   const redrawMod = await import(new URL('js/views/redraw.js', document.baseURI).href);
   const viewMod = await import(new URL('js/views/viewSwitch.js', document.baseURI).href);
 
   viewMod.showView('chat');
-  convMod.createConvo(true);
+
+  // 得切到一条**有消息**的会话上（前面场景新建的那条是空的）
+  const withMsgs = stateMod.state.conversations.find((c) => (c.messages || []).length >= 2);
+  check('能找到一条有消息的会话用来验按钮', !!withMsgs);
+  if (!withMsgs) return;
+
+  stateMod.state.activeId = withMsgs.id;
   redrawMod.renderAll({ forceScroll: true });
   await sleep(80);
 
-  // --- 纯对话视图：从顶栏「⋯」里打开 ---
-  check('「⋯」里有「纯对话视图」这一项', !!byId('btn-plain-view'));
+  const actions = $('#messages .msg .msg-actions');
+  check('消息上有操作栏', !!actions);
+  if (!actions) return;
 
-  // 走正规路径：先展开菜单、再点这一项；clickMoreItem 还会顺带验「点完菜单要收起」
-  await clickMoreItem('#btn-plain-view');
-  await sleep(60);
-  check('打开后 body 挂上了 plain-view', document.body.classList.contains('plain-view'));
+  // 平时是透明的（靠 .msg:hover 浮出来）。真鼠标悬停那一条在宿主侧的探针里。
   check(
-    '菜单项自己打上勾',
-    byId('btn-plain-view').getAttribute('aria-checked') === 'true',
-    byId('btn-plain-view').getAttribute('aria-checked')
+    '操作按钮不悬停时不露头',
+    getComputedStyle(actions).opacity === '0',
+    getComputedStyle(actions).opacity
   );
-
-  // 状态卡入口条：先强制显示，再看纯对话视图有没有把它压掉
-  const panelBox = byId('panel-box');
-  panelBox.classList.remove('hidden');
-  const panelDisplay = getComputedStyle(panelBox).display;
-  panelBox.classList.add('hidden');
-  check('纯对话视图藏掉了状态卡入口条', panelDisplay === 'none', panelDisplay);
-
-  // 消息上的操作按钮：换成一颗常驻的「⋯」，点开才展开。
-  // 得先切到一条**有消息**的会话上（前面那条新会话是空的）—— 用上一条场景聊过的那条。
-  const withMsgs =
-    stateMod.state.conversations.find((c) =>
-      (c.messages || []).some((m) => String(m.content || '').includes('你好'))
-    ) || stateMod.state.conversations.find((c) => (c.messages || []).length >= 2);
-  check('能找到一条有消息的会话用来验按钮', !!withMsgs);
-  if (withMsgs) {
-    stateMod.state.activeId = withMsgs.id;
-    redrawMod.renderAll({ forceScroll: true });
-    await sleep(80);
-
-    const actions = $('#messages .msg .msg-actions');
-    const more = $('#messages .msg .msg-more');
-    check(
-      '消息上的操作按钮收起来了',
-      !!actions && getComputedStyle(actions).display === 'none',
-      actions ? getComputedStyle(actions).display : '（没找到操作栏）'
-    );
-    check(
-      '换成一颗常驻的「⋯」',
-      !!more && getComputedStyle(more).display !== 'none',
-      more ? getComputedStyle(more).display : '（没找到「⋯」）'
-    );
-
-    if (more) {
-      more.click();
-      await sleep(40);
-      check(
-        '点「⋯」才把操作按钮展开',
-        getComputedStyle($('#messages .msg .msg-actions')).display !== 'none',
-        getComputedStyle($('#messages .msg .msg-actions')).display
-      );
-    }
-  }
-
-  // --- 收尾：关掉纯对话视图，别把后面的场景（悬停 / 灯箱）拖下水 ---
-  await clickMoreItem('#btn-plain-view');
-  await sleep(60);
-  check('再点一下能关掉纯对话视图', !document.body.classList.contains('plain-view'));
+  // 操作栏里那几颗按钮（复制 / 删除 / 分支）的排版 —— 数一下别是空的
+  check(
+    '操作栏里有按钮',
+    actions.querySelectorAll('.mini-btn').length >= 2,
+    String(actions.querySelectorAll('.mini-btn').length)
+  );
 });
 
 // ---------------------------------------------------------------------------

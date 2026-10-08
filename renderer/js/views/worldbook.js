@@ -312,11 +312,9 @@ async function saveWorldbook() {
   renderWorldbookChars();
   renderDirtyHint();
 
-  const ok = await persistLibrary();
-  if (!ok) {
-    showToast('保存失败，没能写入磁盘', 'error');
-    return;
-  }
+  // 失败提示由 persistLibrary 弹（「世界书没能写进磁盘…」）——
+  // 这里再弹一条会把那条更具体的盖掉。
+  if (!(await persistLibrary())) return;
   const tail = dead.length ? ` · ${dead.length} 条没有关键词也不是常驻，永远不会被注入` : '';
   showToast(`「${name}」已保存${tail}`, 'ok');
 }
@@ -1012,8 +1010,11 @@ export async function deleteWorldbookById(id) {
   });
   if (!ok) return false;
 
-  wbDrafts.delete(book.id);
-  state.worldbooks = worldbooks().filter((w) => w.id !== book.id);
+  // 改之前的样子，写盘失败时按这几样退回去（理由同 characterEditor 的 deleteCharacterById）
+  const beforeBooks = worldbooks();
+  const unbound = [];
+
+  state.worldbooks = beforeBooks.filter((w) => w.id !== book.id);
 
   // 会话上还绑着这本书的要一起摘掉，别留下指向空气的 id
   for (const convo of state.conversations) {
@@ -1021,6 +1022,7 @@ export async function deleteWorldbookById(id) {
     if (ids.includes(book.id)) {
       convo.worldbookIds = ids.filter((wid) => wid !== book.id);
       convo.updatedAt = now();
+      unbound.push([convo, ids]);
     }
   }
 
@@ -1039,8 +1041,21 @@ export async function deleteWorldbookById(id) {
   renderWorldbookPage();
   renderDirtyHint();
 
+  if (!(await persistLibrary())) {
+    // 写盘失败（看到 toast 了）→ 把内存也退回去：书还在列表里、会话绑定也恢复，
+    // 界面和磁盘一致，用户能直接再删一次。草稿故意留到最后才删，就是为了这一下。
+    state.worldbooks = beforeBooks;
+    for (const [convo, ids] of unbound) convo.worldbookIds = ids;
+    if (editingWorldbookId !== book.id) selectWorldbook(book.id);
+    renderWorldbookPage();
+    renderDirtyHint();
+    return false;
+  }
+
+  // 真的写进磁盘了，草稿才可以丢
+  wbDrafts.delete(book.id);
+
   persistConversations(0);
-  await persistLibrary();
   showToast('世界书已删除');
   return true;
 }
