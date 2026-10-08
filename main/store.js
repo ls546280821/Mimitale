@@ -22,6 +22,85 @@ function userDataFile(name) {
 
 let writeQueue = Promise.resolve();
 
+// ---------------------------------------------------------------------------
+//  瞬时文件锁的重试
+//
+//  Windows 上安全软件（360 / Defender）和索引服务会在一个文件刚被写过的几十毫秒内
+//  短暂独占它，这时 copy / rename 会吃到 EPERM / EBUSY / EACCES —— 哪怕文件本身
+//  权限完全正常、手动重试一次就过。不重试的话，表现就是「偶尔一次保存失败」，
+//  用户看到的是随机弹框 + 随机丢数据，而代码看起来毫无问题。
+//
+//  退避表：30 / 70 / 150 / 250 ms，合计约 0.5 秒。
+//  ⚠️ 原来只有 4 次、15/30/45 ms（合计 90 毫秒）—— 2026-10-08 实测不够：
+//     杀软在「刚写过的文件」上独占的时间能超过 90ms，四次全落空，于是整次保存作废。
+//     也不能无限拉长：`immediate` 那条路（关窗口时的最后一次保存）是同步的，
+//     主进程会一直卡在这里等，退避太久用户会觉得点了关闭没反应。
+// ---------------------------------------------------------------------------
+
+const TRANSIENT_LOCK_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+
+/** 第 n 次失败之后等多久（毫秒） */
+const RETRY_BACKOFF_MS = [30, 70, 150, 250];
+
+/** 同步睡一会儿。Atomics.wait 在 Node 主线程可用，别写成忙等烧 CPU。 */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * 同步重试。只对「像是被临时锁住」的错误码重试 ——
+ * 磁盘满、路径不存在这类重试一万次也没用，原样抛出去。
+ */
+function withRetry(fn, delays = RETRY_BACKOFF_MS) {
+  let lastErr = null;
+  for (let i = 0; i <= delays.length; i += 1) {
+    try {
+      return fn();
+    } catch (err) {
+      lastErr = err;
+      if (!TRANSIENT_LOCK_CODES.has(err && err.code)) throw err;
+      if (i < delays.length) sleepSync(delays[i]);
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * 给主文件留一份备份。**整体吞错，只 warn。**
+ *
+ * ⚠️ 备份失败绝不能拖垮主写入。备份只是「主文件坏了时的兜底」，为了它让本次保存
+ *    整个失败，等于拿「旧数据 + 没备份」换「新数据根本没落盘」—— 明显更亏。
+ *    2026-10-08 就是这里爆的：copyFileSync 撞上杀软的瞬时锁（EPERM），
+ *    异常一路冒到 writeJsonNow 外面，整个保存作废，还弹了个主进程崩溃框。
+ *
+ * 备份也走「先 copy 到 .tmp 再 rename 顶掉」，跟主文件同一个道理：
+ * 直接 copyFileSync 覆盖 .backup，写到一半失败会留下半个 JSON —— 兜底就废了，
+ * 而且下次 loadJsonWithFallback 真会读到它。
+ */
+function tryBackup(file) {
+  const backup = file + '.backup';
+  const tmp = backup + '.tmp';
+  try {
+    if (!fs.existsSync(file)) return;
+    withRetry(() => {
+      fs.copyFileSync(file, tmp);
+      fs.renameSync(tmp, backup);
+    });
+  } catch (err) {
+    console.warn(
+      '[store] 备份失败（不影响本次写入）:',
+      path.basename(backup),
+      err.message,
+      '——常见原因：被安全软件临时锁住 / 文件带了只读属性'
+    );
+    try {
+      fs.unlinkSync(tmp);
+    } catch (cleanupErr) {
+      /* 没有就算了 */
+    }
+  }
+}
+
 /**
  * 真正落盘的同步实现：先备份旧文件，再写入新内容。
  * 同步是故意的 —— 关窗口时的「最后一次保存」必须在这一个事件循环里写完，
@@ -40,18 +119,19 @@ function writeJsonNow(file, data) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
 
-    // 写入前保留一份备份，主文件损坏时用得上
-    const backupFile = file + '.backup';
-    if (fs.existsSync(file)) {
-      fs.copyFileSync(file, backupFile);
-    }
+    // 写入前保留一份备份（失败不影响本次写入，见 tryBackup）
+    tryBackup(file);
 
     // 原子写：先写临时文件再 rename —— 写入中途崩溃/断电时，
     // 主文件要么是旧的完整内容，要么是新的完整内容，不会出现写了一半的截断文件。
     // （Node 的 rename 在 Windows 上也是替换语义，目标已存在也能盖。）
+    // 整段重试：杀软/索引服务可能刚好在这一刻锁着文件（EPERM / EBUSY）。
     const tmpFile = file + '.tmp';
-    fs.writeFileSync(tmpFile, JSON.stringify(data, null, 2), 'utf8');
-    fs.renameSync(tmpFile, file);
+    const text = JSON.stringify(data, null, 2);
+    withRetry(() => {
+      fs.writeFileSync(tmpFile, text, 'utf8');
+      fs.renameSync(tmpFile, file);
+    });
     return true;
   } catch (err) {
     console.error('[store] 写入失败:', file, err.message);
@@ -94,8 +174,16 @@ function loadJsonWithFallback(file) {
       try {
         const raw = fs.readFileSync(backupFile, 'utf8');
         const data = JSON.parse(raw);
-        // 恢复备份到主文件
-        fs.copyFileSync(backupFile, file);
+        // 顺手把备份回填成主文件，下次就不用再走这条兜底路了。
+        // ⚠️ 回填失败**不能**连累已经读到手里的数据 —— 跟 tryBackup 一个道理：
+        //    辅助动作失败不该把主流程一起带走。之前这个 copyFileSync 一抛，
+        //    外层 catch 就把 data 扔了、返回 null，于是「备份明明读得出来」
+        //    却还是被判成「读失败」，接着就是界面报「上次没能读出来，先别改它」。
+        try {
+          withRetry(() => fs.copyFileSync(backupFile, file));
+        } catch (restoreErr) {
+          console.warn('[store] 备份回填失败（数据已读到）:', path.basename(file), restoreErr.message);
+        }
         return data;
       } catch (backupErr) {
         // 备份也失败
@@ -192,11 +280,10 @@ function saveConversations(payload, options) {
   // 关窗口时的最后一次保存必须立刻落盘，不能排队等微任务
   if (options && options.immediate) {
     writeJsonNow(file, data);
-  } else {
-    writeJson(file, data);
+    return Promise.resolve(data);
   }
-
-  return { conversations: limited, activeId };
+  // ⚠️ 返回的是**写盘的 Promise**，不是 data —— 见 saveCharacters 上面那段长注释。
+  return writeJson(file, data).then(() => data);
 }
 
 // ---------------------------------------------------------------------------
@@ -217,6 +304,22 @@ function loadCharacters() {
   return { characters: data.characters.map((c) => normalizeCharacter(c)) };
 }
 
+/**
+ * 保存角色库。
+ *
+ * ⚠️ 返回值是**写盘的 Promise**，不是那份 data —— 这一条是必须的，别改回去。
+ *
+ * 以前这里是「发起 writeJson(...) 之后立刻 return data」：写盘是异步排队的，
+ * 它失败时那个 Promise 没有任何人接管（unhandled rejection），而 ipcMain.handle
+ * 已经拿着 data 成功返回了 —— 于是 `ipcRenderer.invoke` 正常 resolve，
+ * 渲染层那些 `.catch(() => showToast('没能保存到磁盘'))` **全是死代码**：
+ * 磁盘一个字节没动，界面照样弹「已删除 / 已保存」。
+ *
+ * 2026-10-08 星宝报的「角色卡和世界书删掉之后，重开软件还是会有」就是这个：
+ * 杀软短暂锁住 characters.json → rename 抛 EPERM → 保存作废，
+ * 界面报「已删除」，磁盘上那张卡还在，重启自然又回来了。
+ * 端到端复现见 tools/mp-e2e-delete.js 的 E 段。
+ */
 function saveCharacters(payload, options) {
   const opts = options || {};
   const list = payload && Array.isArray(payload.characters) ? payload.characters : [];
@@ -230,11 +333,12 @@ function saveCharacters(payload, options) {
   if (opts.immediate) {
     writeJsonNow(charactersFile(), data);
     if (books) writeJsonNow(worldbooksFile(), books);
-  } else {
-    writeJson(charactersFile(), data);
-    if (books) writeJson(worldbooksFile(), books);
+    return Promise.resolve(data);
   }
-  return data;
+
+  return writeJson(charactersFile(), data)
+    .then(() => (books ? writeJson(worldbooksFile(), books) : undefined))
+    .then(() => data);
 }
 
 // ---------------------------------------------------------------------------
@@ -273,6 +377,7 @@ function loadWorldbooks() {
   return { worldbooks: list.map((w) => normalizeStoredWorldbook(w)) };
 }
 
+/** 保存世界书。返回值是写盘的 Promise（理由见 saveCharacters 上面那段）。 */
 function saveWorldbooks(payload, options) {
   const opts = options || {};
   const list = payload && Array.isArray(payload.worldbooks) ? payload.worldbooks : [];
@@ -280,10 +385,9 @@ function saveWorldbooks(payload, options) {
 
   if (opts.immediate) {
     writeJsonNow(worldbooksFile(), data);
-  } else {
-    writeJson(worldbooksFile(), data);
+    return Promise.resolve(data);
   }
-  return data;
+  return writeJson(worldbooksFile(), data).then(() => data);
 }
 
 /** 一组世界书 id 对应的全部条目（去重，同一个 id 只取一次） */
@@ -344,10 +448,9 @@ function savePresets(payload, options) {
 
   if (opts.immediate) {
     writeJsonNow(presetsFile(), data);
-  } else {
-    writeJson(presetsFile(), data);
+    return Promise.resolve(data);
   }
-  return data;
+  return writeJson(presetsFile(), data).then(() => data);
 }
 
 // ---------------------------------------------------------------------------
@@ -373,12 +476,11 @@ function loadVectors() {
 }
 
 function saveVectors(store) {
-  try {
-    writeJson(vectorsFile(), store);
-  } catch (err) {
-    // 向量只是加速用的缓存，存不下去也不该影响聊天
-    console.error('向量缓存写入失败', err);
-  }
+  // 向量只是加速用的缓存，存不下去也不该影响聊天（也别让 reject 变成
+  // unhandled rejection —— writeJson 是异步的，写在这个 try 里接不住）。
+  writeJson(vectorsFile(), store).catch((err) => {
+    console.error('向量缓存写入失败', err && err.message);
+  });
 }
 
 module.exports = {

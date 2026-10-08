@@ -20,6 +20,22 @@ const { createWindow, getMainWindow } = require('./main/window.js');
 const { registerIpc } = require('./main/ipc.js');
 
 // ---------------------------------------------------------------------------
+//  主进程兜底：别把 JS 异常弹成系统对话框
+//
+//  Electron 对主进程的未捕获异常有默认行为 —— 直接弹一个原生对话框
+//  「A JavaScript error occurred in the main process」，把 JS 堆栈糊在用户脸上，
+//  必须点「确定」才能继续。对用户这是纯噪音（看不懂，而且往往出现在关窗口那种
+//  最不该被打断的时刻），对排查也没帮助 —— 日志里的堆栈更全。
+//
+//  2026-10-08 报的就是这个框：关窗口时写 conversations.json 撞上杀软的瞬时文件锁
+//  （那个坑本体在 main/store.js 的 tryBackup + main/ipc.js 的 registerSyncSave，
+//  这里只是最后一道拦网）。
+// ---------------------------------------------------------------------------
+process.on('uncaughtException', (err) => {
+  console.error('[main] 未捕获异常:', (err && err.stack) || err);
+});
+
+// ---------------------------------------------------------------------------
 //  单实例保护
 //
 //  正常路径是 Electron 自己的锁（Chromium 的 process singleton）。

@@ -13,6 +13,7 @@
 const { app, ipcMain, shell, clipboard, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const { spawn } = require('node:child_process');
 
 const {
   userDataFile,
@@ -197,6 +198,72 @@ function ragCandidates(request) {
   });
 }
 
+/**
+ * 注册「关窗口前的最后一次保存」通道。
+ *
+ * 走同步写入（immediate）：程序马上要退出了，排队等微任务可能来不及。
+ * 因为不需要回执，走的是 ipcMain.on 而不是 handle —— 代价是**回调里抛出去的异常
+ * 没有调用方能接**，会直接变成主进程的 uncaughtException，Electron 于是弹一个
+ * 原生「A JavaScript error occurred in the main process」框，把 JS 堆栈糊在用户脸上，
+ * 还得点「确定」。关个窗口弹出这个，看着像程序崩了。
+ *
+ * 所以这里必须自己兜住：写不进去就写不进去，控制台留一行日志就够。
+ * 真正的失败原因（比如杀软瞬时锁住文件）已经在 store.js 里 warn 过一遍了。
+ */
+function registerSyncSave(channel, save) {
+  ipcMain.on(channel, (_event, payload) => {
+    try {
+      save(payload, { immediate: true });
+    } catch (err) {
+      console.error(`[ipc] ${channel} 写入失败（关窗口路径，静默降级）:`, err.message);
+    }
+  });
+}
+
+/**
+ * 用资源管理器打开一个目录。返回 null = 成功，返回字符串 = 错误原因。
+ *
+ * ⚠️ **别改回 shell.openPath。** 它在这台机器上时成时败 —— 实测同一个进程里：
+ *    打开 `C:\Users\...\AppData\Roaming\Electron` 返回 ""（成功）、
+ *    打开同级的 `...\Roaming\Mimitale` 返回 "Failed to open path"；
+ *    两个目录的 ACL / 属性 / 重解析点查下来**完全一样**，连单独调一次
+ *    `...\Roaming` 自己都会失败。也就是说不稳定在系统层（ShellExecuteEx
+ *    到 shell 关联那一段），不是路径或权限的问题。
+ *    更要命的是：它失败时会**弹一个 Windows 系统错误框**
+ *    （「Windows 无法访问指定设备、路径或文件」，标题是 electron.exe），
+ *    用户看着像程序崩了，而我们连成没成都拿不到（返回值被丢掉了）。
+ *
+ * 直接 CreateProcess 起 explorer.exe 是可靠的（实测能打开），
+ * 而且完全在我们自己手里：失败有 error 事件，也不会弹系统框。
+ */
+function openFolderInExplorer(dir) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (err) => {
+      if (settled) return;
+      settled = true;
+      resolve(err || null);
+    };
+
+    let child;
+    try {
+      child = spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' });
+    } catch (err) {
+      finish((err && err.message) || '无法启动资源管理器');
+      return;
+    }
+
+    child.once('error', (err) => finish((err && err.message) || '无法启动资源管理器'));
+    child.once('spawn', () => {
+      child.unref();
+      finish(null);
+    });
+    // explorer 有时候不把 spawn 事件回给调用方（复用了已有窗口），
+    // 别把调用方吊死在那里
+    setTimeout(() => finish(null), 1500);
+  });
+}
+
 function registerIpc() {
   ipcMain.handle('settings:get', () => {
     const settings = loadSettings();
@@ -284,11 +351,8 @@ function registerIpc() {
 
   ipcMain.handle('conversations:save', (_event, payload) => saveConversations(payload));
 
-  // 关窗口时的「最后存一次」，不需要回执。
-  // 这里走同步写入：程序马上要退出了，排队等微任务可能来不及。
-  ipcMain.on('conversations:save-sync', (_event, payload) => {
-    saveConversations(payload, { immediate: true });
-  });
+  // 关窗口时的「最后存一次」，不需要回执（失败只记日志，见 registerSyncSave）
+  registerSyncSave('conversations:save-sync', saveConversations);
 
   // --- 角色库 ---
 
@@ -296,9 +360,7 @@ function registerIpc() {
 
   ipcMain.handle('characters:save', (_event, payload) => saveCharacters(payload));
 
-  ipcMain.on('characters:save-sync', (_event, payload) => {
-    saveCharacters(payload, { immediate: true });
-  });
+  registerSyncSave('characters:save-sync', saveCharacters);
 
   // --- 世界书 ---
 
@@ -306,9 +368,7 @@ function registerIpc() {
 
   ipcMain.handle('worldbooks:save', (_event, payload) => saveWorldbooks(payload));
 
-  ipcMain.on('worldbooks:save-sync', (_event, payload) => {
-    saveWorldbooks(payload, { immediate: true });
-  });
+  registerSyncSave('worldbooks:save-sync', saveWorldbooks);
 
   // --- 预设 ---
   // 对话层面叠上去的一层指令。和角色库、世界书同级：各自一个文件，
@@ -318,9 +378,7 @@ function registerIpc() {
 
   ipcMain.handle('presets:save', (_event, payload) => savePresets(payload));
 
-  ipcMain.on('presets:save-sync', (_event, payload) => {
-    savePresets(payload, { immediate: true });
-  });
+  registerSyncSave('presets:save-sync', savePresets);
 
   /**
    * 导入预设：弹文件框、读 JSON、过归一化后返回，**不落盘**。
@@ -993,11 +1051,24 @@ function registerIpc() {
   ipcMain.handle('util:openPath', async (_event, which) => {
     // 直接打开数据文件夹，而不是高亮特定文件
     const dataDir = app.getPath('userData');
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    try {
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+    } catch (err) {
+      return { ok: false, path: dataDir, error: `数据文件夹不存在，也建不出来：${err.message}` };
     }
-    shell.openPath(dataDir);
-    return dataDir;
+
+    // 返回值带上成败：以前只把路径递回去、也不看 openPath 的结果，
+    // 于是失败时用户只看到 Windows 自己弹的框，应用这边一句解释都没有。
+    if (process.platform === 'win32') {
+      const error = await openFolderInExplorer(dataDir);
+      return error ? { ok: false, path: dataDir, error } : { ok: true, path: dataDir };
+    }
+
+    // 非 Windows：shell.openPath 是常规做法，它的返回值就是错误信息
+    const error = await shell.openPath(dataDir);
+    return error ? { ok: false, path: dataDir, error } : { ok: true, path: dataDir };
   });
 }
 
