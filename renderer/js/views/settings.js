@@ -99,7 +99,6 @@ export function initSettings(opts = {}) {
   });
 
   el.btnDelProvider.addEventListener('click', removeProvider);
-  el.btnTestSearch.addEventListener('click', testSearch);
 
   // 默认人设：设置页里只有一行入口，正文放在弹窗里编辑
   el.btnAssistantPersona.addEventListener('click', openPersonaDialog);
@@ -484,50 +483,6 @@ function fillSettingsForm(settings) {
     : '';
   fillModelSelect(el.s.embeddingModel, el.s.embeddingProvider.value, settings.embeddingModel, '（先在上面选一个服务商）');
 
-  // 联网搜索：总闸 + Key + 条数 + 时间范围。
-  // Key 和其它 Key 一样是明文进内存的（主进程解密后给过来），所以这里原样回填，
-  // 「保存」时再交回去重新加密。
-  el.s.searchEnabled.checked = settings.searchEnabled === true;
-  el.s.searchKey.value = settings.searchApiKey || '';
-  fillSearchCountOptions(settings.searchCount);
-  fillSearchFreshnessOptions(settings.searchFreshness);
-}
-
-// ------------------------------ 联网搜索 ------------------------------
-
-// 「每次带回几条」的可选值。上限和 main/search.js 的 MAX_COUNT 对齐。
-const SEARCH_COUNTS = [3, 5, 6, 8, 10];
-
-// 时间范围的可选值。value 要和 main/search.js 的 freshness 一致，
-// 那边不认识的会落回 noLimit。加值要两边一起加。
-const SEARCH_FRESHNESS = [
-  ['noLimit', '不限时间'],
-  ['oneDay', '一天内'],
-  ['oneWeek', '一周内'],
-  ['oneMonth', '一月内'],
-  ['oneYear', '一年内']
-];
-
-function fillSearchCountOptions(current) {
-  const wanted = String(Number(current) || '');
-  clear(el.s.searchCount);
-  for (const n of SEARCH_COUNTS) {
-    el.s.searchCount.appendChild(h('option', { value: String(n), text: `${n} 条` }));
-  }
-  // 存过的值不在候选里（比如老配置写了 7）也摆出来，别静默改掉用户的选择
-  if (wanted && !SEARCH_COUNTS.includes(Number(wanted))) {
-    el.s.searchCount.appendChild(h('option', { value: wanted, text: `${wanted} 条` }));
-  }
-  el.s.searchCount.value = wanted || '6';
-}
-
-function fillSearchFreshnessOptions(current) {
-  const wanted = String(current || 'noLimit');
-  clear(el.s.searchFreshness);
-  for (const [value, label] of SEARCH_FRESHNESS) {
-    el.s.searchFreshness.appendChild(h('option', { value, text: label }));
-  }
-  el.s.searchFreshness.value = SEARCH_FRESHNESS.some(([v]) => v === wanted) ? wanted : 'noLimit';
 }
 
 // ------------------------------ 服务商编辑 ------------------------------
@@ -743,17 +698,6 @@ function readSettingsForm() {
     embeddingModel: el.s.embeddingModel.value.trim(),
     // 和「服务商模型列表」一样是「分隔符拆开的字符串列表」，直接复用那个解析
     commonAttributes: parseModels(el.s.commonAttrs.value).slice(0, 40),
-    // 联网搜索。Key 留空就是「不要了」—— 照原样交回去（不偷偷把旧值填回来）
-    searchEnabled: el.s.searchEnabled.checked,
-    searchApiKey: el.s.searchKey.value.trim(),
-    searchCount: numberFrom(
-      el.s.searchCount,
-      Number.isFinite(Number(saved.searchCount)) ? Number(saved.searchCount) : 6,
-      1,
-      10,
-      true
-    ),
-    searchFreshness: el.s.searchFreshness.value || 'noLimit',
     // 默认人设：只动**当前模型**那一条，别的模型的条目原样带回去。
     // 名字和人设都清空 = 这个模型不要人设了，把那条删掉（别在 config.json 里留空壳）。
     assistantPersonas: (() => {
@@ -874,35 +818,6 @@ async function testConnection() {
   } finally {
     el.btnTest.disabled = false;
     el.btnTest.textContent = '测试当前服务商';
-  }
-}
-
-/**
- * 「测试搜索」：拿框里**当前填的** Key 试搜一次。
- * 和「测试当前服务商」一个思路 —— 用户还没点保存就想先确认能不能用，
- * 没必要逼他先存一遍再试。
- */
-async function testSearch() {
-  el.btnTestSearch.disabled = true;
-  el.btnTestSearch.textContent = '测试中…';
-  try {
-    const result = await api.testSearch({
-      apiKey: el.s.searchKey.value.trim(),
-      freshness: el.s.searchFreshness.value || 'noLimit'
-    });
-    if (!result || result.ok !== true) {
-      throw new Error((result && result.error) || '测试失败');
-    }
-    const first = (result.items && result.items[0]) || null;
-    showToast(
-      `搜索可用，拿到 ${result.count} 条${first ? `（第一条：${first.title}）` : ''}`,
-      'ok'
-    );
-  } catch (err) {
-    showToast((err && err.message) || '测试失败', 'error');
-  } finally {
-    el.btnTestSearch.disabled = false;
-    el.btnTestSearch.textContent = '测试搜索';
   }
 }
 

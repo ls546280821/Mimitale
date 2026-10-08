@@ -315,37 +315,6 @@ function messageNode(message, index, character, labels, ctx) {
     bubble.appendChild(note);
   }
 
-  // 联网搜索的出处：这一轮的回答用到了搜索结果才列。
-  // 序号用的就是注入给模型的 [1][2] —— 正文里写了 [2]，这里第二条就是它。
-  const sources = !isUser && !isError && Array.isArray(message.sources) ? message.sources : null;
-  if (sources && sources.length) {
-    const box = document.createElement('div');
-    box.className = 'msg-sources';
-    box.appendChild(h('span', { class: 'msg-sources-cap', text: '来源' }));
-
-    sources.forEach((src, i) => {
-      const url = String((src && src.url) || '').trim();
-      if (!url) return;
-
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'msg-source';
-      btn.title = url;
-      btn.appendChild(h('span', { class: 'src-index', text: String(i + 1) }));
-      btn.appendChild(h('span', { class: 'src-title', text: String(src.title || url) }));
-      if (src.site) btn.appendChild(h('span', { class: 'src-site', text: String(src.site) }));
-      // 页面被 CSP 挡着开不了外链，交给主进程用系统浏览器打开（只放行 http/https）
-      btn.addEventListener('click', async () => {
-        const res = await api.openExternal(url);
-        if (res && res.ok !== true) showToast((res && res.error) || '打开链接失败', 'error');
-      });
-      box.appendChild(btn);
-    });
-
-    // 全被过滤掉（没有合法链接）就整块不画，别留一行光秃秃的「来源」
-    if (box.childElementCount > 1) bubble.appendChild(box);
-  }
-
   body.appendChild(role);
   body.appendChild(bubble);
 

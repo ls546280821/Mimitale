@@ -130,8 +130,6 @@
       <section id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions"></section>
 
       <footer class="composer">
-        <!-- 待发送的图片。加图之后出现在输入框上方，每张右上角有 × -->
-        <div id="attach-strip" class="attach-strip hidden" aria-label="待发送的图片"></div>
         <!-- 「帮我想想」给出的几个下一步。点一下就当成你说的话发出去 -->
         <div id="suggest-strip" class="suggest-strip hidden" aria-label="可以这样接话">
           <div class="suggest-head">
@@ -141,25 +139,6 @@
           <div id="suggest-list" class="suggest-list"></div>
         </div>
         <div class="composer-box">
-          <!-- 联网搜索：按会话记（convo.webSearch）。点亮了 AI 才会在回答前去查网页，
-               答完在气泡下面列出出处。总闸在「设置 → 联网搜索」里。 -->
-          <button id="btn-web-search" class="icon-btn web-search-btn" type="button"
-                  title="联网搜索（先在「设置 → 联网搜索」里填好博查的 API Key）"
-                  aria-pressed="false" aria-label="联网搜索">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" />
-              <path d="M3 12h18" />
-              <ellipse cx="12" cy="12" rx="4" ry="9" />
-            </svg>
-          </button>
-          <button id="btn-attach" class="icon-btn attach-btn" type="button"
-                  title="加一张图（也可以直接粘贴或拖进来）" aria-label="添加图片">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="9" cy="9" r="2" />
-              <path d="m21 15-4.5-4.5L3 21" />
-            </svg>
-          </button>
           <textarea id="input" rows="2" placeholder="说点什么……（Shift + Enter 换行）" aria-label="输入消息"></textarea>
           <button id="btn-send" class="btn btn-primary btn-send" aria-label="发送消息">发送</button>
         </div>
@@ -825,60 +804,6 @@
               只是省打字的候选清单，不限制你手写别的属性名。
             </span>
           </label>
-        </section>
-
-        <!-- 联网搜索：又一组独立配置（一个 Key 走天下），走博查的 web-search -->
-        <section class="panel-section">
-          <div class="section-head">
-            <span class="section-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9" />
-                <path d="M3 12h18" />
-                <ellipse cx="12" cy="12" rx="4" ry="9" />
-              </svg>
-            </span>
-            <div>
-              <div class="section-title">联网搜索</div>
-              <div class="section-desc">让 AI 能查到网上的实时信息，答完在气泡下面列出出处</div>
-            </div>
-          </div>
-
-          <label class="check">
-            <input id="s-search-enabled" type="checkbox" />
-            <span class="check-text">
-              <span class="check-title">启用联网搜索</span>
-              <span class="check-desc">
-                这里是<b>总闸</b>。开着之后，还要在输入框左边点亮<b>「联网」</b>那一颗，这一轮才会真的去搜。<br />
-                搜索是<b>按次单独计费</b>的（不占聊天模型的额度），所以默认关着。
-              </span>
-            </span>
-          </label>
-
-          <label class="field">
-            <span class="field-label">博查 API Key</span>
-            <input id="s-search-key" type="password" spellcheck="false" placeholder="sk-..." aria-label="博查 API Key" />
-            <span class="field-help">
-              到 <b>open.bochaai.com</b> 注册，在「API KEY」页面复制。只保存在你自己电脑上，保存时会加密。<br />
-              本应用用的是博查的 Web Search 接口，和聊天用的服务商是两回事，Key 也各填各的。
-            </span>
-          </label>
-
-          <div class="field-grid">
-            <label class="field">
-              <span class="field-label">每次带回</span>
-              <select id="s-search-count" aria-label="每次带回几条搜索结果"></select>
-              <span class="field-help">带几条网页进上下文。多了更全，也更容易挤掉正文。</span>
-            </label>
-            <label class="field">
-              <span class="field-label">时间范围</span>
-              <select id="s-search-freshness" aria-label="搜索结果的时间范围"></select>
-              <span class="field-help">问「今天」「最近」这种事的时候，选窄一点更准。</span>
-            </label>
-          </div>
-
-          <div class="provider-actions">
-            <button id="btn-test-search" class="btn btn-ghost btn-sm" type="button">测试搜索</button>
-          </div>
         </section>
 
         <!-- 生图：和聊天是两套配置，默认留空 = 不启用 -->

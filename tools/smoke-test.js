@@ -2490,54 +2490,6 @@ function probeRecursion(result) {
 }
 
 /**
- * 「给 AI 看图」的验证。
- * 关键不是界面上有没有缩略图，而是**真正发出去的那条消息是不是多模态数组** ——
- * 发错格式的话模型只会当你没发图，而界面上一切正常。
- */
-function probeImageMessage(result) {
-  let found = null;
-  for (const messages of chatPayloads) {
-    for (const m of messages) {
-      if (m.role === 'user' && Array.isArray(m.content)) {
-        found = m;
-        break;
-      }
-    }
-    if (found) break;
-  }
-
-  const parts = found ? found.content : [];
-  const text = parts.find((p) => p.type === 'text');
-  const image = parts.find((p) => p.type === 'image_url');
-
-  result.results.push({
-    name: '看图：发给模型的是多模态数组',
-    pass: !!found,
-    detail: found ? `共 ${parts.length} 段` : '翻遍所有请求都没找到数组形态的 user 消息'
-  });
-
-  result.results.push({
-    name: '看图：数组里同时带上文字和图片',
-    pass: !!text && String(text.text).includes('这是我拍的照片') && !!image && String(image.image_url.url).startsWith('data:image/'),
-    detail:
-      text && image
-        ? `text="${String(text.text).slice(0, 14)}" · image=${String(image.image_url.url).slice(0, 24)}`
-        : '缺文字段或缺图片段'
-  });
-
-  // 没有图的普通消息仍然是纯字符串 —— 别把所有请求都改成数组，
-  // 有些便宜的老接口收到数组会直接报错
-  const plain = chatPayloads.some((messages) =>
-    messages.some((m) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('翁法罗斯'))
-  );
-  result.results.push({
-    name: '看图：没带图的消息仍然是纯文本',
-    pass: plain,
-    detail: plain ? '' : '没找到一条纯文本的用户消息'
-  });
-}
-
-/**
  * 生图的验证。关键一条：**它用的是「生图」那一组配置，而不是聊天模型** —— * 用错了的话界面照样出图，但你的对话模型会被当成画图模型去打 /images/generations，
  * 只会得到一个莫名其妙的报错。
  */
@@ -2821,7 +2773,6 @@ function probeSettingsWhitelist(result) {
     'ragEnabled', 'embeddingProviderId', 'embeddingModel',
     'commonAttributes',
     'assistantPersonas',
-    'searchEnabled', 'searchApiKey', 'searchCount', 'searchFreshness',
     // ui/plainView.js（顶栏「⋯」里的显示开关）
     'plainChatView',
     // appearance.js / theme.js
@@ -3294,7 +3245,6 @@ app.whenReady().then(async () => {
       probeWorldbookStore(result);
       probePanelFields(result);
       probeRecursion(result);
-      probeImageMessage(result);
       probeImageGen(result);
       probeVectors(result);
       probeRag(result);

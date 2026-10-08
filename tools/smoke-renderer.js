@@ -1558,14 +1558,14 @@ await scenario('状态字段：字段数到顶时不能把无主的删掉', asyn
 });
 
 // ---------------------------------------------------------------------------
-//  场景 9.8：分支持久化要照搬「视角设置 / 联网开关」
+//  场景 9.8：分支持久化要照搬「视角设置」
 //
 //  真 bug：branchSkeleton 的注释写着「戏本身的东西照搬：…视角设置」，实现却漏了
-//  narrationMode / paceMode（还有 webSearch）。convoNarrationMode 查不到就回落到
+//  narrationMode / paceMode。convoNarrationMode 查不到就回落到
 //  默认档 —— 从「上帝视角 + 快节奏」分出来的新线悄悄变成「标准 + 一步一步」，
 //  提示词变了、顶栏档位标签没了，全程不报错。
 // ---------------------------------------------------------------------------
-await scenario('分支：视角设置与联网开关要跟着走', async () => {
+await scenario('分支：视角设置要跟着走', async () => {
   const convMod = await import(new URL('js/data/conversations.js', document.baseURI).href);
   const key = 'branch-skeleton-source';
 
@@ -1582,7 +1582,6 @@ await scenario('分支：视角设置与联网开关要跟着走', async () => {
     gmMode: false,
     narrationMode: 'god',
     paceMode: 'brisk',
-    webSearch: true,
     messages: [
       { role: 'user', content: '一' },
       { role: 'assistant', content: '二' },
@@ -1594,7 +1593,6 @@ await scenario('分支：视角设置与联网开关要跟着走', async () => {
   const branch = convMod.branchSkeleton(source, 2);
   check('叙述模式跟着分叉走（不再回落到标准）', branch.narrationMode === 'god', JSON.stringify(branch.narrationMode));
   check('推进节奏跟着分叉走（不再回落到一步一步）', branch.paceMode === 'brisk', JSON.stringify(branch.paceMode));
-  check('这一局的联网开关也跟着走', branch.webSearch === true, JSON.stringify(branch.webSearch));
   check('前两条消息照常复制过去', (branch.messages || []).length === 2, String((branch.messages || []).length));
 });
 
@@ -2028,14 +2026,15 @@ await scenario('摘要：覆盖点越界也不能吞掉当前对话', async () =
   const savedSettings = stateMod.state.settings;
   stateMod.state.settings = { ...(savedSettings || {}), maxTurns: 20 };
 
-  // 「清空对话」之后的现场：摘要还留着（覆盖到第 28 条），消息只剩三条，
-  // 其中两条是「只带图不打字」（它们正是让两个数组长度不一致的原因）。
+  // 「清空对话」之后的现场：摘要还留着（覆盖到第 28 条），消息只剩一条是真的。
+  // 前后那两条是**老存档里遗留**的「只带图不打字」的用户消息（「发图」入口 2026-10-08
+  // 已经去掉），末尾还挂着一条空的 assistant 占位 —— 这几种都不能被原样发出去。
   const convo = {
     id: 'smoke-stale-summary',
     messages: [
       { role: 'user', content: '', images: ['data:image/png;base64,AAA'] },
-      { role: 'user', content: '', images: ['data:image/png;base64,BBB'] },
       { role: 'user', content: '刚打的一句话' },
+      { role: 'user', content: '', images: ['data:image/png;base64,BBB'] },
       { role: 'assistant', content: '' }
     ],
     summaries: [{ start: 0, end: 28, title: '第 1 段', text: '以前的剧情…' }]
@@ -2043,11 +2042,7 @@ await scenario('摘要：覆盖点越界也不能吞掉当前对话', async () =
 
   const out = messagesMod.buildApiMessages(convo, '', '', '');
   const dialogue = out.filter((m) => m.role === 'user' || m.role === 'assistant');
-  // 带图的用户消息会发成多模态数组（content 是 parts 数组），纯文字的才是字符串
-  const hasImagePart = (m) =>
-    Array.isArray(m.content) && m.content.some((p) => p && p.type === 'image_url');
-  const textOf = (m) => (Array.isArray(m.content) ? '' : String(m.content || ''));
-  const texts = dialogue.map(textOf);
+  const texts = dialogue.map((m) => String(m.content || ''));
 
   check('越界的摘要覆盖点不会把对话切空', dialogue.length > 0, `对话消息 ${dialogue.length} 条`);
   check(
@@ -2055,10 +2050,13 @@ await scenario('摘要：覆盖点越界也不能吞掉当前对话', async () =
     texts.some((t) => t.includes('刚打的一句话')),
     JSON.stringify(texts.map((t) => t.slice(0, 16)))
   );
+  // 「只带图不打字」的老消息和末尾的空占位都必须被滤掉：它们没有文字，
+  // 原样发出去就是一条 content 为空的 user / assistant 消息，严格的接口直接 400。
+  // （图不再转多模态数组之后，这条是唯一的防线 —— 之前靠「转成数组」顺带躲过去的。）
   check(
-    '只带图的那条也没被切掉（仍然发成多模态数组）',
-    dialogue.some(hasImagePart),
-    `含图消息 ${dialogue.filter(hasImagePart).length} 条`
+    '没有 content 为空的消息被发出去',
+    dialogue.length > 0 && dialogue.every((m) => String(m.content || '').trim()),
+    JSON.stringify(dialogue.map((m) => ({ role: m.role, len: String(m.content || '').length })))
   );
   check(
     '摘要仍然照常注入（该省的历史没白省）',
@@ -2067,60 +2065,6 @@ await scenario('摘要：覆盖点越界也不能吞掉当前对话', async () =
   );
 
   stateMod.state.settings = savedSettings;
-});
-
-// ---------------------------------------------------------------------------
-//  场景 13：给 AI 看图（加图 / 粘贴 / 发出去）
-// ---------------------------------------------------------------------------
-await scenario('给 AI 看图', async () => {
-  click('#convo-list .convo-item');
-  await waitFor('切回聊天视图', () => shown('#view-chat'));
-  await sleep(200);
-
-  check('输入框旁边有加图按钮', !!byId('btn-attach'));
-
-  // --- 点按钮加一张（假后端返回的是一张真的 1×1 PNG）---
-  click('#btn-attach');
-  await waitFor('缩略图出现', () => $$('#attach-strip .attach-item').length === 1, 8000);
-  check('缩略图出来了', $$('#attach-strip .attach-item').length === 1, String($$('#attach-strip .attach-item').length));
-  check('待发区显示出来了', shown('#attach-strip'));
-  check('缩略图里真的有图', !!$('#attach-strip .attach-item img'));
-
-  // --- × 能撤掉 ---
-  click($('#attach-strip .attach-del'));
-  await sleep(250);
-  check('点 × 能撤掉', $$('#attach-strip .attach-item').length === 0, String($$('#attach-strip .attach-item').length));
-  check('撤掉后整条收起来', !shown('#attach-strip'));
-
-  // --- 粘贴一张（模拟 Ctrl+V 一张截图）---
-  await new Promise((resolve) => {
-    const base64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const file = new File([bytes], 'shot.png', { type: 'image/png' });
-    const transfer = new DataTransfer();
-    transfer.items.add(file);
-    byId('input').dispatchEvent(new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }));
-    setTimeout(resolve, 700);
-  });
-  check('粘贴也能加图', $$('#attach-strip .attach-item').length === 1, String($$('#attach-strip .attach-item').length));
-
-  // --- 连文字一起发出去 ---
-  setValue('#input', '这是我拍的照片，你看看');
-  click('#btn-send');
-  await waitFor('回复完成', () => byId('btn-send').disabled === false, 10000);
-  await sleep(400);
-
-  check('发出去之后待发列表清空', $$('#attach-strip .attach-item').length === 0, String($$('#attach-strip .attach-item').length));
-  check('气泡里显示了图片', !!$('#messages .bubble-image'), '没找到 .bubble-image');
-  check('文字也还在', $('#messages').textContent.includes('这是我拍的照片'));
-
-  // --- 只带图不打字也要能发 ---
-  click('#btn-attach');
-  await waitFor('又来一张', () => $$('#attach-strip .attach-item').length === 1, 8000);
-  click('#btn-send');
-  await waitFor('回复完成', () => byId('btn-send').disabled === false, 10000);
-  await sleep(300);
-  check('只发图不写字也能发出去', $('#messages').textContent.includes('（图片）') || $$('#messages .bubble-image').length >= 2, String($$('#messages .bubble-image').length));
 });
 
 // ---------------------------------------------------------------------------
@@ -2136,6 +2080,15 @@ await scenario('给剧情配图（生图）', async () => {
 
   const lastAssistant = () => $$('#messages .msg.assistant').pop();
   const actionsOf = (node) => Array.from(node.querySelectorAll('.msg-actions .mini-btn')).map((b) => b.textContent.trim());
+
+  // 先自己发一条，拿到一条**正常的回复**再来配图 —— 别借上一个场景的残留。
+  // 以前这里是蹭「给 AI 看图」场景留下的那条回复，而那个场景已经删掉；
+  // 于是末条变成了「就地编辑」场景改过的内容，宿主侧那条「提示词取自回复正文」
+  // 的断言（认的是「冒烟测试回复」）当场就不成立了。
+  setValue('#input', '给这段剧情配张图吧');
+  click('#btn-send');
+  await waitFor('回复完成', () => byId('btn-send').disabled === false, 10000);
+  await sleep(300);
 
   check('没配生图时不显示「配图」', !actionsOf(lastAssistant()).includes('配图'), JSON.stringify(actionsOf(lastAssistant())));
 
@@ -7428,57 +7381,18 @@ await scenario('默认人设：按模型可编辑，并注入没绑卡的对话'
   await waitFor('流式结束', () => byId('btn-send').disabled === false, 8000);
 });
 
-await scenario('纯对话视图 + 联网开关：显示收干净，每局各记各的', async () => {
+await scenario('纯对话视图：显示收干净', async () => {
   const stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
   const convMod = await import(new URL('js/data/conversations.js', document.baseURI).href);
   const redrawMod = await import(new URL('js/views/redraw.js', document.baseURI).href);
   const viewMod = await import(new URL('js/views/viewSwitch.js', document.baseURI).href);
 
   viewMod.showView('chat');
-  const convo = convMod.createConvo(true);
+  convMod.createConvo(true);
   redrawMod.renderAll({ forceScroll: true });
   await sleep(80);
 
-  // --- 1) 总闸没开时点「联网」：不点亮，直接把人送进设置 ---
-  click('#btn-web-search');
-  await waitFor('没启用时点「联网」会弹设置', () => shown('#settings-modal'));
-  check(
-    '总闸没开时不点亮开关',
-    byId('btn-web-search').getAttribute('aria-pressed') === 'false',
-    byId('btn-web-search').getAttribute('aria-pressed')
-  );
-
-  // --- 2) 在设置里把总闸打开并填个 Key ---
-  setChecked('#s-search-enabled', true);
-  setValue('#s-search-key', 'sk-smoke-search');
-  click('#btn-save-settings');
-  await waitFor('联网设置已保存', () => !shown('#settings-modal'));
-  await sleep(150);
-
-  const searchSaved = (await window.mimitale.getSettings()).settings;
-  check('联网总闸落了盘', searchSaved.searchEnabled === true, String(searchSaved.searchEnabled));
-
-  // --- 3) 再点开关：点亮，并且记在这一条会话上 ---
-  click('#btn-web-search');
-  await sleep(60);
-  check(
-    '点一下「联网」把它点亮',
-    byId('btn-web-search').getAttribute('aria-pressed') === 'true',
-    byId('btn-web-search').getAttribute('aria-pressed')
-  );
-  check('联网开关记在这一条会话上', convo.webSearch === true, String(convo.webSearch));
-
-  // --- 4) 换一条新会话：默认不联网（每局各记各的） ---
-  const other = convMod.createConvo(true);
-  redrawMod.renderAll({ forceScroll: true });
-  await sleep(60);
-  check(
-    '新会话默认不联网（开关跟着会话走）',
-    byId('btn-web-search').getAttribute('aria-pressed') === 'false' && other.webSearch !== true,
-    `aria-pressed=${byId('btn-web-search').getAttribute('aria-pressed')} webSearch=${other.webSearch}`
-  );
-
-  // --- 5) 纯对话视图：从顶栏「⋯」里打开 ---
+  // --- 纯对话视图：从顶栏「⋯」里打开 ---
   check('「⋯」里有「纯对话视图」这一项', !!byId('btn-plain-view'));
 
   // 走正规路径：先展开菜单、再点这一项；clickMoreItem 还会顺带验「点完菜单要收起」
@@ -7534,22 +7448,10 @@ await scenario('纯对话视图 + 联网开关：显示收干净，每局各记�
     }
   }
 
-  // --- 6) 收尾：两个开关都关回去，别把后面的场景（悬停 / 灯箱）拖下水 ---
+  // --- 收尾：关掉纯对话视图，别把后面的场景（悬停 / 灯箱）拖下水 ---
   await clickMoreItem('#btn-plain-view');
   await sleep(60);
   check('再点一下能关掉纯对话视图', !document.body.classList.contains('plain-view'));
-
-  click('#btn-settings');
-  await waitFor('设置弹窗打开（收尾）', () => shown('#settings-modal'));
-  setChecked('#s-search-enabled', false);
-  setValue('#s-search-key', '');
-  click('#btn-save-settings');
-  await waitFor('设置已保存（收尾）', () => !shown('#settings-modal'));
-  await sleep(120);
-  check(
-    '收尾后联网总闸关回去了',
-    (await window.mimitale.getSettings()).settings.searchEnabled === false
-  );
 });
 
 // ---------------------------------------------------------------------------

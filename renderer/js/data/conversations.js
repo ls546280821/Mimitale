@@ -100,8 +100,6 @@ export function branchSkeleton(convo, cut) {
     // 提示词变了、顶栏的档位标签也没了，而且不报任何错。
     narrationMode: convoNarrationMode(convo),
     paceMode: convoPaceMode(convo),
-    // 「这一局要不要联网」同理：不搬的话分出来的新线默认不联网
-    webSearch: convo.webSearch === true,
     player: convo.player ? { ...convo.player } : null,
     panelFields: [...convoPanelFields(convo)],
     panel: { ...convoPanel(convo) },

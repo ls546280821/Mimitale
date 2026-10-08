@@ -76,12 +76,6 @@ const MAX_CHAT_BACKGROUND_CHARS = 4000000;
 // 所以给个够用又不至于失控的额度。
 const MAX_ASSISTANT_PERSONA_CHARS = 20000;
 
-// 联网搜索的时间范围可选项。和 main/search.js 的 FRESHNESS_VALUES 是同一份，
-// 但那个模块 require 了 main/http.js、而 http.js 又 require 本模块 —— 互相引用
-// 会在加载期拿到半成品，所以这份小清单在这里单独列一遍。
-// 加值要两边一起加。
-const SEARCH_FRESHNESS_VALUES = ['noLimit', 'oneDay', 'oneWeek', 'oneMonth', 'oneYear'];
-
 // 角色「属性」的快捷候选词。
 // 在角色编辑器里点一下就能多一个属性字段名，纯粹是省打字 —— 不承载任何逻辑，
 // 所以它就是一个字符串数组，放在设置里可编辑就够了，不值得单开一套「管理」界面。
@@ -156,15 +150,7 @@ const DEFAULT_SETTINGS = {
   // 结构：{ [模型名]: { name, persona } }；没有条目的模型 = 通用助手
   // （无人设 = 不扮演任何角色、也不提名字，见 renderer 的 data/cast.js）。
   // 绑了角色卡的会话一律用那张卡自己的设定，这个键完全不参与。
-  assistantPersonas: {},
-  // --- 联网搜索（博查 web-search）---
-  // 又是一组独立配置：只认一个 Key，和聊天 / 生图 / 向量用的服务商都不相干。
-  // 搜索按次单独计费，所以**默认关着** —— 要让用户明确知道自己在花这份钱。
-  // 开关是「总闸」，每个会话还有一个自己的开关（convo.webSearch），两个都开才搜。
-  searchEnabled: false,
-  searchApiKey: '',
-  searchCount: 6,           // 一次带几条结果进上下文
-  searchFreshness: 'noLimit' // 时间范围：不限 / 一天内 / 一周内 / 一月内 / 一年内
+  assistantPersonas: {}
 };
 
 function newProviderId() {
@@ -363,30 +349,6 @@ function normalizeSettings(saved) {
   }
   s.assistantPersonas = personas;
 
-  // 联网搜索：默认关。搜索按次单独计费，必须让用户明确知道自己在花这份钱。
-  // Key 和聊天用的那些一样，落盘加密、内存明文（见 loadSettings / saveSettings）。
-  //
-  // ⚠️ 这里**不能**给 searchApiKey 加长度上限。归一化同时跑在两条路上：
-  //    · loadSettings() 读盘 → 拿到的已经是 encryptApiKey 出来的 **base64 密文**；
-  //    · saveSettings() 合并 → 拿到的是明文。
-  //    密文比明文长约 1.6 倍，`slice(0, 200)` 会把长一点的 Key 当场截断，
-  //    截完还是合法 base64、解密却必然失败，decryptApiKey 又把密文当明文返回 ——
-  //    于是拿着一段垃圾去请求（401），而且界面保存时还会把这段垃圾重新加密写回，
-  //    原 Key 就再也找不回来了。服务商那些 apiKey 本来也没有长度上限，这里保持一致。
-  s.searchEnabled = raw.searchEnabled === true;
-  s.searchApiKey = typeof raw.searchApiKey === 'string' ? raw.searchApiKey.trim() : '';
-
-  const searchCount = Number(raw.searchCount);
-  s.searchCount =
-    Number.isFinite(searchCount) && searchCount >= 1 && searchCount <= 10
-      ? Math.floor(searchCount)
-      : DEFAULT_SETTINGS.searchCount;
-
-  const freshness = String(raw.searchFreshness || '').trim();
-  s.searchFreshness = SEARCH_FRESHNESS_VALUES.includes(freshness)
-    ? freshness
-    : DEFAULT_SETTINGS.searchFreshness;
-
   // 清掉旧版本的扁平字段，避免文件里同时存在两套数据
   delete s.baseUrl;
   delete s.apiKey;
@@ -446,8 +408,6 @@ function loadSettings() {
     ...p,
     apiKey: p.apiKey ? decryptApiKey(p.apiKey) : ''
   }));
-  // 联网搜索的 Key 一样是明文进内存
-  settings.searchApiKey = settings.searchApiKey ? decryptApiKey(settings.searchApiKey) : '';
 
   return settings;
 }
@@ -473,8 +433,7 @@ function saveSettings(patch) {
     providers: merged.providers.map((p) => ({
       ...p,
       apiKey: p.apiKey ? encryptApiKey(p.apiKey) : ''
-    })),
-    searchApiKey: merged.searchApiKey ? encryptApiKey(merged.searchApiKey) : ''
+    }))
   };
 
   writeJson(userDataFile('config.json'), toSave);

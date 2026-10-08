@@ -83,7 +83,7 @@
 - **视角设置**：标准 / 内心描写 / 上帝视角；GM 模式让 AI 扮演整个世界和所有 NPC。
 - **白天 / 夜间模式**一键切换，选择会记住。
 - 单条消息删除、编辑、重新生成候选、复制全文、token 用量统计。
-- **给 AI 看图**（模型得支持视觉）、**给剧情配插画**（单独配一组生图服务商）。
+- **给剧情配插画**（设置 → 生图里单独配一组生图服务商）。
 - **导出**：角色卡存成 PNG 卡（酒馆能直接导入）/ JSON，世界书存成 lorebook JSON，  
   对话存成 Markdown。
 - **内置帮助页**：左下角「帮助」是一整页写角色的指南（11 节）；右上角「复制优化提示词」
@@ -172,7 +172,6 @@ mimitale/
 │   ├── import-files.js    导入编排（读文件 → 解析 → 自动绑定）
 │   ├── png.js             PNG 角色卡的读写（tEXt / ccv3 块）
 │   ├── vectors.js         向量 / 余弦相似度 / 排序
-│   ├── search.js          联网搜索：博查（Bocha）的 web-search 接口
 │   └── request-log.js     「请求记录」：只存内存的环形缓冲，最近 20 条
 ├── preload.js       contextBridge 安全桥，把主进程能力暴露给页面
 ├── package.json
@@ -186,7 +185,7 @@ mimitale/
 │       ├── ui/          提示条 / 确认框 / 主题 / Markdown / 建 DOM 的小工具
 │       ├── data/        纯逻辑地基：服务商模型 / 角色库 / 状态面板 / 叙述规则 /
 │       │                记忆摘要 / 持久化 / 导出收尾 / 演出阵容 / 消息 / 语义检索 /
-│       │                联网搜索 / 剧情选项 / 会话骨架（15 个文件）
+│       │                剧情选项 / 会话骨架（14 个文件）
 │       └── views/       一个功能一块，共 35 个模块（refresh 总线 / redraw 门面 /
 │                        header / perspectiveUi / panelUi / worldbookList / worldbook /
 │                        presetList / preset / presetIO / settings / settingsCatalog /

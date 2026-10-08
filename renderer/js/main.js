@@ -90,7 +90,7 @@ import {
 import { initSettings, setEditingProvider, openSettings, closeSettings, closePersonaDialog } from './views/settings.js';
 import { initAppearance, applyChatAppearance, closeAppearanceModal } from './views/appearance.js';
 import { streamPainter, initStreamFollow } from './views/stream.js';
-import { initChatImages, addImageFiles } from './views/chatImages.js';
+import { initChatImages } from './views/chatImages.js';
 import { initSuggestionsUi, pickOption } from './views/suggestionsUi.js';
 import { showView, refreshLibraryPage, initViewSwitch } from './views/viewSwitch.js';
 import { initHelp } from './views/help.js';
@@ -127,9 +127,7 @@ import {
   autoGrowInput,
   sentTextOf,
   clearInputAfterSend,
-  stopGenerating,
-  toggleWebSearch,
-  renderWebSearchToggle
+  stopGenerating
 } from './views/composer.js';
 import { clearConvo } from './views/convoActions.js';
 import { summarizeNow } from './views/summarize.js';
@@ -159,9 +157,6 @@ function registerRefreshListeners() {
   initPanelUi(); // → onRefresh(renderPanel)
   initMemoryUi(); // → onRefresh(renderMemoryIndicator)
   onRefresh(renderMessages);
-  // 输入框左边那颗「联网」开关。它读的是当前会话（convo.webSearch）+ 设置里的总闸，
-  // 换会话就得跟着变，所以也挂到刷新总线上。
-  onRefresh(renderWebSearchToggle);
   // 浮动状态卡（点「我」/角色的头像打开）。登记在消息之后：它读的是同一份面板数据，
   // 顺序不影响结果，跟着消息后面画一遍即可。
   initStateCards(); // → onRefresh(renderStateCards)
@@ -216,39 +211,6 @@ function bindEvents() {
   el.btnSend.addEventListener('click', () => {
     submitInput();
   });
-
-  // 输入框左边的「联网」开关：纯显示 + 会话状态，落盘在 composer 里做
-  el.btnWebSearch.addEventListener('click', toggleWebSearch);
-
-  // 粘贴：截图之后 Ctrl+V 直接贴进来，比存文件再选快得多
-  el.input.addEventListener('paste', (event) => {
-    const files = event.clipboardData && event.clipboardData.files;
-    if (!files || !files.length) return;
-    event.preventDefault();
-    addImageFiles(files).then((took) => {
-      if (took) showToast('图片已贴在输入框上方', 'ok');
-    });
-  });
-
-  // 拖拽：把图片拖到输入区就能加
-  const composer = el.input.closest('.composer');
-  if (composer) {
-    composer.addEventListener('dragover', (event) => {
-      if (!event.dataTransfer || !Array.from(event.dataTransfer.types || []).includes('Files')) return;
-      event.preventDefault();
-      composer.classList.add('drop-target');
-    });
-    composer.addEventListener('dragleave', () => composer.classList.remove('drop-target'));
-    composer.addEventListener('drop', (event) => {
-      composer.classList.remove('drop-target');
-      const files = event.dataTransfer && event.dataTransfer.files;
-      if (!files || !files.length) return;
-      event.preventDefault();
-      addImageFiles(files).then((took) => {
-        if (took) showToast('图片已加进待发列表', 'ok');
-      });
-    });
-  }
 
   el.btnStop.addEventListener('click', stopGenerating);
   el.btnClear.addEventListener('click', clearConvo);

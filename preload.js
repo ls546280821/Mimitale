@@ -72,11 +72,6 @@ contextBridge.exposeInMainWorld('mimitale', {
   drawBridgeProgress: (payload) => ipcRenderer.invoke('bridge:drawProgress', payload),
   ragRecall: (payload) => ipcRenderer.invoke('rag:recall', payload),
 
-  // --- 联网搜索（博查）---
-  // 搜一次网页；Key 加密存在主进程，页面这边只递查询词。
-  webSearch: (payload) => ipcRenderer.invoke('search:web', payload),
-  testSearch: (payload) => ipcRenderer.invoke('search:test', payload),
-
   // --- 对话 ---
   sendChat: (payload) => ipcRenderer.invoke('chat:send', payload),
   stopChat: () => ipcRenderer.invoke('chat:stop'),

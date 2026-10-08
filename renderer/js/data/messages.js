@@ -8,7 +8,7 @@
 //
 //  顺序（和酒馆的思路一致）：
 //    1. system：人设 + 扮演规则/GM 规则 + 角色设定/性格/场景 + 叙述模式 + 日期
-//    2. 世界书命中的设定 → 语义检索 → 联网搜索结果
+//    2. 世界书命中的设定 → 语义检索捞回的往事
 //    3. 角色卡里的示例对话（当成已经发生过的对话塞进去）
 //    4. 最近 N 轮真实对话（面板行已剥掉）
 //    5. 面板状态（当前权威值）
@@ -19,7 +19,7 @@
 //  两者不会同时出现，免得两份设定打架（你扮演雷电将军，提示词却在说另一套人设）。
 //
 //  ⚠️ 默认对话按「跟 AI 模型聊天」处理，不是扮演酒馆里的角色：它只带人设、
-//  聊天记录、日期和联网搜索结果，**不带**扮演规则 / 世界书 / 玩家角色 / NPC 名单 /
+//  聊天记录和日期，**不带**扮演规则 / 世界书 / 玩家角色 / NPC 名单 /
 //  叙述模式 / 状态面板 / 剧情选项 / 表情标签。理由见 buildApiMessages 里的 plainChat。
 //  唯一留着的是「预设」—— 那是用户自己挂在这一局上的指令，属于显式选择。
 // ============================================================================
@@ -145,7 +145,7 @@ function parseExampleDialogue(text, charName, me) {
   return out;
 }
 
-/** 这条消息带的图（用户发的 + AI 生成的都存这儿） */
+/** 这条消息带的图（配图 / 桥接自动出的图都存这儿） */
 export function messageImages(message) {
   return asArray(message.images).filter((s) => typeof s === 'string' && s);
 }
@@ -239,10 +239,10 @@ export function dialoguePresetSampling(convo) {
 
 /**
  * 组装真正发给模型的消息数组。
- * 参数里的三段（世界书命中 / 语义检索 / 联网搜索）是调用方异步取好的 ——
+ * 参数里的两段（世界书命中 / 语义检索）是调用方异步取好的 ——
  * 这里保持同步，方便两边共用同一份拼接逻辑（发送、继续、重新生成都走它）。
  */
-export function buildApiMessages(convo, worldbookSection, ragSection, searchSection) {
+export function buildApiMessages(convo, worldbookSection, ragSection) {
   const settings = state.settings || {};
   const character = characterForConvo(convo);
   // 进了世界的会话用玩家自己创建的角色名，其它会话用设置里的名字
@@ -257,11 +257,16 @@ export function buildApiMessages(convo, worldbookSection, ragSection, searchSect
 
   // 注意：调用时对话末尾通常刚 push 了一条空的 assistant 占位消息（用来填空），
   // 必须把它过滤掉，否则会发给接口一条 content 为空的消息，严格的接口会直接报 400。
-  // 但**只带图不打字**的用户消息要留下 —— 它没有文字却是有内容的。
+  //
+  // 这里的过滤条件必须和 memory.js 的 convoContextMessages() **一字不差** ——
+  // 摘要覆盖点（covered）是在那个数组上数出来的下标，却拿来 slice 这个数组，
+  // 只要两边差一条，起点就整体偏一位（见下面 ⚠️ 第 1 条）。
+  // 以前这儿多留了「只带图不打字」的用户消息（`|| messageImages(m).length`），
+  // 两个数组因此不等长；而那个「发图」入口 2026-10-08 已经去掉，所以现在：
+  // 老存档里遗留的这种消息**直接滤掉** —— 图反正也发不出去了，
+  // 留着只会变成一条 content 为空的消息，把严格的接口打成 400。
   const history = convo.messages.filter(
-    (m) =>
-      (m.role === 'user' || m.role === 'assistant') &&
-      (String(m.content || '').trim() || messageImages(m).length)
+    (m) => (m.role === 'user' || m.role === 'assistant') && String(m.content || '').trim()
   );
 
   // 带几轮进请求由设置决定（设置 → 行为 → 对话轮数）。
@@ -273,9 +278,10 @@ export function buildApiMessages(convo, worldbookSection, ragSection, searchSect
   // 中间那段模型两边都看不到。从覆盖点往后、按轮数取，上下文才是连续的。
   //
   // ⚠️ 两个坑，都踩过：
-  //  1. covered 是在 convoContextMessages()（memory.js，只认「正文非空」）上数出来的，
-  //     而这里 slice 的是上面那个 history —— 它多留了「只带图不打字」的用户消息。
-  //     两个数组不等长时下标就偏了。
+  //  1. covered 是在 convoContextMessages()（memory.js）上数出来的下标，而这里 slice 的是
+  //     上面那个 history。这两个数组以前过滤条件不一样（history 多留「只带图不打字」的
+  //     用户消息），不等长时下标就整体偏一位。现在两边条件已经对齐成同一句话
+  //     （见上面那段注释），**改动任何一个都记得改另一个**。
   //  2. 更狠的一种：摘要还在、消息已经没了。摘要覆盖点是**按当时的消息条数**记下来的，
   //     而消息随时可能变少 ——「清空对话」只清 messages、不碰 summaries（convoActions），
   //     删消息 / 重新生成也一样。这时 covered 会远大于 history.length，
@@ -387,13 +393,6 @@ export function buildApiMessages(convo, worldbookSection, ragSection, searchSect
     messages.push({ role: 'system', content: String(ragSection).trim() });
   }
 
-  // ---- 2.3 联网搜索结果 ----
-  // 和世界书同属「参考背景」，所以放在同一个位置。
-  // 这一条**默认对话也带** —— 联网是「跟模型聊天」本来的能力，不是扮演那一套。
-  if (String(searchSection || '').trim()) {
-    messages.push({ role: 'system', content: String(searchSection).trim() });
-  }
-
   // ---- 2.5 前面的剧情：较早对话的摘要 ----
   // 放在对话历史之前、示例对话之后的位置，让模型先读背景再读最近对话。
   const summaryText = formatSummaryForPrompt(convo);
@@ -420,18 +419,6 @@ export function buildApiMessages(convo, worldbookSection, ragSection, searchSect
   for (const m of recent) {
     const raw = applyMacros(m.content, character, me);
     const text = m.role === 'assistant' ? cleanAssistantText(raw, panelFields, panelGroups) : raw;
-    const images = messageImages(m);
-
-    // 带图的用户消息要发成多模态数组 —— 这是 OpenAI 那套的通用写法，
-    // 别的家（Claude / Gemini 的兼容层）一般也认。
-    if (images.length && m.role === 'user') {
-      const parts = [];
-      // 有的接口不接受空 text 段，所以只有真有字才加
-      if (String(text).trim()) parts.push({ type: 'text', text });
-      for (const url of images) parts.push({ type: 'image_url', image_url: { url } });
-      messages.push({ role: 'user', content: parts });
-      continue;
-    }
 
     messages.push({ role: m.role, content: text });
   }

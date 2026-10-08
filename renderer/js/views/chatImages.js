@@ -1,15 +1,10 @@
 'use strict';
 
 // ============================================================================
-//  views/chatImages.js —— 给 AI 看图（选图 / 压缩 / 待发条 / 气泡里的图 / 配图）
+//  views/chatImages.js —— 给 AI 回复配图（生图）+ 气泡里的图
 //
-//  图片跟着**用户消息**走：message.images = [dataURL, ...]。
-//  发请求时把这条消息的 content 从字符串换成多模态数组
-//   （[{type:'text'},{type:'image_url'}...]）—— 那一步在 data/messages.js。
-//  这里只管「怎么把图弄到手、怎么显示出来」。
-//
-//  模型得**自己支持视觉**才行 —— 这不需要另外接一个模型，但文本模型收到图会报错。
-//  所以这里不做拦截（拦了用户会莫名其妙找不到按钮），而是失败了再给一句明确提示。
+//  配一张插画挂到某条 AI 回复上：message.images = [dataURL, ...]，
+//  出图走的是**生图那一组独立配置**（服务商 + 模型），和聊天模型无关。
 //
 //  两个动作由入口层注入（视图不向上 import 入口）：
 //    · rerender     —— 配图成功后要重绘整个对话区
@@ -21,7 +16,7 @@ import { state } from '../core/state.js';
 import { el } from '../core/dom.js';
 import { now, activeConvo } from '../core/util.js';
 import { showToast } from '../ui/toast.js';
-import { h, button, clear } from '../ui/build.js';
+import { h } from '../ui/build.js';
 import { openLightbox } from '../ui/lightbox.js';
 import { persistConversations } from '../data/persist.js';
 import { cleanAssistantText, convoFieldDisplayNames, panelGroupNames } from '../data/panel.js';
@@ -33,25 +28,8 @@ import { providerById, isBridgeProvider } from '../data/providers.js';
 const CHAT_IMAGE_MAX_EDGE = 1024;
 // 单张压完之后的体积上限（base64 字符数）。超了就再压一档
 const CHAT_IMAGE_MAX_CHARS = 1600000;
-// 一条消息最多带几张
-const CHAT_IMAGE_MAX_COUNT = 6;
-
-// 输入框里待发送的图片
-let pendingImages = [];
-
 // 入口层注入的两个动作（见文件头）
 let actions = { rerender: () => {}, openSettings: () => {} };
-
-/** 待发图（副本 —— 调用方拿到之后随便处理，不影响这里的列表） */
-export function getPendingImages() {
-  return pendingImages.slice();
-}
-
-/** 发出去之后清空待发条 */
-export function clearPendingImages() {
-  pendingImages = [];
-  renderAttachStrip();
-}
 
 /**
  * 聊天图片压缩：等比缩到最长边 1024，再转 webp。
@@ -91,78 +69,7 @@ function shrinkChatImage(dataUrl) {
   });
 }
 
-/** 收下一张图：压缩 → 进待发列表 → 重画 */
-async function addPendingImage(dataUrl) {
-  if (!dataUrl) return;
-
-  if (pendingImages.length >= CHAT_IMAGE_MAX_COUNT) {
-    showToast(`一条消息最多带 ${CHAT_IMAGE_MAX_COUNT} 张图`, 'error');
-    return;
-  }
-
-  const shrunk = await shrinkChatImage(dataUrl);
-  pendingImages.push(shrunk);
-  renderAttachStrip();
-}
-
-/** 点「加图」：走主进程的文件选择框 */
-async function pickChatImages() {
-  let result;
-  try {
-    result = await api.pickImage({ title: '选择要发给 AI 的图片' });
-  } catch (err) {
-    showToast((err && err.message) || '选择图片失败', 'error');
-    return;
-  }
-
-  if (!result || result.canceled) return;
-  if (!result.dataUrl) {
-    showToast(result.error || '这张图用不了', 'error');
-    return;
-  }
-  await addPendingImage(result.dataUrl);
-}
-
-/** 把剪贴板 / 拖进来的一批文件变成图片收下 */
-export async function addImageFiles(files) {
-  const images = Array.from(files || []).filter((f) => f && String(f.type || '').startsWith('image/'));
-  if (!images.length) return false;
-
-  for (const file of images) {
-    const dataUrl = await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(file);
-    });
-    await addPendingImage(dataUrl);
-  }
-  return true;
-}
-
-function renderAttachStrip() {
-  clear(el.attachStrip);
-  el.attachStrip.classList.toggle('hidden', !pendingImages.length);
-
-  pendingImages.forEach((src, index) => {
-    const thumb = h('div', { class: 'attach-item' }, h('img', { src, alt: '' }));
-    thumb.appendChild(
-      button({
-        class: 'attach-del',
-        text: '×',
-        title: '不发了',
-        ariaLabel: `移除第 ${index + 1} 张图`,
-        onClick: () => {
-          pendingImages.splice(index, 1);
-          renderAttachStrip();
-        }
-      })
-    );
-    el.attachStrip.appendChild(thumb);
-  });
-}
-
-/** 消息气泡里的图（用户发的 + AI 生成的都走这里） */
+/** 消息气泡里的图（配图 / 桥接自动出的图） */
 export function buildMessageImages(message) {
   const images = messageImages(message);
   if (!images.length) return null;
@@ -318,8 +225,7 @@ export async function illustrateMessage(index) {
   }
 }
 
-/** 绑定加图按钮。rerender / openSettings 由入口层注入 */
+/** rerender / openSettings 由入口层注入（见文件头） */
 export function initChatImages(injected) {
   actions = { rerender: () => {}, openSettings: () => {}, ...(injected || {}) };
-  el.btnAttach.addEventListener('click', pickChatImages);
 }

@@ -23,10 +23,6 @@ export const el = {
   usageText: $('usage-text'),
   btnNew: $('btn-new'),
   btnSend: $('btn-send'),
-  btnAttach: $('btn-attach'),
-  attachStrip: $('attach-strip'),
-  // 联网搜索：输入框左边那颗开关（按会话记，状态画在 aria-pressed 上）
-  btnWebSearch: $('btn-web-search'),
   btnStop: $('btn-stop'),
   btnClear: $('btn-clear'),
   btnCopyAll: $('btn-copy-all'),
@@ -236,14 +232,8 @@ export const el = {
     ragEnabled: $('s-rag-enabled'),
     embeddingProvider: $('s-embedding-provider'),
     embeddingModel: $('s-embedding-model'),
-    commonAttrs: $('s-commonattrs'),
-    // 联网搜索（博查）：总闸 + Key + 条数 + 时间范围
-    searchEnabled: $('s-search-enabled'),
-    searchKey: $('s-search-key'),
-    searchCount: $('s-search-count'),
-    searchFreshness: $('s-search-freshness')
+    commonAttrs: $('s-commonattrs')
   },
-  btnTestSearch: $('btn-test-search'),
   // 默认人设：设置里只留一行入口（按钮 + 当前状态），正文在弹窗里编辑
   btnAssistantPersona: $('btn-assistant-persona'),
   assistantHint: $('s-assistant-hint'),
