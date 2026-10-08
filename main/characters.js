@@ -20,7 +20,9 @@ const { normalizePanelFields } = require('./panel-fields.js');
 // 剧情选项：每轮给几个。上下限和渲染层的 MAX_OPTIONS 对齐。
 const MIN_OPTIONS = 1;
 const MAX_OPTIONS = 6;
-const DEFAULT_OPTIONS = 3;
+// 没在卡上配过的角色，默认就给这么多条 —— 也就是「默认开着」。
+// 想彻底关掉这张卡的选项，得在角色编辑器里把开关取消（那时存的是 `false`）。
+const DEFAULT_OPTIONS = 4;
 
 // 角色「属性」的条数上限，和渲染层状态面板的 MAX_PANEL_FIELDS 保持一致
 const MAX_ATTRIBUTES = 120;
@@ -76,11 +78,22 @@ function normalizeGender(value) {
 
 /**
  * 剧情选项的配置归一化。
- * 没有 / 形状不对 / 明确关掉（false）一律给 null —— 调用方只要判空即可，
- * 不用再区分「没有这个字段」和「关掉了」。
+ *
+ * 三种情况分得清清楚楚：
+ *   · `false`（角色编辑器里明确把开关关掉）→ 原样返回 `false` —— 它是「这张卡不要
+ *     剧情选项」的唯一记号，必须活过归一化，否则关掉的角色一存盘就又变成默认开了；
+ *   · 没有这个字段 / 形状不对（老卡、手改过的 JSON）→ 给**默认配置**（4 条）。
+ *     以前这里返回 null = 不注入，导致「新卡、世界书里自己写的角色、导入的卡」
+ *     全都不带剧情选项；现在一律默认开；
+ *   · 对象 → 按里面的 count / hint 整理。
+ *
+ * 调用方只要判空即可（`false` 在 JS 里就是 falsy，和以前的 null 一样落到「不注入」）。
  */
 function normalizeOptionsSpec(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  if (value === false) return false;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { count: DEFAULT_OPTIONS, hint: '' };
+  }
 
   const raw = Number(value.count);
   const count = isFinite(raw) ? Math.max(MIN_OPTIONS, Math.min(MAX_OPTIONS, Math.round(raw))) : DEFAULT_OPTIONS;
@@ -194,7 +207,8 @@ function normalizeCharacter(raw, source) {
       : [],
     // 状态面板的字段模板。少了这一行，界面上填的属性一存盘就没了。
     attributes: normalizeAttributes(r.attributes),
-    // 剧情选项的配置（每轮给几个 + 额外要求）。null = 这张卡不开剧情选项。
+    // 剧情选项的配置（每轮给几个 + 额外要求）。没配过的角色默认给 4 条；
+    // 只有 `false` 才表示「这张卡明确不要剧情选项」。
     optionsSpec: normalizeOptionsSpec(r.optionsSpec),
     // 角色自带的世界书。导入带 character_book 的角色卡时自动绑上，
     // 之后用户也能自己加/删。
@@ -221,5 +235,6 @@ module.exports = {
   newCharacterId,
   MAX_AVATAR_CHARS,
   MAX_CHARACTER_WORLDBOOKS,
-  MAX_EXPRESSIONS
+  MAX_EXPRESSIONS,
+  DEFAULT_OPTIONS
 };

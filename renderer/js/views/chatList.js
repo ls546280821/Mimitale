@@ -25,6 +25,7 @@ import { seedIdentity, seedPanelFromCharacters } from '../data/panel.js';
 import { applyMacros } from '../data/messages.js';
 import { convoUserName } from '../data/cast.js';
 import { persistConversations } from '../data/persist.js';
+import { optionsSpecFromCharacter } from '../data/suggestions.js';
 import { renderHeader } from './header.js';
 import { renderAll } from './redraw.js';
 import { switchConvo, removeConvo } from './convoActions.js';
@@ -288,9 +289,10 @@ export async function applyCharacterChoice(characterId) {
   seedIdentity(convo, next.name, next, next.id);
   seedPanelFromCharacters(convo, [next]);
 
-  // 剧情选项：角色卡上开了就跟着这个会话生效。用的是**复制**而不是引用 ——
+  // 剧情选项：角色卡上的配置跟着这个会话生效。用的是**复制**而不是引用 ——
   // 之后改角色卡不该悄悄改掉正在进行的这一局。
-  convo.optionsSpec = next.optionsSpec ? { ...next.optionsSpec } : null;
+  // 卡上没配过的（老卡、导入的卡）按默认来：开、4 条；只有卡上明确写了 false 才不开。
+  convo.optionsSpec = optionsSpecFromCharacter(next);
   if (!convo.optionsSpec) convo.options = [];
 
   if (next.firstMes && untouched) {

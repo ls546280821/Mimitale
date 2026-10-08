@@ -54,6 +54,7 @@ import { persistCharacters, persistLibrary, persistPresets, markWorldbooksLoaded
 import { currentEndpoint, isBridgeProvider } from './data/providers.js';
 import { convoUserName, speakerName } from './data/cast.js';
 import { characters, worldbooks, dialoguePresets } from './data/library.js';
+import { optionsSpecFromCharacter, defaultOptionsSpec } from './data/suggestions.js';
 import {
   normalizePanelDefs,
   cleanAssistantText,
@@ -414,6 +415,16 @@ function bindEvents() {
     const assistant = convo.messages[convo.messages.length - 1];
     if (!assistant || assistant.role !== 'assistant') return;
 
+    // 续写（「继续」/自动续写）是把新文本接在**已有正文**后面，而旧正文的末尾一行
+    // 往往是状态行 / 剧情选项行 —— 模型写完正文顺手就写它们，且那一行末尾没有换行。
+    // 直接拼上去会和它黏成一条：显示时整行按「状态行」被剥掉，续写的**头一行**
+    // 就凭空消失了（开着剧情选项之后，每条回复末尾都带一行选项，这条天天踩）。
+    // 所以一次新的流式开始、且旧正文没以换行收尾时先补一个换行。
+    const newStream = chunkTarget.requestId !== requestId;
+    if (newStream && assistant.content && !assistant.content.endsWith('\n') && text && !text.startsWith('\n')) {
+      assistant.content += '\n';
+    }
+
     assistant.content += text;
 
     // 一次流式过程中目标节点一般不变，缓存起来 —— 否则每个 token 都要
@@ -678,7 +689,22 @@ async function init() {
     mergePlayerOwnedFields(convo);
     // 选项是程序写进去的，读盘时只要保证形状对（不是数组就当没有）
     if (!Array.isArray(convo.options)) convo.options = [];
-    if (convo.optionsSpec && typeof convo.optionsSpec !== 'object') convo.optionsSpec = null;
+    // 剧情选项：以前「没配过」落的是 null（当时的默认是不开）。现在默认改成
+    // 「全都开、4 条」，所以老会话要在读盘时补一次：
+    //   · 绑了角色卡 → 按那张卡的配置（卡上明确关掉的仍是 null，不会被强行打开）；
+    //   · 进世界的会话（没绑卡、只挂了世界书）→ 直接给默认；
+    //   · 纯聊天会话（没卡也没世界书）→ 保持 null，注入那边本来就会跳过。
+    // 只在真的没有配置时才补，已经配过的会话不动（快照语义还在）。
+    if (!convo.optionsSpec || typeof convo.optionsSpec !== 'object') {
+      const bound = convo.characterId
+        ? asArray(state.characters).find((c) => c && c.id === convo.characterId)
+        : null;
+      convo.optionsSpec = bound
+        ? optionsSpecFromCharacter(bound)
+        : asArray(convo.worldbookIds).length
+          ? defaultOptionsSpec()
+          : null;
+    }
     // 预设绑定：三种形状都要留得住
     //   · 数组         → 手动配过（可能是空数组 = 显式「一条都不要」）
     //   · 非空字符串   → 老数据（单值），迁成一条

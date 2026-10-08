@@ -43,6 +43,7 @@ import {
   newWorldbookCharId
 } from '../data/library.js';
 import { persistCharacters, persistConversations, persistLibrary } from '../data/persist.js';
+import { optionsSpecFromCharacter, DEFAULT_OPTIONS_COUNT } from '../data/suggestions.js';
 import { currentWorldbook, renderWorldbookChars, focusWorldbook } from './worldbook.js';
 import { renderWorldbookPage } from './worldbookList.js';
 import { renderCharacterPage } from './characterList.js';
@@ -585,10 +586,12 @@ function fillCharForm(character) {
   charAttrs = characterAttrs(character);
   renderCharAttrs(charAttrs);
 
-  // 剧情选项：这张卡开没开、给几个、有什么额外要求
-  const optSpec = character.optionsSpec && typeof character.optionsSpec === 'object' ? character.optionsSpec : null;
+  // 剧情选项：这张卡开没开、给几个、有什么额外要求。
+  // ⚠️ 没配过的卡（老卡、导入的卡、新建的草稿）也算**开**，默认 4 条 ——
+  // 只有卡上明确写了 `false` 才是关。见 data/suggestions.js 的 optionsSpecFromCharacter。
+  const optSpec = optionsSpecFromCharacter(character);
   el.c.optionsOn.checked = !!optSpec;
-  el.c.optionsCount.value = String(optSpec ? optSpec.count || 3 : 3);
+  el.c.optionsCount.value = String((optSpec && optSpec.count) || DEFAULT_OPTIONS_COUNT);
   el.c.optionsHint.value = optSpec ? optSpec.hint || '' : '';
   renderOptionsConfig();
 
@@ -913,14 +916,15 @@ function stashCharForm() {
     .slice(0, MAX_EXPRESSIONS);
   if (expressions.length) character.expressions = expressions;
   else delete character.expressions;
-  // 剧情选项：开关关掉就写 null（不是 false/空对象）—— 一眼能看出「这个会话不开」。
+  // 剧情选项：**关掉要写成 `false`**（不是 null）—— 主进程归一化把「没有这个字段」
+  // 当成「默认开 4 条」，只有明确的 false 才活得过存盘，否则关掉的角色一重启又开了。
   // 数量夹在 1~6，和注入时用的上限保持一致。
   if (el.c.optionsOn.checked) {
     const raw = Number(el.c.optionsCount.value);
-    const count = isFinite(raw) ? Math.max(1, Math.min(6, Math.round(raw))) : 3;
+    const count = isFinite(raw) ? Math.max(1, Math.min(6, Math.round(raw))) : DEFAULT_OPTIONS_COUNT;
     character.optionsSpec = { count, hint: el.c.optionsHint.value.trim().slice(0, 200) };
   } else {
-    character.optionsSpec = null;
+    character.optionsSpec = false;
   }
   // 角色自带世界书的开关（草稿）。没有绑书时不写这个字段，
   // 免得给没有书的角色平白加一个属性。

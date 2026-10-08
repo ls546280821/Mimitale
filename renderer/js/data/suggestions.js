@@ -74,12 +74,37 @@ export function parseSuggestions(text) {
 const MAX_OPTION_CHARS = 120;
 // 一屏最多几个（模型给多了会挤爆面板）
 const MAX_OPTIONS = 6;
+// 默认给几个 —— 和主进程 main/characters.js 的 DEFAULT_OPTIONS 对齐。
+// 角色卡上没配过（老卡、导入的卡、世界书里自己写的角色）时按这个数走。
+export const DEFAULT_OPTIONS_COUNT = 4;
+
+/** 默认的剧情选项配置（没在角色卡上关掉的角色都用它） */
+export function defaultOptionsSpec() {
+  return { count: DEFAULT_OPTIONS_COUNT, hint: '' };
+}
+
+/**
+ * 角色卡上的剧情选项配置 → **这个会话**该用的配置。
+ *
+ *   · 卡上明确关了（`optionsSpec === false`）→ null（这一局不要剧情选项）；
+ *   · 卡上配过 → 复制一份（改卡不该动到正在进行的这一局）；
+ *   · 没配过 / 没有卡（进世界时自己写的那个「主角」）→ 默认 4 条。
+ *
+ * 以前这里只认「卡上配过」，导致在角色编辑器里没勾过选项的卡、以及进世界时
+ * 手写的主角，全程都没有剧情选项 —— 现在一律默认给。
+ */
+export function optionsSpecFromCharacter(character) {
+  const spec = character && character.optionsSpec;
+  if (spec === false) return null;
+  if (spec && typeof spec === 'object' && !Array.isArray(spec)) return { ...spec };
+  return defaultOptionsSpec();
+}
 
 /** 当前会话要不要每轮出剧情选项（存在会话上，跟面板走） */
 function convoOptionsSpec(convo) {
   const spec = convo && convo.optionsSpec;
   if (!spec || typeof spec !== 'object') return null;
-  const count = Math.max(1, Math.min(MAX_OPTIONS, Math.round(Number(spec.count) || 3)));
+  const count = Math.max(1, Math.min(MAX_OPTIONS, Math.round(Number(spec.count) || DEFAULT_OPTIONS_COUNT)));
   return { count, hint: String(spec.hint || '').trim().slice(0, 200) };
 }
 
@@ -141,7 +166,7 @@ export function extractOptionsFromText(text) {
  */
 export function rerollOptionsInstruction(convo) {
   const spec = convoOptionsSpec(convo);
-  const count = spec ? spec.count : 3;
+  const count = spec ? spec.count : DEFAULT_OPTIONS_COUNT;
 
   const previous = convoOptions(convo).filter(Boolean);
   const avoid = previous.length

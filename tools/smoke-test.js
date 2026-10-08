@@ -1407,8 +1407,12 @@ function probeInjection(result) {
     detail: groupNote ? '' : '没找到那句交代'
   });
 
-  // 剧情选项：开了选项的会话要收到「给几个、怎么给、额外要求」这条指令
-  const optBlob = blobs.find((b) => b.includes('【剧情选项】'));
+  // 剧情选项：开了选项的会话要收到「给几个、怎么给、额外要求」这条指令。
+  // ⚠️ 现在**所有角色默认都开**选项，所以带「【剧情选项】」的请求不止这一条 ——
+  // 必须按「额外要求那半句」找那一次，不能拿第一条带选项指令的请求来比（那条是默认 4 条）。
+  const optBlob = blobs.find(
+    (b) => b.includes('【剧情选项】') && b.includes('语气轻松些，总有一条冒险的选择')
+  );
   const optOk =
     !!optBlob &&
     optBlob.includes('给出 3 个选项') &&

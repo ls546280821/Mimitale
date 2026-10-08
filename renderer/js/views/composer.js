@@ -269,7 +269,11 @@ async function extendAssistantMessage(convo, endpoint, worldbookSection, ragSect
     // 有的服务商不推流式分片，直接给全文 —— 那种情况分片处理器一次都没跑过，
     // 这里补一次追加（正文没变就说明没收到过分片）
     if (String(last.content || '') === before && String(response.content || '').trim()) {
-      last.content = before + response.content;
+      // 和 main.js 的分片处理器同一个道理：旧正文末尾那行往往是状态行 /
+      // 剧情选项行（末尾没有换行），直接接上去会让新正文的头一行和它黏成一条，
+      // 显示时整行被当状态行剥掉 —— 续写的头一行就没了。先补一个换行隔开。
+      const sep = before && !before.endsWith('\n') && !String(response.content).startsWith('\n') ? '\n' : '';
+      last.content = before + sep + response.content;
     }
 
     return { ok: true, usage: response.usage || null, finishReason: response.finishReason || '' };

@@ -23,6 +23,7 @@ import { showToast } from '../ui/toast.js';
 import { characterById, worldbookCharacters } from '../data/library.js';
 import { seedIdentity, seedPanelFromCharacters, mergePlayerOwnedFields } from '../data/panel.js';
 import { applyMacros } from '../data/messages.js';
+import { optionsSpecFromCharacter } from '../data/suggestions.js';
 import { convoUserName, convoPlayer, worldbookCast } from '../data/cast.js';
 import { gmRuleText } from '../data/narration.js';
 import { ensureConvoEndpoint } from '../data/providers.js';
@@ -81,10 +82,12 @@ export function startWorldPlay(book) {
   applyPlayerIdentity(convo, draft);
   const pickedCard = draft.card;
 
-  // 剧情选项：选卡当自己时，把卡上的剧情选项配置一起带进这个世界 ——
-  // 否则进世界的会话 optionsSpec 永远是 null，剧情选项全程不生效。
+  // 剧情选项：**所有会话默认都开**，每轮 4 条。
+  //   · 选了一张卡当自己 → 按那张卡的配置来（卡上明确关掉的除外）；
+  //   · 没选卡（进世界时自己写的主角、或者干脆留空）→ 也给默认的 4 条 ——
+  //     以前这里落的是 null，导致「世界书里自己写的主角」全程没有剧情选项。
   // 用复制（和绑定角色卡那套一致），改卡不该悄悄改掉正在玩的这一局。
-  convo.optionsSpec = pickedCard && pickedCard.optionsSpec ? { ...pickedCard.optionsSpec } : null;
+  convo.optionsSpec = optionsSpecFromCharacter(pickedCard);
   if (!convo.optionsSpec) convo.options = [];
 
   // 状态面板：先种「你自己」的身份和属性（主角的数值优先），再种本书角色的。

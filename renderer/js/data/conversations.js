@@ -58,7 +58,10 @@ export function createConvo(activate) {
     panelDefs: {},
     panelManual: {},
     // 剧情选项：options 是这一轮模型给的可点选项（点完就清），
-    // optionsSpec 是「每轮给几个 + 额外要求」，null = 这个会话不开剧情选项。
+    // optionsSpec 是「每轮给几个 + 额外要求」。
+    // 新会话出生时是 null（还没绑角色、也还没进世界）；**绑角色卡 / 进世界时**
+    // 由 data/suggestions.js 的 optionsSpecFromCharacter() 填上 —— 没在卡上
+    // 配过的角色默认就是「开、4 条」，只有卡上明确写了 false 才是 null（不开）。
     options: [],
     optionsSpec: null,
     // 视角设置：叙述模式（标准/内心描写/上帝视角）、推进节奏、GM 模式

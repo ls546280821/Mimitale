@@ -2848,6 +2848,14 @@ await scenario('进入世界：用角色卡当自己', async () => {
   check('也记下了是哪张角色卡', !!worldConvo && worldConvo.player.characterId === cardId, worldConvo ? String(worldConvo.player.characterId) : '');
   check('玩家角色带上了设定文本', !!worldConvo && String(worldConvo.player.profile).length > 0);
 
+  // 剧情选项：这张卡没在编辑器里配过 ── 按新默认应该是「开、每轮 4 条」。
+  // 以前这里落的是 null，所以「世界书里自己写的主角 / 没配过的卡」全程没有选项。
+  check(
+    '进世界的会话也默认带上剧情选项（每轮 4 条）',
+    !!worldConvo && !!worldConvo.optionsSpec && worldConvo.optionsSpec.count === 4,
+    JSON.stringify(worldConvo && worldConvo.optionsSpec)
+  );
+
   // 发一条：让「身份 + 属性真的注入给了模型」这件事也能被宿主验到
   setValue('#input', '冒烟测试：世界里的状态');
   click('#btn-send');
@@ -3996,11 +4004,12 @@ await scenario('剧情选项', async () => {
   setValue('#c-name', NAME);
   await sleep(80);
 
-  check('默认不开剧情选项', byId('c-options-on').checked === false, String(byId('c-options-on').checked));
-  check('关着时配置区是收起的', !shown('#c-options-config'));
+  // 剧情选项现在**默认就是开的**（4 条）—— 所有角色（角色卡 / 世界书副本 /
+  // 进世界时自己写的主角）一律如此，只有明确取消勾选才没有。
+  check('默认就开着剧情选项', byId('c-options-on').checked === true, String(byId('c-options-on').checked));
+  check('默认每轮给 4 条', byId('c-options-count').value === '4', byId('c-options-count').value);
+  check('开着时配置区是展开的', shown('#c-options-config'));
 
-  click('#c-options-on');
-  await waitFor('配置区展开', () => shown('#c-options-config'));
   setValue('#c-options-count', '3');
   setValue('#c-options-hint', '语气轻松些，总有一条冒险的选择');
 
@@ -4219,6 +4228,60 @@ await scenario('剧情选项', async () => {
   );
   check('配置本身还在（下一轮还会给新选项）', !!active && !!active.optionsSpec && active.optionsSpec.count === 3,
     JSON.stringify(active && active.optionsSpec));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 21b：剧情选项的默认值与「关掉」这条路
+//
+//  以前默认是不开：新建的卡、导入的卡、进世界时自己写的主角，全都没有剧情选项。
+//  现在统一默认开、每轮 4 条。关掉要在角色编辑器里取消勾选，而且**必须写 false** ——
+//  主进程的 normalizeCharacter 把「没有这个字段 / null」当成「没配过」→ 回落到默认开，
+//  所以写 null 的话一存盘又变回开着的（这里把这条往返钉死）。
+// ---------------------------------------------------------------------------
+await scenario('剧情选项：默认开、关掉要写 false', async () => {
+  click('#btn-chars');
+  await waitFor('切到角色库页面', () => shown('#view-chars'));
+  click('#btn-new-char');
+  await waitFor('角色编辑器打开', () => shown('#chars-modal'));
+
+  const NAME = '关掉选项的角色';
+  setValue('#c-name', NAME);
+  await sleep(80);
+
+  check('新建的卡默认开着剧情选项', byId('c-options-on').checked === true, String(byId('c-options-on').checked));
+  check('默认每轮 4 条', byId('c-options-count').value === '4', byId('c-options-count').value);
+
+  click('#c-options-on'); // 取消勾选 = 这张卡不要剧情选项
+  await sleep(80);
+  check('取消勾选后配置区收起来', !shown('#c-options-config'));
+
+  click('#btn-save-char');
+  await waitFor('保存后弹窗自己关掉', () => !shown('#chars-modal'), 8000);
+  await sleep(150);
+
+  const saved = await savedCharacters();
+  const mine = saved.find((c) => c.name === NAME);
+  check(
+    '「关掉」落盘成 false（不是 null/undefined，否则会被归一化变回默认开）',
+    !!mine && mine.optionsSpec === false,
+    JSON.stringify(mine && mine.optionsSpec)
+  );
+
+  // 用这张卡开一局：会话上不该有剧情选项
+  click('#btn-close-chars');
+  await sleep(150);
+  const card = $$('#char-page-grid .char-card').find((c) => String(c.textContent || '').includes(NAME));
+  check('关掉选项的角色也出现在列表里', !!card);
+  await startChatWith(card);
+  await waitFor('切到聊天视图', () => shown('#view-chat'), 8000);
+  await sleep(300);
+
+  const convo = await activeConvo();
+  check(
+    '关掉的卡开的会话 optionsSpec 是 null（不注入剧情选项）',
+    !!convo && convo.optionsSpec === null,
+    JSON.stringify(convo && convo.optionsSpec)
+  );
 });
 
 // ---------------------------------------------------------------------------
