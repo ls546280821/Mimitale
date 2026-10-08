@@ -1,0 +1,18 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+.env
+.env.*
+!.env.example
+npm-debug.log*
+.DS_Store
+.vscode/
+.idea/
+
+# 构建 / 调试产物
+# ⚠️ .gitignore **不支持行尾注释** —— 「#」只有单独成行才算注释，
+#    写在行尾会被当成模式的一部分，于是整条规则**静默失效**、不报任何错。
+#    （真踩过：下面两行原来带行尾说明，结果 shots/ 一直没被忽略、截图会被提交进去。）
+shots/
+.mock-bundle.mjs
