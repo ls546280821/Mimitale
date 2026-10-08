@@ -9,8 +9,12 @@ node_modules/
 dist/
 out/
 
-# 本地数据：正常情况下这些文件在 %APPDATA%\Mimitale\，不在项目里。
-# 这里再挡一层，防止有人把数据文件拷进项目目录后被误提交。
+# 程序旁边的数据目录（2026-10-08 起数据默认放这儿，见 main/data-dir.js）。
+# 角色卡 / 会话 / 世界书 / 预设 / 配置 / 向量缓存都是个人内容，一律不进版本库。
+# ⚠️ Chromium 的缓存不在这里（仍在 %APPDATA%），所以这里只有上面那几个 json。
+data/
+
+# 老位置（%APPDATA%\Mimitale）留下的数据文件，万一有人拷进项目目录也只挡一层
 config.json
 conversations.json
 characters.json

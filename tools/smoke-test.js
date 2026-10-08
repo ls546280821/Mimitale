@@ -30,6 +30,14 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// 数据目录隔离（2026-10-08 起数据默认放在「程序旁边的 data\」）。
+// 这条必须在 require 任何 main/ 模块**之前**设好，否则这个测试会去动
+// 开发机真正的 data\ 目录 —— 那里面是真实的角色卡和会话。
+// 上面那句「不会碰你的 userData」的承诺就靠这一行兑现。
+// （MIMITALE_DATA_DIR 的优先级低于显式 app.setPath('userData')，
+//   所以下面 probeStoreWriteFailure 自己指到临时目录那套照旧生效。）
+process.env.MIMITALE_DATA_DIR = path.join(os.tmpdir(), 'mimitale-smoke-data');
+
 // 设置落盘归一化：和 main.js 的 settings:save 跑的是同一份。
 // 假后端以前只做 Object.assign，等于**跳过**了归一化 —— 归一化里删错一个键
 // （maxTurns 就被 `delete s.maxTurns` 删过）测试照样全绿，真机上却怎么改都不生效。

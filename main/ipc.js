@@ -10,13 +10,14 @@
 //    main/window.js     窗口
 // ============================================================================
 
-const { app, ipcMain, shell, clipboard, dialog } = require('electron');
+// ⚠️ 这里不再需要 app：数据目录已经不走 app.getPath('userData') 了（见 main/data-dir.js）。
+const { ipcMain, shell, clipboard, dialog } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 
 const {
-  userDataFile,
+  dataFile,
   writeJson,
   loadJsonWithFallback,
   loadConversations,
@@ -56,6 +57,8 @@ const {
   bridgeHealth
 } = require('./http.js');
 const { getMainWindow, sendToRenderer } = require('./window.js');
+// 数据目录在哪、能不能写 —— 都归 main/data-dir.js 管（默认是程序旁边的 data\）
+const { dataDir, dataDirInfo, probeDirWritable } = require('./data-dir.js');
 
 // 关键词命中判定、递归扫描这些纯逻辑都在 main/worldbook-match.js 里。
 const { matchWorldbookEntries, formatWorldbookSection } = require('./worldbook-match.js');
@@ -105,7 +108,7 @@ let lastDialogDir = '';
 let lastDialogDirLoaded = false;
 
 function dialogStateFile() {
-  return userDataFile('dialog-state.json');
+  return dataFile('dialog-state.json');
 }
 
 /** 目录还存在吗？被删/被移走后不能再拿来当默认位置 */
@@ -1049,26 +1052,59 @@ function registerIpc() {
   });
 
   ipcMain.handle('util:openPath', async (_event, which) => {
-    // 直接打开数据文件夹，而不是高亮特定文件
-    const dataDir = app.getPath('userData');
+    // 打开**真正的**数据目录（默认是程序旁边的 data\，见 main/data-dir.js）。
+    // ⚠️ 别改回 app.getPath('userData')：那是 Chromium 的 profile 目录
+    //    （缓存 / Local State / Preferences），用户的数据文件已经不在那儿了 ——
+    //    照着它打开，用户会看到一个没有自己角色卡的文件夹。
+    const dir = dataDir();
     try {
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
       }
     } catch (err) {
-      return { ok: false, path: dataDir, error: `数据文件夹不存在，也建不出来：${err.message}` };
+      return { ok: false, path: dir, error: `数据文件夹不存在，也建不出来：${err.message}` };
     }
+
+    // 先探这个进程能不能往数据目录里写字。
+    //
+    // ⚠️ 「explorer.exe 起来了」**不等于**「文件夹真的打开了」：2026-10-08 实测，
+    //    被沙箱 / 权限限制住的进程照样能 spawn 出 explorer.exe（'spawn' 事件照常触发），
+    //    但那个 explorer 继承的是同一个受限令牌，请求递不到已经开着的资源管理器，
+    //    用户看到的就是「点了没反应」，而这边一路返回 ok —— 界面连句话都不会说。
+    //    所以顺手探一次写权限：探不通就把「打不开」和**为什么**一起说清楚。
+    const writable = probeDirWritable(dir);
+    const info = dataDirInfo();
 
     // 返回值带上成败：以前只把路径递回去、也不看 openPath 的结果，
     // 于是失败时用户只看到 Windows 自己弹的框，应用这边一句解释都没有。
     if (process.platform === 'win32') {
-      const error = await openFolderInExplorer(dataDir);
-      return error ? { ok: false, path: dataDir, error } : { ok: true, path: dataDir };
+      const error = await openFolderInExplorer(dir);
+      if (error) {
+        return {
+          ok: false,
+          path: dir,
+          info,
+          error: writable.ok ? error : `${error}（另外，这个进程也写不进这个目录：${writable.error}）`
+        };
+      }
+      if (!writable.ok) {
+        return {
+          ok: false,
+          path: dir,
+          info,
+          writable: false,
+          error:
+            `资源管理器已启动，但这个进程写不进数据目录（${writable.error}）—— 保存会全部失败。` +
+            '常见原因：程序所在的文件夹被安全软件或沙箱限制住了，只允许它写自己那个目录；' +
+            '或者那个目录本身没有写权限。把整个 Mimitale 文件夹复制到别处再启动，通常就好了。'
+        };
+      }
+      return { ok: true, path: dir, info, writable: true };
     }
 
     // 非 Windows：shell.openPath 是常规做法，它的返回值就是错误信息
-    const error = await shell.openPath(dataDir);
-    return error ? { ok: false, path: dataDir, error } : { ok: true, path: dataDir };
+    const error = await shell.openPath(dir);
+    return error ? { ok: false, path: dir, info, error } : { ok: true, path: dir, info, writable: writable.ok };
   });
 }
 

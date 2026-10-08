@@ -227,21 +227,34 @@ default-src 'none'; script-src 'self'; img-src 'self' data:;
 
 ## 数据存在哪
 
+**就在程序旁边**（2026-10-08 起；以前在 `%APPDATA%\Mimitale`，会自动搬过来）：
+
 ```
-%APPDATA%\Mimitale\           (Windows)
-~/Library/Application Support/Mimitale/    (macOS)
-~/.config/Mimitale/           (Linux)
+<Mimitale 文件夹>\data\        （Windows / macOS / Linux 都一样）
 ├── config.json          设置（API Key 已加密）
 ├── conversations.json   所有聊天记录
 ├── characters.json      角色库
 ├── worldbooks.json      世界书（含从角色卡里抽出的内嵌世界书）
-└── presets.json         预设（叠在对话上的那层指令）
+├── presets.json         预设（叠在对话上的那层指令）
+└── vectors.json         语义检索的向量缓存
 ```
 
-窗口里&#x70B9;**「打开数据文件夹」**&#x53EF;以直接跳过去。
+窗口里点**「打开数据文件夹」**可以直接跳过去。
+`data\` 里还有一份程序自动生成的 **`使用说明.txt`**，就是给人看的：每个文件是什么、
+能不能删、怎么备份、怎么换位置。
 
-> **数据不在仓库里，也不会跟着 git 同步。** 换电脑 clone 代码后需要重新填 API Key，  
-> 聊天记录也不会带过去 —— 这是「没有服务器」的代价，也是隐私的保证。
+整个文件夹拷走，数据就跟着走 —— 换机器、放 U 盘、发给别人都不用额外配置。
+想把数据放到别处（比如另一个盘），设环境变量 `MIMITALE_DATA_DIR=<目录>` 即可。
+
+> ⚠️ 程序旁边的 `data\` **建不出来或写不进去**时（装在 `C:\Program Files` 下、
+> 只读介质、权限策略…），会自动退回系统的 `%APPDATA%\Mimitale`，**不会**因此起不来。
+> 想确认当前用的是哪个目录：点「数据文件夹」看跳到哪，或执行 `node tools\diag-write-lock.js`。
+> Chromium 自己的缓存（`Cache` / `GPUCache` / `Local Storage` 等）**不在** `data\` 里，
+> 仍留在系统默认位置 —— 那些是缓存不是你的数据，留在那边最稳。
+
+> **数据不在仓库里，也不会跟着 git 同步**（`data/` 已在 `.gitignore` 里）。
+> 换电脑 clone 代码后需要重新填 API Key，聊天记录也不会带过去 ——
+> 这是「没有服务器」的代价，也是隐私的保证。
 
 ---
 

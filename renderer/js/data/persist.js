@@ -46,16 +46,29 @@ async function writeWithOneLateRetry(writeOnce) {
 /**
  * 写盘失败时统一的说法。
  *
- * 主进程的写盘是「先写 .tmp 再 rename」，被拒时最常见的原因是
- * **安全软件临时独占**或**文件带了只读属性**（见 main/store.js 的 tryBackup 注释）——
- * 说清楚这两条比笼统的「请检查磁盘空间」有用得多。
- * 只有真撞上 ENOSPC 才说磁盘满（那确实也是可能的：角色卡的头像是内嵌 base64，
- * 几十张卡就能吃掉不少空间）。
+ * ⚠️ 2026-10-08 更正：原来这里一口咬定「文件可能被杀软临时占用或带了只读属性」，
+ *    实测**两条都不是**。真实的一次（同一台机器）是这样：
+ *      EPERM: operation not permitted, open '...\characters.json.tmp'
+ *    每次点删除都失败、重试 0.5 秒 + 1.2 秒之后照样失败 —— 那是**权限判定**
+ *    （进程被沙箱/ACL 挡住，不让它在那个目录里建文件），根本不是「等一会儿就放开」
+ *    的瞬时占用。猜错原因会把人支去关杀软、改只读属性，全是白费功夫。
+ *
+ *    所以现在把**真正的错误原文**带出来，只对确凿的错误码给提示。
+ *    只有真撞上 ENOSPC 才说磁盘满（角色卡头像是内嵌 base64，几十张卡确实吃得掉空间）。
  */
 function writeFailedText(what, err) {
   const msg = String((err && err.message) || '');
   if (msg.includes('ENOSPC')) return `${what}没能写进磁盘：磁盘空间不够了`;
-  return `${what}没能写进磁盘，这次改动没有生效（文件可能被杀软临时占用或带了只读属性）`;
+
+  // 主进程包了一层「写入失败（xxx.json）：」，这层对用户没意义，剥掉
+  const detail = msg.replace(/^写入失败（[^）]*）：/, '').trim();
+  const denied = /\bEPERM\b|\bEACCES\b/.test(msg);
+  const hint = denied
+    ? '（权限被拒 —— 常见是这个程序被安全软件/沙箱限制在它自己的目录里，或者数据目录本身不可写；' +
+      '不是「等一会儿再试」能好的）'
+    : '';
+
+  return `${what}没能写进磁盘，这次改动没有生效${hint}${detail ? `：${detail}` : ''}`;
 }
 
 export function persistConversations(delay) {

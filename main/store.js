@@ -1,23 +1,31 @@
 'use strict';
 
 // ============================================================================
-//  main/store.js —— userData 读写：设置以外的全部本地数据
+//  main/store.js —— 本地数据读写：设置以外的全部数据
 //
-//  所有 JSON 都写在 Electron 的 userData 目录里，整份重写，带 backup 兜底。
+//  所有 JSON 都写在**数据目录**里（位置由 main/data-dir.js 决定：默认是程序
+//  旁边的 data\，不再是 C 盘的 %APPDATA%），整份重写，带 backup 兜底。
 //  落盘走「先写 .tmp 再 rename」的原子写：写入中途崩溃/断电时，
 //  主文件要么是旧的完整内容，要么是新的完整内容，不会出现写了一半的截断文件。
 // ============================================================================
 
-const { app, safeStorage } = require('electron');
+const { safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 
+const { dataDir } = require('./data-dir.js');
 const { normalizeCharacter } = require('./characters.js');
 const { createWorldbookNormalizer } = require('./worldbook-store.js');
 const { normalizePreset, MAX_PRESETS } = require('./presets.js');
 
-function userDataFile(name) {
-  return path.join(app.getPath('userData'), name);
+/**
+ * 数据目录里某个文件的全路径。
+ *
+ * ⚠️ 名字里以前叫 userDataFile —— 现在数据**未必**在 Electron 的 userData 里了
+ *    （见 main/data-dir.js），所以改名，免得下一个人照着名字去 %APPDATA% 找。
+ */
+function dataFile(name) {
+  return path.join(dataDir(), name);
 }
 
 let writeQueue = Promise.resolve();
@@ -41,6 +49,45 @@ const TRANSIENT_LOCK_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
 
 /** 第 n 次失败之后等多久（毫秒） */
 const RETRY_BACKOFF_MS = [30, 70, 150, 250];
+
+// ---------------------------------------------------------------------------
+//  ⚠️ 2026-10-08 更正：下面那一整段「瞬时文件锁 / 杀软」的叙事是**误诊**，
+//     别再照着它去查杀软了。当晚实测（同一台机器、同一个真实数据目录）：
+//
+//   · 用 node.exe 按「写 .tmp → rename」往 %APPDATA%\Mimitale 连打 300 次：
+//     **300/300 全过，最慢 5ms** —— 不存在什么几十毫秒的瞬时锁。
+//   · 真失败长这样，而且**每次**都失败、不是偶尔：
+//       EPERM: operation not permitted, open '...\characters.json.tmp'
+//     注意是 **open `.tmp`**：连新建文件都不让，不是 rename 撞锁。
+//   · 失败范围与杀软无关，只跟**可执行文件放在哪**有关（同一份二进制，只换位置）：
+//       C:\Program Files\nodejs\node.exe                     → 能写 %TEMP% / %APPDATA%
+//       %TEMP%\nametest-out\other.exe                        → 能写
+//       E:\工作\Mimitale\tools\...\other.exe                  → EPERM
+//       E:\工作\Mimitale\node_modules\electron\dist\electron.exe → EPERM
+//     用**计划任务**启动同样是 EPERM（不是从某个父进程继承来的限制）——
+//     也就是：**从项目目录里跑起来的进程被沙箱限制在这个目录内**，
+//     写 %APPDATA% 一律被拒。（E:\工作\Mimitale 上挂着沙箱的写权限项 S-1-4-*、
+//     Everyone 的 S,DC 拒绝项和 Low 完整性标签，正是这套沙箱留下的痕迹。）
+//
+//  结论：这是**权限判定**，不是时序窗口 —— 重试再久也救不回来，只会把「关闭卡」
+//  从 0 秒拖成两秒多。那句「文件可能被杀软临时占用或带了只读属性」两条都不成立。
+//  再遇到这个症状，先跑 probeDirWritable() 看进程能不能在数据目录里建出文件。
+// ---------------------------------------------------------------------------
+
+/**
+ * 关窗口那一次（immediate）用的短退避表。
+ *
+ * 为什么必须比上面那张短：这条路的写是**同步**的（sleepSync 就卡在主进程里），
+ * 关窗口时会连写四个文件（会话 / 角色 / 世界书 / 预设）。按 30·70·150·250 走，
+ * 一个文件失败要烧 500ms，实测四个文件加起来 **约 2.5 秒主进程完全卡死** ——
+ * 用户看到的就是「关闭软件的时候卡」。
+ *
+ * 而这条路本来就只有「尽力而为」的语义（窗口已经没了，失败也没人看得到提示），
+ * 拿两秒多的卡顿去赌一次瞬时锁并不划算：真·瞬时锁 60ms 内就放开了，
+ * 真被拒绝的（权限 / 沙箱）等两秒照样写不进去。用户点保存 / 删卡那几条**异步**路
+ * 仍然走完整的退避表，外加渲染层那次 1.2 秒的补试。
+ */
+const CLOSE_RETRY_BACKOFF_MS = [10, 30];
 
 /** 同步睡一会儿。Atomics.wait 在 Node 主线程可用，别写成忙等烧 CPU。 */
 function sleepSync(ms) {
@@ -77,7 +124,7 @@ function withRetry(fn, delays = RETRY_BACKOFF_MS) {
  * 直接 copyFileSync 覆盖 .backup，写到一半失败会留下半个 JSON —— 兜底就废了，
  * 而且下次 loadJsonWithFallback 真会读到它。
  */
-function tryBackup(file) {
+function tryBackup(file, delays) {
   const backup = file + '.backup';
   const tmp = backup + '.tmp';
   try {
@@ -85,7 +132,7 @@ function tryBackup(file) {
     withRetry(() => {
       fs.copyFileSync(file, tmp);
       fs.renameSync(tmp, backup);
-    });
+    }, delays);
   } catch (err) {
     console.warn(
       '[store] 备份失败（不影响本次写入）:',
@@ -115,23 +162,24 @@ function tryBackup(file) {
  *   最常见的触发条件不是「磁盘满」，而是安全软件锁住 userData 里的文件 ——
  *   main.js 开头记着的那种机器就是这个状态。
  */
-function writeJsonNow(file, data) {
+function writeJsonNow(file, data, delays) {
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true });
 
     // 写入前保留一份备份（失败不影响本次写入，见 tryBackup）
-    tryBackup(file);
+    tryBackup(file, delays);
 
     // 原子写：先写临时文件再 rename —— 写入中途崩溃/断电时，
     // 主文件要么是旧的完整内容，要么是新的完整内容，不会出现写了一半的截断文件。
     // （Node 的 rename 在 Windows 上也是替换语义，目标已存在也能盖。）
     // 整段重试：杀软/索引服务可能刚好在这一刻锁着文件（EPERM / EBUSY）。
+    // delays 只由「关窗口」那条同步路传 CLOSE_RETRY_BACKOFF_MS（见那段注释）。
     const tmpFile = file + '.tmp';
     const text = JSON.stringify(data, null, 2);
     withRetry(() => {
       fs.writeFileSync(tmpFile, text, 'utf8');
       fs.renameSync(tmpFile, file);
-    });
+    }, delays);
     return true;
   } catch (err) {
     console.error('[store] 写入失败:', file, err.message);
@@ -162,6 +210,9 @@ function writeJson(file, data) {
   );
   return result;
 }
+
+// 数据目录的挑选、能不能写（probeDirWritable）都在 main/data-dir.js ——
+// 那是「数据放哪」的问题，不归落盘逻辑管。
 
 function loadJsonWithFallback(file) {
   try {
@@ -228,7 +279,7 @@ function decryptApiKey(encrypted) {
 // ---------------------------------------------------------------------------
 
 function loadConversations() {
-  const data = loadJsonWithFallback(userDataFile('conversations.json'));
+  const data = loadJsonWithFallback(dataFile('conversations.json'));
   if (!data || !Array.isArray(data.conversations)) {
     return { conversations: [], activeId: null };
   }
@@ -274,12 +325,12 @@ function saveConversations(payload, options) {
       .slice(0, MAX_CONVERSATIONS);
   }
 
-  const file = userDataFile('conversations.json');
+  const file = dataFile('conversations.json');
   const data = { conversations: limited, activeId };
 
   // 关窗口时的最后一次保存必须立刻落盘，不能排队等微任务
   if (options && options.immediate) {
-    writeJsonNow(file, data);
+    writeJsonNow(file, data, CLOSE_RETRY_BACKOFF_MS);
     return Promise.resolve(data);
   }
   // ⚠️ 返回的是**写盘的 Promise**，不是 data —— 见 saveCharacters 上面那段长注释。
@@ -295,7 +346,7 @@ function saveConversations(payload, options) {
 // ---------------------------------------------------------------------------
 
 function charactersFile() {
-  return userDataFile('characters.json');
+  return dataFile('characters.json');
 }
 
 function loadCharacters() {
@@ -331,8 +382,8 @@ function saveCharacters(payload, options) {
     : null;
 
   if (opts.immediate) {
-    writeJsonNow(charactersFile(), data);
-    if (books) writeJsonNow(worldbooksFile(), books);
+    writeJsonNow(charactersFile(), data, CLOSE_RETRY_BACKOFF_MS);
+    if (books) writeJsonNow(worldbooksFile(), books, CLOSE_RETRY_BACKOFF_MS);
     return Promise.resolve(data);
   }
 
@@ -351,7 +402,7 @@ function saveCharacters(payload, options) {
 const MAX_WORLDBOOKS = 200;
 
 function worldbooksFile() {
-  return userDataFile('worldbooks.json');
+  return dataFile('worldbooks.json');
 }
 
 function newWorldbookId() {
@@ -384,7 +435,7 @@ function saveWorldbooks(payload, options) {
   const data = { worldbooks: list.slice(-MAX_WORLDBOOKS).map((w) => normalizeStoredWorldbook(w)) };
 
   if (opts.immediate) {
-    writeJsonNow(worldbooksFile(), data);
+    writeJsonNow(worldbooksFile(), data, CLOSE_RETRY_BACKOFF_MS);
     return Promise.resolve(data);
   }
   return writeJson(worldbooksFile(), data).then(() => data);
@@ -416,7 +467,7 @@ function worldbookEntriesByIds(ids) {
 // ---------------------------------------------------------------------------
 
 function presetsFile() {
-  return userDataFile('presets.json');
+  return dataFile('presets.json');
 }
 
 /** 给一个没有 id 的预设补 id（界面新建时不一定带） */
@@ -447,7 +498,7 @@ function savePresets(payload, options) {
   };
 
   if (opts.immediate) {
-    writeJsonNow(presetsFile(), data);
+    writeJsonNow(presetsFile(), data, CLOSE_RETRY_BACKOFF_MS);
     return Promise.resolve(data);
   }
   return writeJson(presetsFile(), data).then(() => data);
@@ -464,7 +515,7 @@ function savePresets(payload, options) {
 const VECTORS_VERSION = 1;
 
 function vectorsFile() {
-  return userDataFile('vectors.json');
+  return dataFile('vectors.json');
 }
 
 function loadVectors() {
@@ -484,7 +535,7 @@ function saveVectors(store) {
 }
 
 module.exports = {
-  userDataFile,
+  dataFile,
   writeJson,
   writeJsonNow,
   loadJsonWithFallback,

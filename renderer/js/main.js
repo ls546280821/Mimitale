@@ -261,6 +261,12 @@ function bindEvents() {
   // 以前这里 .catch(() => {}) 什么都吞，用户只看到 Windows 自己弹的那个框
   // （「Windows 无法访问指定设备、路径或文件」），既不知道哪一步失败，
   // 也拿不到路径。
+  //
+  // ⚠️ 2026-10-08 补的兜底：**ok:true 只代表 explorer.exe 起来了，不代表文件夹真弹出来了**。
+  //    （进程被沙箱/权限限制住时就是这样：explorer 继承同一个受限令牌，请求递不到
+  //     已经开着的资源管理器 —— 文件夹不开，而这边的返回值是"成功"。见 main/ipc.js。）
+  //    主进程查不出这件事，所以这里把**路径无条件塞进剪贴板**：真没弹出来的话，
+  //    用户按 Ctrl+L 往资源管理器地址栏一粘就进去了，不至于"点了没反应"。
   el.btnFolder.addEventListener('click', async () => {
     let result = null;
     try {
@@ -269,9 +275,24 @@ function bindEvents() {
       showToast(`打不开数据文件夹：${(err && err.message) || '未知错误'}`, 'error');
       return;
     }
+    const target = (result && result.path) || '';
+    if (target) {
+      // 剪贴板失败不该影响这条提示，所以单独吞掉
+      try {
+        await api.copyText(target);
+      } catch (err) {
+        console.warn('复制数据文件夹路径失败', err);
+      }
+    }
     if (result && result.ok === false) {
       console.error('打开数据文件夹失败', result.error);
-      showToast(`打不开数据文件夹：${result.path}`, 'error');
+      // 以前这里只弹路径，把主进程好不容易带回来的原因（result.error）丢掉了 ——
+      // 用户只看到「打不开数据文件夹：C:\...」，拿不到任何下一步。
+      showToast(`打不开数据文件夹：${result.error || result.path}`, 'error');
+      return;
+    }
+    if (target) {
+      showToast(`数据文件夹：${target}（路径已复制 —— 窗口没弹出来的话，在资源管理器地址栏 Ctrl+V 回车）`, 'ok');
     }
   });
 

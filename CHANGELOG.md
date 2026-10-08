@@ -4,6 +4,167 @@
 
 ---
 
+## 2026-10-08 数据从 C 盘搬进程序旁边：整个文件夹拷走，角色和会话就跟着走
+
+### 为什么改
+
+以前数据全在 `%APPDATA%\Mimitale`（C 盘）。对「把文件夹拷给别人用」这个场景不合适：
+数据散在系统盘、换机器就丢，用户也找不到自己的角色卡在哪。用户原话：
+「如果后面别的用户用的话，我也不希望将数据存在 C 盘」。
+
+### 现在的规则
+
+数据默认放**程序旁边的 `data\`**：
+
+```
+<Mimitale 文件夹>\data\
+├── config.json  conversations.json  characters.json
+├── worldbooks.json  presets.json  vectors.json
+└── （每个文件各自的 .backup）
+```
+
+- 打包后 = exe 同级的 `data\`；免安装（`electron .`）= `package.json` 所在目录下的 `data\`。
+- 解析顺序（`main/data-dir.js`，先命中先用）：
+  1. `app.getPath('userData')` 被**显式改过** → 用它
+     （测试的 `app.setPath`、命令行的 `--user-data-dir` 都算：调用方已经指定了位置）
+  2. 环境变量 `MIMITALE_DATA_DIR` → 用它（绿色版 / 放 D 盘 / U 盘）
+  3. 程序旁边的 `data\` → 默认
+  4. 兜底：`%APPDATA%\<应用名>` —— ③ 建不出来或写不进去时（装在 `C:\Program Files` 下、
+     只读介质、权限策略）自动退回来。**宁可数据回 C 盘，也不能让程序因为搬数据而起不来。**
+- **升级不会丢数据**：新位置一个数据文件都没有、而老位置有 → 自动**拷贝**过来
+  （只拷不删，`%APPDATA%` 那份留着当保险；新位置已有数据就不动，免得盖掉用户的改动）。
+- 只搬用户的数据文件。**Chromium 自己的 profile 不搬**（`Cache` / `GPUCache` /
+  `Local Storage` / `Preferences` / `Local State`…）：那些是缓存不是用户内容，
+  而且留在系统默认位置，程序装在只读目录里时 Chromium 照样起得来。
+- 每次启动在数据目录里放一份 **`使用说明.txt`**（人话解释每个 `.json` 是什么、
+  能不能删、怎么备份、怎么换位置）。**必须由程序生成**：`data/` 整个在 `.gitignore` 里，
+  靠人工放一个文件的话，别人 clone 代码后拿到的 `data\` 里什么都没有。
+  编码用 **UTF-8 带 BOM** + CRLF —— 记事本对不带 BOM 的 UTF-8 中文时好时坏
+  （这个项目在 `Start-Mimitale.ps1` 上已经踩过一次同类坑）。
+
+### 改了什么
+
+- **新增 `main/data-dir.js`**：数据目录的挑选、探测、搬家、兜底、生成说明，全在这一处。
+  并入了 `probeDirWritable()`（原来在 store.js）—— 「这个目录能不能写」跟「目录选哪个」
+  本来就是一件事；探测是**真建一个随机名文件再删掉**，因为 `existsSync` 只能证明**读**得通，
+  而这个症状的要点恰恰是「能读、能列、一个文件都建不出来」。
+  `dataDir()` 拆成 `resolveDataDir()`（只决定位置）+ `dataDir()`（缓存 + 放说明），
+  免得四个 return 分支各写一遍"别忘了生成说明"。
+  说明**不进 `DATA_FILES`**：它不是数据，不能影响"这个目录是不是空的"这个搬家判据
+  （否则一个只有说明的目录会被当成"已经有数据"，老用户永远搬不过来）。
+- `main/store.js`：`userDataFile()` → **`dataFile()`**（名字里的 userData 已经不准了，
+  免得下一个人照着名字去 `%APPDATA%` 找），底层换成 `dataDir()`。
+- `main/providers.js`（config.json）、`main/ipc.js`（dialog-state.json）：跟着改名。
+  `util:openPath` 打开的是**真正的**数据目录（不是 Chromium 的 profile 目录），
+  返回值里多带一个 `info`（数据在哪、为什么在那儿）。
+- `tools/diag-write-lock.js`：老工具硬编码盯着 `%APPDATA%\Mimitale`，数据搬走后会得出
+  「文件不存在」的假结论 —— 现在两个位置都报，并指出当前生效的是哪个。
+- `tools/smoke-test.js`：在 require 任何 `main/` 模块**之前**把数据目录指到临时目录，
+  兑现它开头那句「不会碰你的 userData」—— 否则它就会去动开发机真正的 `data\`。
+  （`MIMITALE_DATA_DIR` 优先级低于显式 `setPath`，所以文件里
+  `probeStoreWriteFailure` 自己那套临时目录照旧生效。）
+- `.gitignore`：加 `data/`（整个数据目录都不进版本库）。
+- README.md / 使用说明.md：数据位置改写，并把「写盘失败」那条排错指引
+  从已被证伪的「杀软瞬时锁 / 去改只读属性」换成实测结论。
+
+### 验证
+
+假 `electron` 模块 + 假「程序目录」，对**真实的** `main/data-dir.js` 和 `main/store.js`
+跑了 7 个场景 24 条断言，全过：
+
+| 场景 | 结果 |
+|---|---|
+| ① 默认 | 目录 = `<程序目录>\data`；store 真的写进去；C 盘那份没被写 |
+| ② 从 `%APPDATA%` 搬家 | 3 个文件（含 `.backup`）拷过来、**老文件保留**、读回来还是老角色 |
+| ③ 新位置已有数据 | 不覆盖，保留新位置那份 |
+| ④ `MIMITALE_DATA_DIR` | 生效，`info.source = env` |
+| ⑤ 显式 `setPath('userData')` | **压过环境变量**；冒烟测试那条「immediate 保存会抛」仍然成立 |
+| ⑥ 旁边目录建不出来（父级是文件） | 自动退回 `%APPDATA%`，`info.fallback = true`，兜底位置照样能写 |
+| ⑦ userData 与默认值不同（`--user-data-dir`） | 视为显式指定，`data\` 不会被建出来 |
+
+另：`main/data-dir.js` / `main/store.js` / `main/ipc.js` / `main/providers.js` /
+`tools/diag-write-lock.js` / `tools/smoke-test.js` 全部 `node --check` 通过；
+`node tools/check-imports.js` 无对不上的地方；`node tools/audit-buttons.js` 无新增未绑按钮。
+
+---
+
+## 2026-10-08 **更正**：写盘失败不是杀软瞬时锁，是「从项目目录里跑起来的进程被沙箱限制住了」
+
+### 为什么写这一条
+
+用户报的三件事 ——「删除不了角色卡（提示『没能写进磁盘，这次改动没有生效』）」「关闭软件卡」
+「数据文件夹打不开」—— 前面几条日志把它们都归到了两个原因上：**杀软的瞬时文件锁**，
+和 **ShellExecuteEx 被资源管理器「快速访问」拖住**。当天晚上把这两个都实测了一遍，
+**两个都不成立**，真正的原因完全在别处。这条更正的是**诊断**，免得下次再顺着错的方向查。
+
+### 实测证据（都在本机、都在真实的 `%APPDATA%\Mimitale` 上）
+
+| 试的东西 | 结果 |
+|---|---|
+| `node.exe` 按「写 `.tmp` → `rename`」连打 **300 次** | **300/300 成功，最慢 5ms** —— 没有瞬时锁 |
+| 真失败的样子 | `EPERM: operation not permitted, open '...\characters.json.tmp'` —— 注意是 **open `.tmp`**，连新建都不让；而且**每次都失败**，不是偶尔 |
+| `%TEMP%` / `%APPDATA%` 上的权限 | 正常继承的 ACL（SYSTEM / Administrators / 用户 全控制），**没有只读属性** |
+| 机器上的杀软 | 火绒 6.0.12.1（`sysdiag.sys` 过滤驱动 + `HipsDaemon` 在跑）；Defender 与 Security Center 都是停的，所以常规「有没有杀软」的查询全返回空 |
+| **决定性的那组对照**（同一份二进制、同一个脚本、同一个父进程，只换存放位置） | |
+| `C:\Program Files\nodejs\node.exe` | 能写 `%TEMP%` / `%APPDATA%` ✅ |
+| `%TEMP%\nametest-out\other.exe`（node.exe 的副本） | 能写 ✅ |
+| `E:\工作\Mimitale\tools\...\other.exe`（同一份副本） | `EPERM` ❌ |
+| `E:\工作\Mimitale\node_modules\electron\dist\electron.exe` | `EPERM` ❌ |
+
+**用计划任务启动（全新进程、脱离当前会话的进程树）结果一样是 `EPERM`** ——
+所以这不是从某个父进程继承来的限制，而是：**可执行文件位于 `E:\工作\Mimitale`
+（会话工作区）之下的进程，被沙箱限制在这个目录内**，写 `%APPDATA%` 一律被拒。
+`E:\工作\Mimitale` 上挂着沙箱的写权限项 `S-1-4-*`、`Everyone` 的 `S,DC` 拒绝项和
+Low 完整性标签，正是这套沙箱留下的痕迹（该沙箱组件 5.7.10 的目录时间是**当天 09:11**，
+而数据文件停在 9/30 —— 时间线也对得上「以前都没这些问题」）。
+
+### 所以三个症状的真身
+
+1. **删不掉角色卡 / 「没能写进磁盘」**：`characters.json.tmp` 建不出来 → `EPERM` → 保存作废 → 界面回滚。
+2. **关闭卡**：关窗口时是**同步**写，四个文件（会话 / 角色 / 世界书 / 预设）各按
+   `30·70·150·250` 退避，失败一个就烧 500ms，实测**主进程被钉住约 2.1 秒**。
+3. **数据文件夹打不开**：被限制住的进程照样能 `spawn` 出 `explorer.exe`（`'spawn'` 事件
+   照常触发），但那个 explorer 继承同一个受限令牌，请求递不到已经开着的资源管理器 ——
+   文件夹没打开，而接口返回的却是「成功」，界面连一句话都不说。
+
+### 改了什么
+
+- `main/store.js`
+  - **关窗口那条同步路用短退避** `CLOSE_RETRY_BACKOFF_MS = [10, 30]`：这条路本来就只有
+    「尽力而为」的语义（窗口都没了，失败也没人看得到提示），拿两秒多的卡顿去赌一次瞬时锁
+    不划算。用户点保存 / 删卡走的**异步**路完全不动，仍是完整退避 + 渲染层那次 1.2 秒补试。
+    ⚠️ 关键点：**权限判定不是时序窗口**，重试再久也救不回来，只会把「卡」拖长。
+  - 新增 `probeDirWritable(dir)`：真去建一个随机名空文件再删掉，直接回答「这个进程到底能不能
+    往数据目录里写字」。`existsSync` 只能证明**读**得通，而这个症状的要点恰恰是「能读、能列、
+    一个文件都建不出来」。
+  - 把上面那份实测证据写进注释，替换掉「杀软瞬时锁」的旧结论。
+- `main/ipc.js`：`util:openPath` 先探写权限 —— 「explorer 起来了」不等于「文件夹打开了」，
+  探不通就把原因（而不是光一个路径）带回去。
+- `renderer/js/main.js`：`openPath` 失败时把主进程带回来的**原因**弹出来（原来只弹路径，
+  原因被丢在 console 里）。
+- `renderer/js/data/persist.js`：写盘失败的提示**带上真实错误原文**，只对确凿的错误码给提示。
+  原来那句「文件可能被杀软临时占用或带了只读属性」两条都不成立，把人支去关杀软、改只读属性。
+
+### 环境侧怎么办（真正的解法）
+
+把整个 Mimitale 文件夹**复制到工作区外面**再启动（例如 `D:\Mimitale`），让它不在被沙箱
+限制的目录里；或者从会话沙箱之外的普通桌面环境启动。代码这侧只保证「失败时说实话 +
+不再卡」，**不会**去绕开沙箱。
+
+### 验证
+
+`node tools/check-imports.js` 无对不上的地方；`node tools/audit-buttons.js` 无新增未绑按钮；
+四个改动的 js 文件 `node --check` 全过。另用一个假 `electron` 模块加载**真实** `main/store.js`
+跑了 11 条断言（正常保存 / 删除 / 关窗口同步失败 / 异步退避 / 探针），全过：
+
+| 项 | 改动前 | 改动后 |
+|---|---|---|
+| 关窗口四个文件全写不进去时的阻塞 | 约 2100ms | **276ms** |
+| 异步保存失败（瞬时锁仍有机会被救） | 约 1100ms | 约 1100ms（不变） |
+| 正常保存 / 删除落盘 | 正确 | 正确 |
+
+---
+
 ## 2026-10-08 主题 / 明暗收进「外观」，编辑弹窗能放大到窗口，点「数据文件夹」不再弹系统错误框
 
 ### 为什么改

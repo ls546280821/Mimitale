@@ -28,8 +28,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { app } = require('electron');
 
-// userData 指到临时目录，必须在 store.js 读它之前设好（userDataFile 是运行时读的，
-// 但早点设没坏处）
+// 数据目录指到临时目录。⚠️ 必须在它被读之前设好：main/data-dir.js 的解析顺序里
+// 「userData 被显式改过」优先级最高，所以这一行就能让整个测试跑在临时目录里，
+// 而不是开发机真正的 data\（顺序表见 main/data-dir.js 顶部）。
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mimitale-store-lock-'));
 app.setPath('userData', tmpDir);
 

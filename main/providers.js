@@ -9,7 +9,7 @@
 // ============================================================================
 
 const {
-  userDataFile,
+  dataFile,
   loadJsonWithFallback,
   writeJson,
   encryptApiKey,
@@ -394,7 +394,7 @@ function endpointFor(settings, providerId, model) {
 }
 
 function loadSettings() {
-  const saved = loadJsonWithFallback(userDataFile('config.json')) || {};
+  const saved = loadJsonWithFallback(dataFile('config.json')) || {};
   const settings = normalizeSettings(saved);
 
   // 内存里永远保存明文 Key
@@ -430,7 +430,7 @@ function saveSettings(patch) {
     }))
   };
 
-  writeJson(userDataFile('config.json'), toSave);
+  writeJson(dataFile('config.json'), toSave);
   return merged; // 返回明文版本供界面使用
 }
 
