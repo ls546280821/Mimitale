@@ -76,6 +76,8 @@ const { pngWithTextChunk } = require('./png.js');
 const { encodeVector, decodeVector, rankBySimilarity, collectCandidates } = require('./vectors.js');
 // 「这一轮到底发出去了什么」—— 只存内存的环形缓冲，见 main/request-log.js
 const { recordRequest, listRequests, clearRequests, MAX_ENTRIES: MAX_LOGGED_REQUESTS } = require('./request-log.js');
+// 桌宠：通道注册在这里，实现都在 main/pet-*.js（窗口 / 数据 / 发言）
+const { registerPetIpc } = require('./pet-ipc.js');
 
 let activeController = null; // 用于「停止生成」
 
@@ -1106,6 +1108,11 @@ function registerIpc() {
     const error = await shell.openPath(dir);
     return error ? { ok: false, path: dir, info, error } : { ok: true, path: dir, info, writable: writable.ok };
   });
+
+  // 桌宠的通道单独一个模块（main/pet-ipc.js）：它是**一块独立的功能**，
+  // 有自己的窗口、自己的模型调用、自己的控制器，塞进来只会让这个文件更难读。
+  // 但它仍然是「在这里注册」，这条约定没变 —— 找 IPC 通道永远只有一个地方。
+  registerPetIpc();
 }
 
 module.exports = { registerIpc };

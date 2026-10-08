@@ -51,6 +51,8 @@ import { initMoreMenu } from './ui/menu.js';
 import { initModelMenu } from './ui/modelMenu.js';
 
 import { persistCharacters, persistLibrary, persistPresets, markWorldbooksLoaded, markPresetsLoaded } from './data/persist.js';
+import { refreshPetCache, speakNow } from './data/petContext.js';
+import { initPetSettings, openPetSection } from './views/petSettings.js';
 import { currentEndpoint, isBridgeProvider } from './data/providers.js';
 import { convoUserName, speakerName } from './data/cast.js';
 import { characters, worldbooks, dialoguePresets } from './data/library.js';
@@ -621,6 +623,31 @@ async function init() {
       renderMessages({ forceScroll: false });
     }
   });
+
+  // ---- 桌宠 ----
+  // 设置页里那一块。它上面的「现在说一句」和右键菜单里那一项走的是**同一条路**
+  //（组上下文 → 生成 → 推给宠物窗口），所以把入口层的 speakNow 注入进去，
+  // 而不是让视图自己去 import 数据层 —— 免得多出一份「谁知道怎么触发」。
+  initPetSettings({ speakNow });
+
+  // 主进程手里没有「现在聊到哪了」（会话、摘要、状态面板都在渲染层内存里），
+  // 所以右键菜单点「让桌宠现在说话」是**反着来**的：
+  // 主进程通知界面 → 界面组好上下文再发回去。
+  api.onPetWantSpeak((payload) => {
+    speakNow(payload && payload.reason === 'manual' ? 'manual' : 'auto');
+  });
+
+  // 右键菜单点「桌宠设置 / 查看记忆」→ 把主窗口叫到前面并打开设置
+  api.onPetOpenSettings((payload) => {
+    openSettings();
+    openPetSection((payload && payload.focus) || '').catch((err) =>
+      console.error('打开桌宠区块失败', err)
+    );
+  });
+
+  // 开局先拉一份桌宠状态：不拉的话第一轮「该说话了」会因为没缓存而被跳过。
+  // 失败也不影响任何事（桌宠是可选功能）。
+  refreshPetCache().catch(() => {});
 
   // ---- 启动数据：五份互不依赖，并行去取 ----
   // 以前是五个 await 排队，每次都要等上一个跨进程往返回来才发下一个；

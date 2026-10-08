@@ -894,6 +894,159 @@
             缓存键里带着模型名，不同模型的向量本来就不能比。
           </span>
         </section>
+
+        <!-- 桌宠：桌面上那个独立的小窗口。
+             它是**另一扇窗口**，不是这里的预览 —— 这里的控件负责改它的设置、
+             看它的记忆、试它的人格。改完即时生效（不用点保存），
+             因为宠物活在另一个进程里，等「保存」再同步会让右键菜单和这边对不上。 -->
+        <section class="panel-section" id="pet-section">
+          <div class="section-head">
+            <span class="section-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="7" cy="8" r="2.2" />
+                <circle cx="12" cy="6" r="2.2" />
+                <circle cx="17" cy="8" r="2.2" />
+                <path d="M12 10c-3.2 0-5.5 2.4-5.5 4.6 0 1.6 1.3 2.4 2.7 2.4 1 0 1.9-.5 2.8-.5s1.8.5 2.8.5c1.4 0 2.7-.8 2.7-2.4C17.5 12.4 15.2 10 12 10Z" />
+              </svg>
+            </span>
+            <div>
+              <div class="section-title">桌宠</div>
+              <div class="section-desc">
+                桌面上陪你聊天 / 玩世界书的小家伙。它有<b>自己的</b>发言、记忆和模型，不写进对话记录
+              </div>
+            </div>
+          </div>
+
+          <label class="check">
+            <input id="s-pet-enabled" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">开启桌宠</span>
+              <span class="check-desc">关掉之后宠物窗口消失、也不再主动发言；设置和记忆都留着</span>
+            </span>
+          </label>
+
+          <label class="check">
+            <input id="s-pet-speak-enabled" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">允许主动发言</span>
+              <span class="check-desc">
+                它自己会每隔几轮搭一句。<b>每次发言都会多调一次模型</b>，按每 3 轮算大约多花两三成 token
+              </span>
+            </span>
+          </label>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">每隔几轮说一次</span>
+              <input id="s-pet-every" type="number" min="1" max="50" step="1" />
+              <span class="field-help">按「角色回复了几次」算。调小 = 存在感强，调大 = 安静</span>
+            </label>
+            <label class="field">
+              <span class="field-label">每次说几句</span>
+              <input id="s-pet-lines" type="number" min="1" max="5" step="1" />
+              <span class="field-help">气泡里一句一行地冒出来，1~5 句</span>
+            </label>
+          </div>
+
+          <div class="persona-row">
+            <div class="persona-row-info">
+              <span class="field-label">它现在的状态</span>
+              <span class="field-help" id="s-pet-status">—</span>
+            </div>
+            <div class="pet-actions">
+              <button id="btn-pet-visible" class="btn btn-ghost btn-sm" type="button">隐藏桌宠</button>
+              <button id="btn-pet-mute" class="btn btn-ghost btn-sm" type="button">静音 1 小时</button>
+              <button id="btn-pet-speak" class="btn btn-ghost btn-sm" type="button">现在说一句</button>
+            </div>
+          </div>
+
+          <label class="check">
+            <input id="s-pet-use-main-model" type="checkbox" />
+            <span class="check-text">
+              <span class="check-title">使用主模型</span>
+              <span class="check-desc" id="s-pet-main-hint">—</span>
+            </span>
+          </label>
+
+          <label class="field" id="s-pet-model-field">
+            <span class="field-label">桌宠用的模型</span>
+            <select id="s-pet-model" aria-label="桌宠使用的模型"></select>
+            <span class="field-help">
+              宠物说的话很短，这里指一个<b>便宜</b>的模型最划算（也可以是本机那个酒馆桥接）。
+              万一它不可用，会自动回退到主模型，宠物不会因此变哑巴。
+            </span>
+          </label>
+
+          <div class="field-grid">
+            <label class="field">
+              <span class="field-label">桌宠温度</span>
+              <input id="s-pet-temp" type="number" min="0" max="2" step="0.1" placeholder="跟随全局" />
+              <span class="field-help">留空 = 用上面的全局温度。宠物要的是有个性，可以给高一点</span>
+            </label>
+            <label class="field">
+              <span class="field-label">长期记忆保留条数</span>
+              <input id="s-pet-memory-max" type="number" min="0" max="200" step="1" />
+              <span class="field-help">
+                超出上限时，最早的那些会被折进摘要（本地拼接，不再调模型）。0 = 不留长期记忆
+              </span>
+            </label>
+          </div>
+
+          <label class="field">
+            <span class="field-label">说话风格补充</span>
+            <input id="s-pet-style" type="text" spellcheck="false" placeholder="例如：多说点风凉话，别老夸我" aria-label="桌宠说话风格补充" />
+            <span class="field-help">会拼在人格后面一起发给它，用来临时调调语气，不用改人格正文</span>
+          </label>
+
+          <div class="field field-stack">
+            <div class="field-row">
+              <span class="field-label">人格设定</span>
+              <button id="btn-pet-persona-reset" class="btn btn-ghost btn-sm" type="button">还原成默认</button>
+            </div>
+            <textarea id="s-pet-persona" rows="7" spellcheck="false" aria-label="桌宠人格设定"></textarea>
+            <span class="field-help">
+              这就是桌宠的「角色卡」——它是什么性格、怎么说话、什么时候该闭嘴。
+              存在独立的 <code>data/pet/persona/</code> 里，改完可以直接分享给别人用。
+            </span>
+          </div>
+
+          <div class="field field-stack">
+            <div class="field-row">
+              <span class="field-label">形象</span>
+              <button id="btn-pet-skin-pick" class="btn btn-ghost btn-sm" type="button">从文件选一张…</button>
+            </div>
+            <div id="s-pet-skins" class="pet-skins"></div>
+            <span class="field-help">
+              内置形象在 <code>assets/pet/</code>（随软件分发，更新不会覆盖），
+              你自己换的在 <code>data/pet/skins/</code>。以后加帧动画 / Live2D 也走这里
+            </span>
+          </div>
+
+          <div class="field field-stack">
+            <div class="field-row">
+              <span class="field-label">预览</span>
+              <div class="pet-actions">
+                <button id="btn-pet-preview" class="btn btn-ghost btn-sm" type="button">生成一句</button>
+                <button id="btn-pet-say" class="btn btn-ghost btn-sm" type="button" disabled>让桌宠说出这句</button>
+              </div>
+            </div>
+            <div id="s-pet-preview" class="pet-preview">点「生成一句」看看它现在会怎么说 —— 用来试人格和温度，不用等轮数。预览不写记忆、也不写对话记录。</div>
+          </div>
+
+          <div class="field field-stack">
+            <div class="field-row">
+              <span class="field-label">记忆</span>
+              <div class="pet-actions">
+                <button id="btn-pet-memory-refresh" class="btn btn-ghost btn-sm" type="button">刷新</button>
+                <button id="btn-pet-memory-export" class="btn btn-ghost btn-sm" type="button">导出…</button>
+                <button id="btn-pet-memory-reset" class="btn btn-ghost btn-sm" type="button">重置</button>
+                <button id="btn-pet-memory-clear" class="btn btn-danger btn-sm" type="button">清空</button>
+              </div>
+            </div>
+            <div id="s-pet-memory" class="pet-memory"></div>
+            <span class="field-help" id="s-pet-memory-hint">—</span>
+          </div>
+        </section>
       </div>
 
       <footer class="modal-foot">
@@ -1716,12 +1869,13 @@
           <div class="appearance-row">
             <input id="appearance-boldcolor" type="color" value="#409eff" aria-label="选择加粗字颜色" />
             <input id="appearance-boldcolor-text" type="text" spellcheck="false"
-                   placeholder="留空 = 跟随主题。也可以自己填 #e06c75" aria-label="加粗字颜色（十六进制）" />
+                   placeholder="留空 = 跟随主题配色。也可以自己填 #e06c75" aria-label="加粗字颜色（十六进制）" />
             <button id="btn-boldcolor-reset" class="btn btn-ghost btn-sm" type="button">默认</button>
           </div>
           <span class="field-help">
-            回复里 <code>**加粗**</code> 的文字用这个颜色 —— 光加粗不够显眼时，给它上个色。<br />
-            <code>==高亮==</code> 有自己的样式，不受这里影响。
+            回复里 <code>**加粗**</code> 的是<b>角色说出口的台词</b>，默认用<b>主题配色</b>显示 ——
+            一眼分得清哪句是谁说的。想换别的颜色就在这里填（填了就覆盖，不再跟随配色）。<br />
+            <code>==高亮==</code> 有自己的样式（主题色 + 底色），不受这里影响。
           </span>
         </div>
 

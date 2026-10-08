@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <!-- 宠物窗口**自己带一份 CSP**。
+       主界面那份是 `default-src 'none'`，第三方脚本根本进不去主界面文档 ——
+       桌宠换成一个独立文档之后，这事就自然解决了：主界面的 CSP 一个字符都不用放宽。
+       img-src 必须带 data: —— 形象图是主进程读出来转成 data URL 传进来的
+       （它可能在 asar 里，也可能是用户换到数据目录里的图，两处都不在文档的相对路径上）。 -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;" />
+  <title>桌宠</title>
+  <link rel="stylesheet" href="pet.css" />
+</head>
+<body>
+  <!-- 整个 stage 铺满窗口。窗口是透明的，所以图片外面那圈本来就是「空」的 ——
+       真正需要对鼠标负责的只有 .hit 那几个元素（见 pet.js 的穿透判断）。 -->
+  <div id="stage" class="stage">
+    <!-- 气泡做成绝对定位盖在上面，而不是跟宠物流式竖排。
+         流式排的话，话一多就会把宠物往下挤、宠物当场「变小」——
+         那是这个功能最容易显得廉价的地方。 -->
+    <div id="bubble" class="bubble" hidden>
+      <div id="bubble-lines" class="bubble-lines"></div>
+    </div>
+
+    <!-- 没有 title 属性：这个 div 铺满整个窗口，挂 title 会让提示在
+         「宠物旁边的透明区域」也弹出来，看起来像 bug。 -->
+    <div id="sprite-wrap" class="sprite-wrap">
+      <img id="sprite" class="sprite" alt="" draggable="false" />
+      <div id="sprite-empty" class="sprite-empty" hidden>
+        <div class="sprite-empty-title">形象没加载出来</div>
+        <div class="sprite-empty-hint">右键 →「更换形象…」选一张图</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="pet.js"></script>
+</body>
+</html>

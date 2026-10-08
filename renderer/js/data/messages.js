@@ -19,9 +19,13 @@
 //  两者不会同时出现，免得两份设定打架（你扮演雷电将军，提示词却在说另一套人设）。
 //
 //  ⚠️ 默认对话按「跟 AI 模型聊天」处理，不是扮演酒馆里的角色：它只带人设、
-//  聊天记录和日期，**不带**扮演规则 / 世界书 / 玩家角色 / NPC 名单 /
-//  叙述模式 / 状态面板 / 剧情选项 / 表情标签。理由见 buildApiMessages 里的 plainChat。
+//  聊天记录和日期，**不带**扮演规则 / 主持规则 / 世界书 / 玩家角色 / NPC 名单 /
+//  状态面板 / 剧情选项 / 表情标签。理由见 buildApiMessages 里的 plainChat。
 //  唯一留着的是「预设」—— 那是用户自己挂在这一局上的指令，属于显式选择。
+//
+//  ⚠️ 2026-10-08：**叙述模式 + 推进节奏**从上面那份「不带」名单里拿出来了 ——
+//  它们属于「视角」，视角弹窗对普通聊天也开放，能选却不让生效就是 bug。
+//  扮演规则 / 主持规则（连带的【标重点】）仍然不带。
 // ============================================================================
 
 import { state } from '../core/state.js';
@@ -34,9 +38,11 @@ import {
 import { cleanAssistantText, convoFieldDisplayNames, formatPanelForPrompt, panelGroupNames, PANEL_PROMPT_REMINDER } from './panel.js';
 import { formatSummaryForPrompt, summarizedCount } from './memory.js';
 import {
+  EMPHASIS_REMINDER,
   gmRuleText,
   isGmMode,
   narrationInstruction,
+  paceInstruction,
   playerOwnershipReminder,
   roleplayRuleText
 } from './narration.js';
@@ -361,11 +367,18 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   const cast = plainChat ? '' : worldbookCast(convo);
   if (cast) parts.push(cast);
 
-  // 叙述模式：决定要不要写心理 / 旁白，以及用什么标记（标记对上渲染样式）
-  // 默认对话不带：它读默认档「标准」，而那一档明确要求「不要写成一份动作 + 台词的
-  // 对话记录」「不要把整段动作括在括号里」—— 那是给写小说的，不是给普通聊天的。
-  const narration = plainChat ? '' : narrationInstruction(convo);
+  // 叙述模式：决定要不要写心理 / 旁白，以及用什么标记（标记对上渲染样式）。
+  // ⚠️ 2026-10-08：**普通聊天也注入了**（以前整块挡掉）。原来挡住它的理由是
+  // 「标准档是给写小说的」，但视角弹窗对普通聊天照样开放、选完还会在标题旁
+  // 显示「上帝视角」这类标签 —— 能选、能存、有标签，却一个字不进提示词，
+  // 那才是 bug（用户报的「叙述模式好像有 bug」就是它）。现在选了就生效。
+  const narration = narrationInstruction(convo);
   if (narration) parts.push(narration);
+
+  // 推进节奏：扮演 / 主持规则里本来就带了一段（roleplayRuleText / gmRuleText），
+  // 但普通聊天那两段都不注入 —— 所以得在这里单独补，否则「推进节奏」这一档
+  // 在普通聊天里是死的（同上）。
+  if (plainChat) parts.push(paceInstruction(convo, false));
 
   if (settings.showDate !== false) {
     const today = new Date().toLocaleDateString('zh-CN', {
@@ -457,6 +470,14 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // 【主持规则】之后，离生成位置更近，会把模型拉回「主角也是 NPC、顺手替 TA 写了」。
   // 所以在这里再压一句 —— 但要让位给下面的状态表提醒，保持它是最后一条。
   if (gmMode) messages.push({ role: 'system', content: playerOwnershipReminder(me) });
+
+  // ---- 7c. 【标重点】的最后一声 ----
+  // 加粗规则在【扮演规则】/【主持规则】里，离生成位置太远，模型经常当没看见
+  // （2026-10-08：用户拿真实回复来报「台词没加粗」，整篇一个 ** 都没有）。
+  // 跟状态表一个套路，在最靠近生成位置的地方再点一次 —— 但仍然**让位给下面的
+  // 状态表提醒**（那一句必须是整批 system 的最后一条，见上面的注释）。
+  // 普通聊天没有扮演/主持规则，也就没有【标重点】，这里跟着一起跳过。
+  if (!plainChat) messages.push({ role: 'system', content: EMPHASIS_REMINDER });
 
   if (panelText) messages.push({ role: 'system', content: PANEL_PROMPT_REMINDER });
 

@@ -96,5 +96,43 @@ contextBridge.exposeInMainWorld('mimitale', {
   saveFile: (payload) => ipcRenderer.invoke('util:saveFile', payload),
   openDataFolder: (which) => ipcRenderer.invoke('util:openPath', which),
   // 用系统浏览器打开链接（只放行 http/https，判断在主进程）
-  openExternal: (url) => ipcRenderer.invoke('util:openExternal', url)
+  openExternal: (url) => ipcRenderer.invoke('util:openExternal', url),
+
+  // --- 桌宠 ---
+  // 桌宠是**另一扇窗口**里的事，这一组是主界面唯一能碰它的入口：
+  // 设置页读写配置 / 预览、以及把「该说话了」通知主进程。
+  // ⚠️ 注意宠物窗口用的是 preload-pet.js，那份**故意**比这份窄得多 ——
+  //    宠物页面拿不到这里的 getSettings（里面是明文 API Key）。
+  petGet: () => ipcRenderer.invoke('pet:get'),
+  petUpdate: (payload) => ipcRenderer.invoke('pet:update', payload),
+  petSpeak: (payload) => ipcRenderer.invoke('pet:speak', payload),
+  petSayNow: (payload) => ipcRenderer.invoke('pet:say-now', payload),
+  petStop: () => ipcRenderer.invoke('pet:stop'),
+  petPersonaGet: (payload) => ipcRenderer.invoke('pet:persona:get', payload),
+  petPersonaSave: (payload) => ipcRenderer.invoke('pet:persona:save', payload),
+  petMemoryGet: (payload) => ipcRenderer.invoke('pet:memory:get', payload),
+  petMemoryClear: (payload) => ipcRenderer.invoke('pet:memory:clear', payload),
+  petMemoryExport: (payload) => ipcRenderer.invoke('pet:memory:export', payload),
+  petSkinPick: (payload) => ipcRenderer.invoke('pet:skin:pick', payload),
+  petSkinSet: (payload) => ipcRenderer.invoke('pet:skin:set', payload),
+  petSetVisible: (payload) => ipcRenderer.invoke('pet:window:setVisible', payload),
+
+  // 配置在别处被改了（比如右键菜单里点了「暂停主动发言」）→ 设置页要跟着刷新
+  onPetChanged: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('pet:changed', listener);
+    return () => ipcRenderer.removeListener('pet:changed', listener);
+  },
+  // 右键菜单点了「让桌宠现在说话」→ 主进程没有上下文，让界面自己组好再发回去
+  onPetWantSpeak: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('pet:want-speak', listener);
+    return () => ipcRenderer.removeListener('pet:want-speak', listener);
+  },
+  // 右键菜单点了「桌宠设置 / 查看记忆」→ 主窗口跳到设置页的桌宠区块
+  onPetOpenSettings: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on('pet:open-settings', listener);
+    return () => ipcRenderer.removeListener('pet:open-settings', listener);
+  }
 });

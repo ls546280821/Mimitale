@@ -2322,7 +2322,32 @@ await scenario('外观：聊天区那几样', async () => {
 
   click('#btn-boldcolor-reset');
   await sleep(250);
-  check('复位后加粗颜色跟随正文', (await window.mimitale.getSettings()).settings.chatBoldColor === '');
+  check(
+    '复位后加粗颜色不再自定义（留空 = 跟随主题配色）',
+    (await window.mimitale.getSettings()).settings.chatBoldColor === ''
+  );
+
+  // 留空时加粗色应当等于**当前主题配色** —— 不是「跟随正文颜色」。
+  // 使用说明一直写着「留空就跟随主题配色」，而样式表以前回落到 inherit（正文色），
+  // 两边不一致（2026-10-08 修）。这里把「留空到底等于什么颜色」钉死。
+  const accentProbe = document.createElement('span');
+  accentProbe.style.color = 'var(--accent)';
+  document.body.appendChild(accentProbe);
+  const accentRgb = getComputedStyle(accentProbe).color;
+  const accentHex = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  accentProbe.remove();
+
+  const strongNow = $('#messages .bubble strong');
+  check(
+    '留空时加粗色 = 主题配色（不是正文色）',
+    !!strongNow && getComputedStyle(strongNow).color === accentRgb && accentRgb !== getComputedStyle($('#messages .bubble')).color,
+    `${strongNow ? getComputedStyle(strongNow).color : '没有 strong'} vs 主题色 ${accentRgb}`
+  );
+  check(
+    '没自定义时色盘显示的就是主题配色',
+    byId('appearance-boldcolor').value.toLowerCase() === accentHex.toLowerCase(),
+    `${byId('appearance-boldcolor').value} vs ${accentHex}`
+  );
 
   click('#btn-close-appearance');
   await waitFor('外观弹窗关闭', () => !shown('#appearance-modal'));
@@ -4491,6 +4516,90 @@ await scenario('流式：当前状态那段在显示前就砍掉', async () => {
 });
 
 // ---------------------------------------------------------------------------
+//  场景 22b：【心理】/【旁白】**单独占一行**也要认（渲染层）
+//
+//  模型最常见的写法是「标记单独一行、内容写在下一段」（它把标记当成小标题）：
+//
+//      【心理】
+//      苏晴：这人原来有学长带。
+//
+//  而 ui/markdown.js 原来只认同行写法（`【心理】内容`），于是标记行匹配上
+//  「标记 + 空内容」→ 渲染出一个**空的** `<p class="msg-inner">`，真正的内容
+//  成了普通段落。用户看到的就是「选了内心描写 / 上帝视角，心理旁白一点样式都没有」
+//  —— 也就是他报的「叙述模式依旧无效」（2026-10-08，拿真实回复来报的）。
+//
+//  下面那两段原文就是从用户 data/conversations.json 里抄出来的真实形状。
+// ---------------------------------------------------------------------------
+await scenario('叙述：心理/旁白标记单独一行也要认', async () => {
+  let md = null;
+  try {
+    md = await import(new URL('js/ui/markdown.js', document.baseURI).href);
+  } catch (err) {
+    check('markdown 模块能动态加载', false, (err && err.message) || String(err));
+  }
+  if (!md || typeof md.renderMarkdown !== 'function') return;
+
+  // --- 1) 真实形状：标记单独一行，内容在下一段（中间没有空行）---
+  const separate = [
+    '苏晴把钥匙翻过来看了眼标签，又翻回去。',
+    '',
+    '【心理】',
+    '苏晴：这人原来有学长带。那也好，箱子的事有人管了。',
+    '',
+    '【旁白】',
+    '图书馆门口正对着一条下坡路，通向东边的宿舍区。'
+  ].join('\n');
+  const html = md.renderMarkdown(separate);
+
+  check(
+    '标记单独一行：心理那段被包进 msg-inner，且**有内容**',
+    /<p class="msg-inner">苏晴：这人原来有学长带/.test(html),
+    html.slice(html.indexOf('msg-inner') - 20, html.indexOf('msg-inner') + 80)
+  );
+  check(
+    '标记单独一行：旁白那段被包进 msg-aside，且有内容',
+    /<p class="msg-aside">图书馆门口正对着一条下坡路/.test(html),
+    html.slice(html.indexOf('msg-aside') - 20, html.indexOf('msg-aside') + 80)
+  );
+  check(
+    '不能再出现空的 msg-inner / msg-aside 块',
+    !/class="msg-(inner|aside)"><\/p>/.test(html),
+    html.match(/class="msg-(inner|aside)">[^<]{0,20}/g)
+  );
+  check(
+    '标记本身不显示出来',
+    !html.includes('【心理】') && !html.includes('【旁白】'),
+    html
+  );
+
+  // --- 2) 标记和内容之间隔了空行，同样要认 ---
+  const spaced = ['【心理】', '', '', '她在心里叹了口气。'].join('\n');
+  const spacedHtml = md.renderMarkdown(spaced);
+  check(
+    '标记与内容之间有空行也认',
+    /<p class="msg-inner">她在心里叹了口气。<\/p>/.test(spacedHtml),
+    spacedHtml
+  );
+
+  // --- 3) 同行写法（老形状）不能被这次改动弄坏 ---
+  const inline = md.renderMarkdown('【心理】其实她很想留下。\n\n【旁白】雨还在下。');
+  check(
+    '同行写法照旧（【心理】内容）',
+    /<p class="msg-inner">其实她很想留下。<\/p>/.test(inline) &&
+      /<p class="msg-aside">雨还在下。<\/p>/.test(inline),
+    inline
+  );
+
+  // --- 4) 模型忘了写内容（标记吊在整篇末尾）：不能留一个空块占位置 ---
+  const empty = md.renderMarkdown('正文一段。\n\n【心理】');
+  check(
+    '标记吊在末尾、后面没内容 → 不留空块',
+    !/class="msg-(inner|aside)"/.test(empty) && empty.includes('正文一段'),
+    empty
+  );
+});
+
+// ---------------------------------------------------------------------------
 //  场景 23：正文剥分组小标题（—— 身份 —— / —— 状态栏 ——）
 //
 //  模型照着注入的格式输出状态栏时，会把「—— 组名 ——」小标题也一起抄进正文。
@@ -6338,6 +6447,37 @@ await scenario('规则段：段落之间不粘连', async () => {
     '标准叙述模式有约束，且不含占位符',
     standard.trim().length > 0 && !/\{[a-zA-Z]+\}/.test(standard),
     JSON.stringify(standard)
+  );
+
+  // 【标重点】的定位：加粗 = **角色说出口的台词**（2026-10-08 改的）。
+  // 加粗色默认跟随主题配色，台词上色才认得出谁在说话；这条规则要是退回
+  // 「关键信息用加粗」，那个颜色就白设了。
+  const soloRule = mod.roleplayRuleText('测试角色', '测试玩家', { paceMode: 'step' });
+  check(
+    '【标重点】要求把「说出口的台词」加粗',
+    soloRule.includes('说出口的台词') && soloRule.includes('加粗'),
+    JSON.stringify(soloRule.slice(soloRule.indexOf('【标重点】'), soloRule.indexOf('【标重点】') + 90))
+  );
+  check(
+    '【标重点】明确说「动作/神态/环境/心理不加粗」',
+    soloRule.includes('不加粗'),
+    JSON.stringify(soloRule.slice(soloRule.indexOf('【标重点】'), soloRule.indexOf('【标重点】') + 200))
+  );
+  // 只写「一律用加粗」模型不会照做（2026-10-08 实测：真实回复里一个 ** 都没有）——
+  // 规则里必须带正反例，跟「称呼铁律」一个套路。这条钉住例子别被删掉。
+  check(
+    '【标重点】带 ✔/✗ 正反例（光说「要加粗」模型不照做）',
+    soloRule.includes('✔') && soloRule.includes('✗'),
+    JSON.stringify(soloRule.slice(soloRule.indexOf('【标重点】'), soloRule.indexOf('【标重点】') + 260))
+  );
+
+  // 普通聊天用的节奏段（paceInstruction）：它是**单独可注入**的，
+  // 否则「推进节奏」在没绑卡的会话里就是个死设置。
+  const plainPace = mod.paceInstruction({ paceMode: 'brisk' }, false);
+  check(
+    'paceInstruction 能单独给出节奏段（普通聊天靠它）',
+    plainPace.includes('【推进节奏】') && plainPace.includes('多推进一些情节') && !/\{[a-zA-Z]+\}/.test(plainPace),
+    JSON.stringify(plainPace.slice(0, 80))
   );
 });
 

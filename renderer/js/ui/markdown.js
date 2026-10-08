@@ -17,6 +17,41 @@ export function esc(text) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * 「【心理】」「【旁白】」这两个标记**单独占一行**、内容写在下一段 —— 这是模型
+ * 最常见的写法（它把标记当成小标题）。这里先把它折成同行写法（`【心理】内容`），
+ * 后面的块级判断就只用管一种形状。
+ *
+ * 为什么必须折：只认同行写法时，标记单独一行会匹配上「标记 + 空内容」，
+ * 于是渲染出一个**空块**，而真正的内容成了普通段落 —— 用户看到的就是
+ * 「选了内心描写 / 上帝视角，心理和旁白却一点样式都没有」（2026-10-08 报的）。
+ *
+ * 顺手处理两个边界：标记后面什么都没有（模型忘了写）→ 整行丢掉，不留空块；
+ * 下一个又是标记 → 前面那个空标记丢掉。
+ */
+const SOLO_MARKER_RE = /^【(心理|内心|心声|旁白|上帝视角|全知)】$/;
+
+function joinSoloMarkers(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+    if (!SOLO_MARKER_RE.test(trimmed)) {
+      out.push(lines[i]);
+      continue;
+    }
+
+    // 往后找第一行非空行当内容（中间的空行一起吞掉，免得又推出一个空块）
+    let j = i + 1;
+    while (j < lines.length && !lines[j].trim()) j += 1;
+    if (j >= lines.length) continue; // 标记后面没有内容 → 丢掉这行
+    if (SOLO_MARKER_RE.test(lines[j].trim())) continue; // 紧跟着又是一个标记 → 丢掉这个空的
+
+    out.push(`${trimmed}${lines[j].trim()}`);
+    i = j; // 内容行已经并进来了，别再走一遍
+  }
+  return out;
+}
+
 export function renderInline(text) {
   let out = text;
 
@@ -91,7 +126,8 @@ export function renderMarkdown(source, options) {
   });
 
   // 2. 逐行处理块级元素
-  const lines = esc(withoutFences).split('\n');
+  // joinSoloMarkers：先把「【心理】单独一行」折成同行写法（见上面那段注释）
+  const lines = joinSoloMarkers(esc(withoutFences).split('\n'));
   const out = [];
   let listType = null;
 

@@ -98,26 +98,39 @@ function fillPresetList(convo) {
       h('span', { class: 'preset-pick-gone', text: `有 ${goneIds.length} 条已删除或停用的预设被跳过` })
     );
   }
+}
 
-  // 一动手就转成「手动配过」：读现有勾选状态写回会话
-  const commit = () => {
-    const ids = Array.from(el.pPresetList.querySelectorAll('.preset-pick-box'))
-      .filter((box) => box.checked)
-      .map((box) => box.getAttribute('data-preset-id'));
-    // 保留那些「已删/已停用」的 id —— 它们是用户当初的选择，
-    // 万一预设只是临时停用，重新启用时还能回来
-    const merged = [...ids, ...goneIds];
-    writePresetSelection(convo, merged);
-    // 状态说明跟着刷新（但不要重铺整个列表，否则点击时 DOM 被换掉、勾选会闪）
-    const stateNote = el.pPresetList.querySelector('.preset-pick-state');
-    if (stateNote) {
-      stateNote.classList.add('is-manual');
-      stateNote.textContent = ids.length
-        ? '这一场单独配置（不受全局预设影响）'
-        : '这一场单独配置：一条都不用';
-    }
-  };
-  el.pPresetList.addEventListener('change', commit);
+/**
+ * 一动手就转成「手动配过」：读现有勾选状态写回会话。
+ *
+ * ⚠️ 这个监听器**只在 initPerspectiveUi 里绑一次**（事件委托挂在容器上）。
+ * 以前它写在 fillPresetList 里 —— 那个函数每开一次弹窗都跑一遍，于是监听器
+ * 一次叠一个：开过 N 次之后点一下勾选会连着存 N 次盘（commit 每次都读一遍 DOM，
+ * 结果没错，但白写 N 次磁盘）。容器本身不会被 clear() 删掉，所以它会一直攒着。
+ */
+function commitPresetChoice() {
+  const convo = activeConvo();
+  if (!convo) return;
+
+  const boxes = Array.from(el.pPresetList.querySelectorAll('.preset-pick-box'));
+  const ids = boxes.filter((box) => box.checked).map((box) => box.getAttribute('data-preset-id'));
+
+  // 保留那些「已删/已停用」的 id —— 它们是用户当初的选择，
+  // 万一预设只是临时停用，重新启用时还能回来
+  const alive = new Set(selectableDialoguePresets().map((p) => p.id));
+  const kept = convoDialoguePresetIds(convo) || [];
+  const goneIds = kept.filter((id) => !alive.has(id));
+
+  writePresetSelection(convo, [...ids, ...goneIds]);
+
+  // 状态说明跟着刷新（但不要重铺整个列表，否则点击时 DOM 被换掉、勾选会闪）
+  const stateNote = el.pPresetList.querySelector('.preset-pick-state');
+  if (stateNote) {
+    stateNote.classList.add('is-manual');
+    stateNote.textContent = ids.length
+      ? '这一场单独配置（不受全局预设影响）'
+      : '这一场单独配置：一条都不用';
+  }
 }
 
 /** 把勾选结果写回会话并落盘 */
@@ -179,6 +192,7 @@ export function initPerspectiveUi() {
   el.pNarration.addEventListener('change', applyPerspectiveFromForm);
   el.pPace.addEventListener('change', applyPerspectiveFromForm);
   el.pGm.addEventListener('change', applyPerspectiveFromForm);
-  // 预设列表的勾选自己管落盘（见 fillPresetList 的 commit），不走这里
+  // 预设列表的勾选自己管落盘 —— 只在这里绑一次（见 commitPresetChoice 上的注释）
+  el.pPresetList.addEventListener('change', commitPresetChoice);
 }
 

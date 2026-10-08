@@ -38,6 +38,7 @@ import { streamPainter } from './stream.js';
 import { attachGeneratedImage } from './chatImages.js';
 import { renderAll } from './redraw.js';
 import { maybeSummarize } from './summarize.js';
+import { maybePetAutoSpeak } from '../data/petContext.js';
 
 function setStreaming(on) {
   state.streaming = on;
@@ -668,6 +669,21 @@ async function requestCompletion(convo, options) {
     // 攒够未压缩的对话就后台压一段摘要。
     // 放在最后、不 await：压缩要额外调一次模型，不该让你等它。
     maybeSummarize(convo).catch((err) => console.error('后台摘要失败', err));
+
+    // 桌宠：这一轮角色回复完了，问它要不要插一句。
+    //
+    // 判断条件看着绕，其实就两条：
+    //   · `convo.messages.includes(assistant)` —— 这条回复**还在**会话里。
+    //     出错/被停止那两条路会把它 splice 掉（见上面 catch），宠物不该对一条
+    //     已经不存在的回复发表意见。用这个判断就不用去改 try 的结构加标志位。
+    //   · 正文非空 —— 空回复没什么好点评的。
+    //
+    // 同样不 await：宠物说话是**额外一次模型调用**，绝不能让你等它。
+    // 该不该说话（轮数够不够 / 静音 / 暂停）全在 maybePetAutoSpeak 里判，
+    // 这里不做任何拦截 —— 那些规则只有一处，改的时候不会漏。
+    if (convo.messages.includes(assistant) && String(assistant.content || '').trim()) {
+      maybePetAutoSpeak().catch((err) => console.error('桌宠自动发言失败', err));
+    }
   }
 }
 

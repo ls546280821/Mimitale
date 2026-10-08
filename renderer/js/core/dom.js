@@ -341,5 +341,40 @@ export const el = {
     btnClose: $('btn-close-wb-char-picker'),
     btnCancel: $('btn-cancel-wb-char-picker'),
     btnConfirm: $('btn-confirm-wb-char-picker')
+  },
+  // 桌宠（设置弹窗里的一个区块）
+  //
+  // ⚠️ 桌宠的**展示**在另一个窗口里，这里只有它留在设置页上的那些控件。
+  //    两边的同步靠主进程推 `pet:changed`（右键菜单改了配置，这边要跟着变）。
+  pet: {
+    section: $('pet-section'),
+    enabled: $('s-pet-enabled'),
+    speakEnabled: $('s-pet-speak-enabled'),
+    every: $('s-pet-every'),
+    lines: $('s-pet-lines'),
+    status: $('s-pet-status'),
+    btnSpeak: $('btn-pet-speak'),
+    btnMute: $('btn-pet-mute'),
+    btnVisible: $('btn-pet-visible'),
+    useMainModel: $('s-pet-use-main-model'),
+    mainHint: $('s-pet-main-hint'),
+    modelField: $('s-pet-model-field'),
+    model: $('s-pet-model'),
+    temp: $('s-pet-temp'),
+    memoryMax: $('s-pet-memory-max'),
+    style: $('s-pet-style'),
+    persona: $('s-pet-persona'),
+    btnPersonaReset: $('btn-pet-persona-reset'),
+    skins: $('s-pet-skins'),
+    btnSkinPick: $('btn-pet-skin-pick'),
+    preview: $('s-pet-preview'),
+    btnPreview: $('btn-pet-preview'),
+    btnSay: $('btn-pet-say'),
+    memory: $('s-pet-memory'),
+    memoryHint: $('s-pet-memory-hint'),
+    btnMemoryRefresh: $('btn-pet-memory-refresh'),
+    btnMemoryExport: $('btn-pet-memory-export'),
+    btnMemoryReset: $('btn-pet-memory-reset'),
+    btnMemoryClear: $('btn-pet-memory-clear')
   }
 };

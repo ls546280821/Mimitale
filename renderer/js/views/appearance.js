@@ -23,8 +23,25 @@ import { setAccent, setTheme } from '../ui/theme.js';
 const CHAT_FONT_MIN = 12;
 const CHAT_FONT_MAX = 22;
 const CHAT_FONT_DEFAULT = 14;
-// 没设自定义颜色时，色盘控件显示的主题色（只是给色盘一个初始值，不是生效值）
+// 读不到主题色时给色盘一个兜底值（正常情况走 currentAccentHex()）
 const BOLD_COLOR_FALLBACK = '#409eff';
+
+/**
+ * 当前主题配色的实际色值（给色盘当初始值）。
+ *
+ * 「加粗」默认是跟随主题配色的（见 style.css 的 `--chat-bold-color` 回落到 `--accent`）——
+ * 所以没自己设过颜色时，色盘该显示的是**这一套配色现在的主色**，
+ * 而不是一个写死的蓝（以前写死 #409eff，和任何一套配色都对不上，看着像已设过一个奇怪的颜色）。
+ * 换主题 / 换明暗后这个值会变，调用方负责重刷（见 initAppearance 里的配色与明暗点击）。
+ */
+function currentAccentHex() {
+  try {
+    const raw = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+    return /^#[0-9a-fA-F]{6}$/.test(raw) ? raw.toLowerCase() : BOLD_COLOR_FALLBACK;
+  } catch (err) {
+    return BOLD_COLOR_FALLBACK;
+  }
+}
 
 /** 把当前设置里的外观写到 CSS 变量上（值空就删掉变量，退回样式表里的默认） */
 export function applyChatAppearance() {
@@ -66,7 +83,7 @@ function renderAppearanceForm() {
   syncRangeFill();
 
   el.appearanceBoldColorText.value = s.chatBoldColor || '';
-  el.appearanceBoldColor.value = s.chatBoldColor || BOLD_COLOR_FALLBACK;
+  el.appearanceBoldColor.value = s.chatBoldColor || currentAccentHex();
 
   const bg = s.chatBackground || '';
   el.appearanceBgPreview.innerHTML = '';
@@ -189,13 +206,19 @@ export function initAppearance() {
   if (el.appearanceAccents) {
     el.appearanceAccents.addEventListener('click', (event) => {
       const btn = event.target.closest('[data-accent]');
-      if (btn) setAccent(btn.dataset.accent);
+      if (!btn) return;
+      setAccent(btn.dataset.accent);
+      // 换配色后色盘要跟着走 —— 没自定义过加粗色时它显示的就是主题色
+      renderAppearanceForm();
     });
   }
   if (el.appearanceModes) {
     el.appearanceModes.addEventListener('click', (event) => {
       const btn = event.target.closest('[data-mode]');
-      if (btn) setTheme(btn.dataset.mode);
+      if (!btn) return;
+      setTheme(btn.dataset.mode);
+      // 明暗也一样：暗色下的主色是另一组值
+      renderAppearanceForm();
     });
   }
 

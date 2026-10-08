@@ -12,7 +12,12 @@ out/
 # 程序旁边的数据目录（2026-10-08 起数据默认放这儿，见 main/data-dir.js）。
 # 角色卡 / 会话 / 世界书 / 预设 / 配置 / 向量缓存都是个人内容，一律不进版本库。
 # ⚠️ Chromium 的缓存不在这里（仍在 %APPDATA%），所以这里只有上面那几个 json。
-data/
+# 必须带**前导斜杠**锚定到仓库根：原来写的是 `data/`（不带斜杠），它会匹配
+# **任意层级**叫 data 的目录，把 `renderer/js/data/` 一起罩住了 —— 那里的文件
+# 早就被跟踪着，所以「改」还能提交，但**往里新加一个文件会静默漏掉**
+# （2026-10-08 踩到：`renderer/js/data/petContext.js` git 完全看不见，
+# 真提交上去就是「别人拉下来跑不起来」）。加斜杠只罩仓库根那个。
+/data/
 
 # 老位置（%APPDATA%\Mimitale）留下的数据文件，万一有人拷进项目目录也只挡一层
 config.json
@@ -51,3 +56,10 @@ tools/run-smoke.cmd
 tools/run-smoke.ps1
 tools/messages-utf8.txt
 tools/check-imports.cmd
+
+# 桌宠形象图的中间产物：都是 tools/pet/make-default-skin.py 生成出来的，
+# 需要时重跑即可，没必要进版本库（原图留档在 assets/pet/default/source/）
+tools/pet/crop-for-matte.png
+tools/pet/preview-checker.png
+tools/pet/pet-window.png
+tools/pet/pet-window-checker.png

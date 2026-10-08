@@ -1031,12 +1031,13 @@ body {
 .bubble a { color: var(--accent); }
 
 /* 重点的两档样式。
-   一档加粗：关键信息、数值，扫一眼能停住。颜色可以在「对话窗口」里单独设
-   （光加粗有时候还是不够跳），没设就跟随正文颜色。
+   一档加粗：**角色说出口的台词**（见 data/narration.js 的【标重点】规则）。
+   默认跟随**主题配色**（--accent）—— 台词用主色显示，一屏里谁在说话一眼分得清；
+   想换别的颜色就在「外观」里自己填（填了就覆盖，不再跟随配色）。
    二档高亮：真正不能错过的（危险、转折、重要线索），加粗 + 主题色 + 一点底色。 */
 .bubble strong {
   font-weight: 700;
-  color: var(--chat-bold-color, inherit);
+  color: var(--chat-bold-color, var(--accent));
 }
 
 .bubble .msg-em {
@@ -5505,3 +5506,143 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   color: var(--text-faint);
 }
 .help-doc .help-credit p { margin: 0 0 6px; }
+
+/* ==========================================================================
+   桌宠（设置弹窗里的「桌宠」区块）
+   --------------------------------------------------------------------------
+   注意这一块和普通设置项的区别：它改的是**另一个窗口**里的东西
+   （宠物是独立 BrowserWindow），所以这里的控件是即时生效的，
+   不走「点保存才落盘」。理由见 views/petSettings.js 开头。
+
+   宠物本体自己的样式在 renderer/pet/pet.css —— 那是另一份文档，两份别混。
+   ========================================================================== */
+
+.pet-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 配置读不出来（比如刚删了文件）时的兜底外观：别让一个空区块看着像坏了 */
+.pet-missing .field,
+.pet-missing .field-grid,
+.pet-missing .check {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* 形象列表：一排小方块，当前那个描一圈强调色 */
+.pet-skins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.pet-skin {
+  width: 76px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pet-skin:hover { border-color: var(--border-hover); }
+
+.pet-skin.active {
+  border-color: var(--accent-border);
+  box-shadow: var(--focus-ring);
+}
+
+/* 形象是带透明通道的图，给它一个浅色棋盘底才看得出边界 */
+.pet-skin img {
+  width: 100%;
+  height: 56px;
+  object-fit: contain;
+  background: var(--bg-input);
+  border-radius: 8px;
+}
+
+.pet-skin-name {
+  max-width: 100%;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 预览框：多行文本 + 保留换行（宠物是一句一行地说的，挤成一坨就看不出句数） */
+.pet-preview {
+  margin-top: 8px;
+  padding: 10px 12px;
+  min-height: 58px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-dim);
+}
+
+.pet-preview.is-error {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+/* 记忆列表 */
+.pet-memory {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pet-memory-digest {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--pre-bg);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+
+.pet-memory-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--border-hover);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+}
+
+/* 左边那道小竖线按记忆种类上色：一眼分清哪些是它说过的话、哪些是它记下的事 */
+.pet-memory-item.kind-say { border-left-color: var(--accent-border); }
+.pet-memory-item.kind-event { border-left-color: var(--ok-border); }
+.pet-memory-item.kind-user { border-left-color: var(--border-hover); }
+
+.pet-memory-meta {
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.pet-memory-text {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--text);
+  word-break: break-word;
+}

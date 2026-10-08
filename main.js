@@ -18,6 +18,7 @@ const { app, BrowserWindow } = require('electron');
 
 const { createWindow, getMainWindow } = require('./main/window.js');
 const { registerIpc } = require('./main/ipc.js');
+const { startPet, shutdownPet } = require('./main/pet-ipc.js');
 
 // ---------------------------------------------------------------------------
 //  主进程兜底：别把 JS 异常弹成系统对话框
@@ -122,11 +123,22 @@ if (yieldToOther) {
 
   // 正常退出 / before-quit 两条路都挂上：Windows 上 app.quit() 触发 before-quit，
   // 而 'quit' 在部分异常退出路径里不一定到得了，所以以 before-quit 为准。
-  app.on('before-quit', clearInstanceMarker);
+  app.on('before-quit', () => {
+    // 桌宠的位置先同步落盘，再清标记 —— 关窗口那次写盘可能来不及排队
+    try {
+      shutdownPet();
+    } catch (err) {
+      console.error('[pet] 退出收尾失败:', err.message);
+    }
+    clearInstanceMarker();
+  });
 
   app.whenReady().then(() => {
     registerIpc();
     createWindow();
+    // 桌宠必须在主窗口建好之后才起：注册 IPC 时起的话，
+    // 桌面上会先冒出一只宠物、过一会儿主界面才出来
+    startPet();
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

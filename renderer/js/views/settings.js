@@ -28,6 +28,8 @@ import { state } from '../core/state.js';
 import { activeConvo, asArray } from '../core/util.js';
 import { el } from '../core/dom.js';
 import { h, clear } from '../ui/build.js';
+// 桌宠区块（它自己不依赖本模块，单向 import，不成环）
+import { openPetSection } from './petSettings.js';
 import { showToast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { providers, providerById, isBridgeProvider } from '../data/providers.js';
@@ -727,6 +729,10 @@ export function openSettings() {
   el.btnAddProvider.setAttribute('aria-expanded', 'false');
 
   el.modal.classList.remove('hidden');
+
+  // 桌宠区块要现拉一次状态（它改的是另一个窗口里的东西，不能拿旧快照画）。
+  // 不 await：设置弹窗不该等一个 IPC 往返才出现，区块自己会随后填上。
+  openPetSection().catch((err) => console.error('桌宠区块加载失败', err));
 
   const current = providerById(editingProviderId);
   if (current && current.apiKey) {

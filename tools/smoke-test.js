@@ -695,6 +695,108 @@ function registerStubs() {
     return { canceled: false, filePath: 'C:\\fake\\' + ((payload && payload.fileName) || 'export') };
   });
 
+  // --- 桌宠 ---
+  //
+  // 桌宠的「展示」在另一个窗口里（真实环境是独立 BrowserWindow），假后端起不了
+  // 那个窗口，所以这里只桩**渲染层真的会调的**那几个通道：
+  //   设置页打开 → pet:get（不桩它就是 19 条「No handler registered」控制台报错）
+  //   改设置    → pet:update
+  //   预览      → pet:speak（返回几句固定的，验「预览不写记忆」这类行为）
+  //
+  // ⚠️ 真主进程里 `pet:speak` 走的是**独立通道和独立 controller**，绝不是 chat:send
+  //    （复用会 abort 掉正在流的角色回复）。这里也照这个形状桩，免得假后端
+  //    给出一个真环境里不存在的假象。
+  const petStore = {
+    enabled: true,
+    activeId: 'pet1',
+    pets: [
+      {
+        id: 'pet1',
+        name: '蓝自',
+        look: { kind: 'png', source: 'assets', skin: 'default', file: 'smoke-pet.png' },
+        visible: true,
+        scale: 1,
+        bounds: null,
+        speakEnabled: true,
+        speakEveryTurns: 3,
+        speakLines: 3,
+        mutedUntil: 0,
+        useMainModel: true,
+        providerId: '',
+        model: '',
+        temperature: null,
+        style: '',
+        memoryMaxItems: 30,
+        createdAt: Date.now()
+      }
+    ]
+  };
+  const petMemory = [];
+  const petSpeaks = [];
+  let petPersona = '你是「蓝自」，一只住在人家桌面上的蓝白猫娘。';
+
+  const petPayload = () => ({
+    config: { enabled: petStore.enabled, activeId: petStore.activeId },
+    pet: { ...petStore.pets[0], image: TINY_PNG },
+    models: [
+      { providerId: 'p1', providerName: 'DeepSeek', model: 'deepseek-chat', label: 'DeepSeek · deepseek-chat' },
+      { providerId: 'p1', providerName: 'DeepSeek', model: 'deepseek-reasoner', label: 'DeepSeek · deepseek-reasoner' }
+    ],
+    memoryCount: petMemory.length,
+    memoryDigest: '',
+    persona: petPersona,
+    skins: [{ source: 'assets', skin: 'default', file: 'smoke-pet.png', label: '内置 · smoke-pet.png' }],
+    mainProviderName: 'DeepSeek',
+    mainModel: 'test-model'
+  });
+
+  ipcMain.handle('pet:get', () => petPayload());
+  ipcMain.handle('pet:update', (_event, payload) => {
+    remember('pet:update');
+    const data = payload || {};
+    const patch = data.patch && typeof data.patch === 'object' ? data.patch : {};
+    if (data.petId) Object.assign(petStore.pets[0], patch);
+    else Object.assign(petStore, patch);
+    return petPayload();
+  });
+  ipcMain.handle('pet:speak', (_event, payload) => {
+    remember('pet:speak');
+    const reason = (payload && payload.reason) || 'auto';
+    petSpeaks.push({ reason, context: clone((payload && payload.context) || {}) });
+    const lines = ['这也太甜了吧。', '*尾巴摇起来* 我磕了。', '你倒是主动点啊。'];
+    // 预览不写记忆 —— 跟真主进程一个口径
+    if (reason !== 'preview') {
+      petMemory.push({ id: `m${petMemory.length + 1}`, at: Date.now(), kind: 'say', text: lines.join('\n'), convoTitle: '冒烟会话' });
+      if (reason === 'manual') {
+        petMemory.push({ id: `m${petMemory.length + 1}`, at: Date.now(), kind: 'event', text: '用户想让宠物多说两句', convoTitle: '冒烟会话' });
+      }
+    }
+    return { ok: true, lines, text: lines.join('\n'), memory: reason === 'auto' ? '记一笔' : '', providerName: 'DeepSeek', model: 'test-model' };
+  });
+  ipcMain.handle('pet:say-now', () => ({ ok: true }));
+  ipcMain.handle('pet:stop', () => true);
+  ipcMain.handle('pet:persona:get', () => ({ persona: petPersona }));
+  ipcMain.handle('pet:persona:save', (_event, payload) => {
+    const text = String((payload && payload.text) || '');
+    // 空 = 还原成默认（和真主进程一致：写空文件会让宠物变成没有性格的文字生成器）
+    petPersona = text.trim() ? text : '你是「蓝自」，一只住在人家桌面上的蓝白猫娘。';
+    return { ok: true, persona: petPersona, reset: !text.trim() };
+  });
+  ipcMain.handle('pet:memory:get', () => ({ items: petMemory.slice().reverse(), digest: '' }));
+  ipcMain.handle('pet:memory:clear', (_event, payload) => {
+    if (!(payload && payload.keepDigest)) petMemory.length = 0;
+    else petMemory.length = 0;
+    return { ok: true };
+  });
+  ipcMain.handle('pet:memory:export', () => ({
+    ok: true,
+    text: JSON.stringify({ 说明: '冒烟', 长期记忆: petMemory }, null, 2),
+    fileName: '桌宠记忆-蓝自.json'
+  }));
+  ipcMain.handle('pet:skin:pick', () => ({ ok: true, look: { kind: 'png', source: 'user', skin: 'user', file: 'x.png' } }));
+  ipcMain.handle('pet:skin:set', () => ({ ok: true }));
+  ipcMain.handle('pet:window:setVisible', () => ({ ok: true, visible: true }));
+
   // --- 聊天：假装模型回了一句话，并且真的走一遍流式通道 ---
   ipcMain.handle('chat:stop', () => true);
   // 「请求记录」：读/清都走真模块（main/request-log.js），只是没真的发网络请求
@@ -1348,6 +1450,22 @@ function probeInjection(result) {
     name: '属性：状态表的末尾提醒是最后一条 system',
     pass: reminderLast,
     detail: reminderLast ? '' : '最后一条 system 不是那句提醒'
+  });
+
+  // 【标重点】的最后一声（EMPHASIS_REMINDER）要排在状态表提醒**之前** ——
+  // 它是在最靠近生成位置的地方再点一次「台词要加粗」（那条规则排在扮演/主持规则里，
+  // 离得太远，模型经常当没看见）。但状态表那句必须仍是最后一条，别被它挤下去。
+  const emphasisBeforePanel = chatPayloads.some((msgs) => {
+    const sys = msgs.filter((m) => m && m.role === 'system');
+    if (sys.length < 2) return false;
+    const last = String(sys[sys.length - 1].content || '');
+    const prev = String(sys[sys.length - 2].content || '');
+    return last.startsWith('（提醒：这一次回复的最后') && prev.includes('【最后提醒】');
+  });
+  result.results.push({
+    name: '标重点：【最后提醒】排在状态表提醒之前、且没把它挤下最后一位',
+    pass: emphasisBeforePanel,
+    detail: emphasisBeforePanel ? '' : `共 ${chatPayloads.length} 次请求都没找到这个组合`
   });
 
   // 模型整轮没写状态表时的补问：请求的最后一条 user 必须就是那句补问语。
@@ -2851,17 +2969,35 @@ function probeAssistantPersona(result) {
     plain ? '' : '默认对话里混进了扮演/主持规则 —— 那会和用户自己写的人设打架'
   );
 
-  // 「不是酒馆会话」不止扮演规则那一条。世界 NPC 名单 / 玩家角色 / 叙述模式这三段
+  // 「不是酒馆会话」不止扮演规则那一条。世界 NPC 名单 / 玩家角色这两段
   // 是 buildApiMessages **自己从 convo 里读**的（不像世界书那样由参数传进来），
   // 所以最容易被漏掉：漏了不报错，只是悄悄混进提示词。这里一起守着。
-  // （叙述模式默认就是「标准」档、文案非空，只要没挡就必定出现。）
-  const TAVERN_MARKS = ['【扮演规则】', '【主持规则】', '【叙述要求】', '【这个世界的人】', '【玩家角色'];
+  //
+  // ⚠️ 2026-10-08：【叙述要求】从这份名单里**拿掉了** —— 它和「推进节奏」一起
+  // 改成普通聊天也注入（视角弹窗对普通聊天照样开放，能选却不生效才是 bug）。
+  // 所以现在反过来是「必须有」的两段，见下面那两条。
+  const TAVERN_MARKS = ['【扮演规则】', '【主持规则】', '【这个世界的人】', '【玩家角色'];
   const leaked = hit.length ? TAVERN_MARKS.filter((mark) => hit.some((b) => b.includes(mark))) : [];
   push(
-    '默认对话：叙述模式 / 玩家角色 / NPC 名单也没混进来',
+    '默认对话：扮演/主持规则、玩家角色、NPC 名单没混进来',
     hit.length > 0 && leaked.length === 0,
     leaked.length ? `混进了：${leaked.join('、')}` : `翻了 ${blobs.length} 次请求都没找到那段人设`
   );
+
+  // 视角（叙述模式 / 推进节奏）在普通聊天里也要进提示词 —— 以前整块被挡掉，
+  // 而视角弹窗照样让用户选、标题旁还会显示「上帝视角」这类标签。
+  if (hit.length) {
+    push(
+      '默认对话：叙述模式（【叙述要求】）照样注入',
+      hit.every((b) => b.includes('【叙述要求】')),
+      hit.map((b) => b.includes('【叙述要求】')).join(', ')
+    );
+    push(
+      '默认对话：推进节奏（【推进节奏】）照样注入',
+      hit.every((b) => b.includes('【推进节奏】')),
+      hit.map((b) => b.includes('【推进节奏】')).join(', ')
+    );
+  }
 }
 
 /**
@@ -3319,6 +3455,21 @@ app.whenReady().then(async () => {
         settings: `
           document.querySelector('#btn-settings')?.click();
           await new Promise(r => setTimeout(r, 700));`,
+        // 桌宠区块（设置弹窗最下面那一段）：形象小图一排、预览框、记忆列表 ——
+        // 全是排版密集的地方，「挤成一行」「按钮换行」这类问题 DOM 断言看不出来，
+        // 只能靠图。顺手点一次「生成一句」，让预览框里真的有内容（空框看不出高矮）。
+        petSettings: `
+          document.querySelector('#btn-settings')?.click();
+          await new Promise(r => setTimeout(r, 900));
+          document.querySelector('#btn-pet-preview')?.click();
+          await new Promise(r => setTimeout(r, 1000));
+          document.querySelector('#btn-pet-memory-refresh')?.click();
+          await new Promise(r => setTimeout(r, 500));
+          const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
+          // 滚到「记忆」那一块：这样形象小图、预览框、记忆列表三样能同框看见
+          //（区块的开关和数字在上面一屏，那张图用不到）
+          document.querySelector('#s-pet-memory')?.scrollIntoView({ block: 'center' });
+          await new Promise(r => setTimeout(r, 300));`,
         // 外观弹窗：主题配色 + 明暗 + 聊天区那几样都在里面，
         // 布局（色点会不会换行、分段按钮会不会被 grid 拉满）得靠图看
         appearance: `
