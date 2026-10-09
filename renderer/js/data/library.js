@@ -167,10 +167,8 @@ export function recursiveDepthSetting() {
 /**
  * 把书里的「角色副本」转成能导出的形状。
  *
- * 副本是完整角色对象，直接塞出去会带上一堆内部字段（worldbookIds / optionsSpec /
- * 时间戳…），而且**头像和立绘是 base64**，几十个副本能把文件撑到几十兆 ——
- * 导入那边本来也是从零归一化一遍，所以这里只留「设定」那几项。
- * 图片仍然是原样带上（副本的头像就是它的一部分），但只在确实存在时才写键。
+ * 导出设定、属性及已有图片，省去绑定 id、时间戳等运行字段；
+ * 导入时重新生成独立副本，图片只在确实存在时写入。
  */
 function worldbookCharacterPayload(character) {
   const c = character && typeof character === 'object' ? character : {};
@@ -217,7 +215,7 @@ export function worldbookPayload(book) {
       content: entry.content || '',
       constant: entry.constant === true,
       selective: Array.isArray(entry.secondaryKeys) && entry.secondaryKeys.length > 0,
-      selectiveLogic: entry.selectiveLogic || 'AND_ANY',
+      selectiveLogic: { AND_ANY: 0, NOT_ALL: 1, NOT_ANY: 2, AND_ALL: 3 }[entry.selectiveLogic] ?? 0,
       order: Number.isFinite(entry.order) ? entry.order : 100,
       probability: Number.isFinite(entry.probability) ? entry.probability : 100,
       disable: entry.enabled === false,
@@ -235,4 +233,36 @@ export function worldbookPayload(book) {
   const cast = asArray(book.characters);
   if (cast.length) payload.characters = cast.map(worldbookCharacterPayload);
   return payload;
+}
+
+/** v2 角色卡内嵌书使用数组条目；与独立 ST 世界书的对象条目格式分开。 */
+export function characterBookPayload(book) {
+  const lorebook = worldbookPayload(book);
+  const { opening, characters: cast } = lorebook;
+  return {
+    name: lorebook.name,
+    description: lorebook.description,
+    extensions: { mimitale: { ...(opening ? { opening } : {}), ...(cast ? { characters: cast } : {}) } },
+    entries: Object.values(lorebook.entries).map((entry) => ({
+      id: entry.uid,
+      comment: entry.comment,
+      keys: entry.key,
+      secondary_keys: entry.keysecondary,
+      content: entry.content,
+      enabled: !entry.disable,
+      insertion_order: entry.order,
+      constant: entry.constant,
+      selective: entry.selective,
+      case_sensitive: entry.caseSensitive,
+      position: 'after_char',
+      extensions: {
+        selectiveLogic: entry.selectiveLogic,
+        probability: entry.probability,
+        useProbability: true,
+        match_whole_words: entry.matchWholeWords,
+        case_sensitive: entry.caseSensitive,
+        mimitale: { recursive: entry.recursive }
+      }
+    }))
+  };
 }

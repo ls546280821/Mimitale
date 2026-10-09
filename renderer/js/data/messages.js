@@ -18,14 +18,8 @@
 //  没绑卡（默认对话）→ 用设置里的「默认人设」（可编辑，见 main/providers.js）。
 //  两者不会同时出现，免得两份设定打架（你扮演雷电将军，提示词却在说另一套人设）。
 //
-//  ⚠️ 默认对话按「跟 AI 模型聊天」处理，不是扮演酒馆里的角色：它只带人设、
-//  聊天记录和日期，**不带**扮演规则 / 主持规则 / 世界书 / 玩家角色 / NPC 名单 /
-//  状态面板 / 剧情选项 / 表情标签。理由见 buildApiMessages 里的 plainChat。
-//  唯一留着的是「预设」—— 那是用户自己挂在这一局上的指令，属于显式选择。
-//
-//  ⚠️ 2026-10-08：**叙述模式 + 推进节奏**从上面那份「不带」名单里拿出来了 ——
-//  它们属于「视角」，视角弹窗对普通聊天也开放，能选却不让生效就是 bug。
-//  扮演规则 / 主持规则（连带的【标重点】）仍然不带。
+//  默认聊天只带人设、历史、摘要、日期和用户选定的预设及视角设置；
+//  扮演 / GM 规则、世界书、玩家角色、面板、剧情选项和表情仅用于角色或世界模式。
 // ============================================================================
 
 import { state } from '../core/state.js';
@@ -36,7 +30,7 @@ import {
   WORLDBOOK_SCAN_DEPTH
 } from './library.js';
 import { cleanAssistantText, convoFieldDisplayNames, formatPanelForPrompt, panelGroupNames, PANEL_PROMPT_REMINDER } from './panel.js';
-import { formatSummaryForPrompt, summarizedCount } from './memory.js';
+import { convoContextMessages, formatSummaryForPrompt, summarizedCount } from './memory.js';
 import {
   EMPHASIS_REMINDER,
   gmRuleText,
@@ -261,43 +255,11 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // 人设是自己写的、自足的，多叠一层规则只会跟它打架。
   const plainChat = !character && !gmMode;
 
-  // 注意：调用时对话末尾通常刚 push 了一条空的 assistant 占位消息（用来填空），
-  // 必须把它过滤掉，否则会发给接口一条 content 为空的消息，严格的接口会直接报 400。
-  //
-  // 这里的过滤条件必须和 memory.js 的 convoContextMessages() **一字不差** ——
-  // 摘要覆盖点（covered）是在那个数组上数出来的下标，却拿来 slice 这个数组，
-  // 只要两边差一条，起点就整体偏一位（见下面 ⚠️ 第 1 条）。
-  // 以前这儿多留了「只带图不打字」的用户消息（`|| messageImages(m).length`），
-  // 两个数组因此不等长；而那个「发图」入口 2026-10-08 已经去掉，所以现在：
-  // 老存档里遗留的这种消息**直接滤掉** —— 图反正也发不出去了，
-  // 留着只会变成一条 content 为空的消息，把严格的接口打成 400。
-  const history = convo.messages.filter(
-    (m) => (m.role === 'user' || m.role === 'assistant') && String(m.content || '').trim()
-  );
+  // 摘要覆盖点按同一份有效历史计数；空占位和无正文消息不发给模型。
+  const history = convoContextMessages(convo);
 
-  // 带几轮进请求由设置决定（设置 → 行为 → 对话轮数）。
-  // 以前写死在 core/config.js 的 CONFIG.MAX_TURNS 里 —— 但它是用户能明显感觉到的项
-  // （记性好坏），藏在代码里等于不给改。兜底 20 和 DEFAULT_SETTINGS.maxTurns 一致。
   const turns = Math.max(1, Number(settings.maxTurns) || 20);
-  // 从摘要覆盖点开始取「最近 N 轮」。
-  // 如果还按 slice(-turns*2) 取，会出现「摘要写到第 30 条，原文只发第 70 条起」的断层 ——
-  // 中间那段模型两边都看不到。从覆盖点往后、按轮数取，上下文才是连续的。
-  //
-  // ⚠️ 两个坑，都踩过：
-  //  1. covered 是在 convoContextMessages()（memory.js）上数出来的下标，而这里 slice 的是
-  //     上面那个 history。这两个数组以前过滤条件不一样（history 多留「只带图不打字」的
-  //     用户消息），不等长时下标就整体偏一位。现在两边条件已经对齐成同一句话
-  //     （见上面那段注释），**改动任何一个都记得改另一个**。
-  //  2. 更狠的一种：摘要还在、消息已经没了。摘要覆盖点是**按当时的消息条数**记下来的，
-  //     而消息随时可能变少 ——「清空对话」只清 messages、不碰 summaries（convoActions），
-  //     删消息 / 重新生成也一样。这时 covered 会远大于 history.length，
-  //     slice 回来是空数组：整轮请求只剩摘要 + 人设，**用户刚打的那句话都不会发出去**，
-  //     模型照着一份过期摘要自说自话，表现得像完全没看见你说了什么。
-  //
-  //     所以不能只做 Math.min(covered, history.length) ——那刚好把最后几条也切掉。
-  //     只要「摘要覆盖点已经够不着这段历史了」（covered >= history.length），
-  //     就当摘要没覆盖到原文，老老实实发最近 N 轮。宁可多带一点，
-  //     也绝不能把用户当下说的话漏掉。
+  // 摘要覆盖点失效时退回最近 N 轮，确保当前用户消息仍进入请求。
   const summarized = summarizedCount(convo);
   const covered = summarized >= history.length ? 0 : summarized;
   const uncovered = covered > 0 ? history.slice(covered) : history;
@@ -397,7 +359,7 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // 比对话历史靠后又容易被忽略，这里是比较稳的位置。
   // 默认对话不带：那是「这个世界有哪些设定」的补充，属于扮演那一套。
   if (!plainChat && String(worldbookSection || '').trim()) {
-    messages.push({ role: 'system', content: String(worldbookSection).trim() });
+    messages.push({ role: 'system', content: applyMacros(worldbookSection, character, me, charName || (gmMode ? '叙述者' : '')).trim() });
   }
 
   // ---- 2.2 语义检索捞回来的往事 / 设定 ----

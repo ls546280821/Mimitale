@@ -76,7 +76,11 @@ function keywordHit(haystack, rawKeyword, entry) {
 
   // 关键词写成 /re/flags 就当正则处理，和酒馆一致
   const asRegex = parseRegexKeyword(keyword);
-  if (asRegex) return asRegex.test(haystack);
+  if (asRegex) {
+    // g / y 正则的 test 会推进 lastIndex；缓存复用时每次都从文本起点匹配。
+    asRegex.lastIndex = 0;
+    return asRegex.test(haystack);
+  }
 
   const text = entry && entry.caseSensitive ? haystack : haystack.toLowerCase();
   const needle = entry && entry.caseSensitive ? keyword : keyword.toLowerCase();
@@ -111,21 +115,19 @@ function entryMatches(entry, haystack) {
 
   // 附加过滤词（secondary keys）
   if (entry.secondaryKeys.length) {
-    const any = anyKeywordHit(haystack, entry.secondaryKeys, entry);
-    const all = allKeywordsHit(haystack, entry.secondaryKeys, entry);
     switch (entry.selectiveLogic) {
       case 'AND_ALL':
-        if (!all) return false;
+        if (!allKeywordsHit(haystack, entry.secondaryKeys, entry)) return false;
         break;
       case 'NOT_ANY':
-        if (any) return false;
+        if (anyKeywordHit(haystack, entry.secondaryKeys, entry)) return false;
         break;
       case 'NOT_ALL':
-        if (all) return false;
+        if (allKeywordsHit(haystack, entry.secondaryKeys, entry)) return false;
         break;
       case 'AND_ANY':
       default:
-        if (!any) return false;
+        if (!anyKeywordHit(haystack, entry.secondaryKeys, entry)) return false;
         break;
     }
   }
@@ -152,8 +154,10 @@ function matchWorldbookEntries(entries, scanText, options) {
   const opts = options || {};
   const chainLimit = Math.max(0, Math.min(5, Math.floor(Number(opts.recursiveDepth) || 0)));
 
-  const matched = []; // { entry, round }
+  const hits = [];
   const seen = new Set();
+  let rounds = 0;
+  let recursiveCount = 0;
   let text = String(scanText == null ? '' : scanText);
 
   for (let round = 0; round <= chainLimit; round += 1) {
@@ -164,9 +168,11 @@ function matchWorldbookEntries(entries, scanText, options) {
     }
     if (!fresh.length) break;
 
+    rounds = round + 1;
+    if (round > 0) recursiveCount += fresh.length;
     for (const entry of fresh) {
       seen.add(entry.id);
-      matched.push({ entry, round });
+      hits.push(entry);
     }
 
     // 下一轮的扫描文本 = 原来的 + 这一轮里勾了递归的条目正文
@@ -179,17 +185,12 @@ function matchWorldbookEntries(entries, scanText, options) {
     text = `${text}\n${carried.join('\n')}`;
   }
 
-  const hits = matched.map((m) => m.entry);
   hits.sort((a, b) => {
     if (a.order !== b.order) return a.order - b.order;
     return String(a.title).localeCompare(String(b.title));
   });
 
-  return {
-    hits,
-    rounds: matched.length ? Math.max(...matched.map((m) => m.round)) + 1 : 0,
-    recursiveCount: matched.filter((m) => m.round > 0).length
-  };
+  return { hits, rounds, recursiveCount };
 }
 
 /** 命中条目拼成注入块 */

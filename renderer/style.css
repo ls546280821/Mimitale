@@ -1224,7 +1224,14 @@ body {
   line-height: 1.55;
 }
 
-.bubble table { border-collapse: collapse; margin: 8px 0; font-size: 0.93em; /* 13px */ }
+.bubble table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 0.93em;
+}
 .bubble th, .bubble td { border: 1px solid var(--border); padding: 4px 10px; }
 .bubble th { background: var(--th-bg); }
 
@@ -1237,7 +1244,10 @@ body {
   transition: opacity 0.15s;
 }
 
-.msg:hover .msg-actions { opacity: 1; }
+.msg:hover .msg-actions,
+.msg:focus-within .msg-actions { opacity: 1; }
+
+.mini-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .mini-btn {
   border: 1px solid var(--border);
@@ -5197,8 +5207,9 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 .lightbox-hint { font-size: 11px; color: var(--text-faint); }
 
 @media (prefers-reduced-motion: reduce) {
-  .modal, .modal-card { animation: none; }
-  .btn, .icon-btn, .check, .check-title,
+  .modal, .modal-card, .brand-dot, .waiting::after,
+  .msg-option-skeleton, .msg.illustrating .bubble { animation: none; }
+  .btn, .icon-btn, .mini-btn, .modal-card, .check, .check-title,
   input, textarea, select,
   .check > input[type="checkbox"],
   .check > input[type="checkbox"]::after { transition: none; }

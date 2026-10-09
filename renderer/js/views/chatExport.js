@@ -19,7 +19,7 @@ import {
   characterForConvo,
   convoWorldbookIds,
   worldbookById,
-  worldbookPayload
+  characterBookPayload
 } from '../data/library.js';
 import { convoPanel, convoPanelFields, panelFieldName, panelKeyParts, panelOwnerLabel } from '../data/panel.js';
 import { convoPlayer, userName, speakerName } from '../data/cast.js';
@@ -65,7 +65,7 @@ function characterCardPayload(character) {
       post_history_instructions: character.postHistoryInstructions || '',
       tags: Array.isArray(character.tags) ? character.tags : [],
       alternate_greetings: [],
-      character_book: boundBook ? worldbookPayload(boundBook) : null,
+      ...(boundBook ? { character_book: characterBookPayload(boundBook) } : {}),
       creator: '',
       character_version: '',
       extensions: {

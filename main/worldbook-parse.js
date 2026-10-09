@@ -32,6 +32,8 @@ const MAX_WORLDBOOK_OPENING = 4000;
 /** 把一条 entry 的不同写法（ST 的 key/keys、constant、order…）统一成内部格式 */
 function normalizeWorldbookEntry(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
+  const ext = r.extensions && typeof r.extensions === 'object' ? r.extensions : {};
+  const own = ext.mimitale && typeof ext.mimitale === 'object' ? ext.mimitale : {};
   const str = (value, max) => (typeof value === 'string' ? value.slice(0, max) : '');
   const bool = (value, fallback) => (typeof value === 'boolean' ? value : fallback);
 
@@ -45,20 +47,23 @@ function normalizeWorldbookEntry(raw) {
   };
 
   const keys = pickKeys(r.keys, r.key);
-  const secondaryKeys = pickKeys(r.secondary_keys, r.keysecondary);
+  const secondaryKeys = pickKeys(r.secondaryKeys, r.secondary_keys ?? r.keysecondary);
   const content = str(r.content, MAX_WORLDBOOK_CONTENT);
   // 内容为空、又没有任何关键词的条目没有任何作用，直接丢掉
   if (!content.trim() && !keys.length) return null;
 
-  const logic = String(r.selectiveLogic || r.selective_logic || '').toUpperCase();
-  const selectiveLogic = ['AND_ANY', 'AND_ALL', 'NOT_ANY', 'NOT_ALL'].includes(logic) ? logic : 'AND_ANY';
+  // ST 数值枚举顺序与编辑器选项顺序不同；内部仍保存可读名称。
+  const logicNames = ['AND_ANY', 'NOT_ALL', 'NOT_ANY', 'AND_ALL'];
+  const logic = String(r.selectiveLogic ?? r.selective_logic ?? ext.selectiveLogic ?? 'AND_ANY').toUpperCase();
+  const selectiveLogic = logicNames.includes(logic) ? logic : logicNames[logic] || 'AND_ANY';
 
-  let probability = Number(r.probability);
-  if (!isFinite(probability)) probability = 100;
+  const useProbability = r.useProbability ?? ext.useProbability;
+  let probability = useProbability === false ? 100 : Number(r.probability ?? ext.probability);
+  if (!Number.isFinite(probability)) probability = 100;
   probability = Math.max(0, Math.min(100, probability));
 
-  let order = Number(r.order);
-  if (!isFinite(order)) order = 100;
+  let order = Number(r.order ?? r.insertion_order);
+  if (!Number.isFinite(order)) order = 100;
 
   // 酒馆新版本用 enabled，老版本/部分导出工具用 disable（true = 停用）。
   // 两个都认，否则导入老世界书时停用的条目会全部复活。
@@ -77,11 +82,10 @@ function normalizeWorldbookEntry(raw) {
     constant: r.constant === true || r.strategy === 'constant',
     // 递归：这条命中后，它的正文也参与下一轮扫描，能再带出别的条目。
     // 默认关 —— 递归会明显增加 token，得一条条显式打开。
-    recursive: r.recursive === true,
-    // 酒馆默认开启「全词匹配」，但官方文档明确说这对中日文有害（不用空格分词），
-    // 所以这里默认关闭，只有显式打开才启用。
-    matchWholeWords: bool(r.matchWholeWords ?? r.match_whole_words, false),
-    caseSensitive: bool(r.caseSensitive ?? r.case_sensitive, false),
+    recursive: (r.recursive ?? own.recursive) === true,
+    // 全词匹配对无空格分词的中日文不适用，只有显式启用才生效。
+    matchWholeWords: bool(r.matchWholeWords ?? r.match_whole_words ?? ext.match_whole_words, false),
+    caseSensitive: bool(r.caseSensitive ?? r.case_sensitive ?? ext.case_sensitive, false),
     probability,
     enabled
   };
@@ -115,6 +119,7 @@ function worldbookEntryList(raw) {
  */
 function normalizeWorldbook(raw, fallbackName, makeId, normalizeCharacters, maxCharacters) {
   const r = raw && typeof raw === 'object' ? raw : {};
+  const own = r.extensions && r.extensions.mimitale || {};
   const rawEntries = Array.isArray(raw) ? raw : worldbookEntryList(r.entries);
   const name =
     String(r.name || r.title || (typeof fallbackName === 'string' ? fallbackName : '') || '').trim() || '未命名世界书';
@@ -134,7 +139,7 @@ function normalizeWorldbook(raw, fallbackName, makeId, normalizeCharacters, maxC
   // 书导进来了、条目都在，就是 NPC 一个都不在场。见 main/import-files.js。
   const characters = [];
   if (typeof normalizeCharacters === 'function') {
-    const rawChars = Array.isArray(r.characters) ? r.characters : [];
+    const rawChars = Array.isArray(r.characters) ? r.characters : Array.isArray(own.characters) ? own.characters : [];
     const limit = Number.isFinite(maxCharacters) && maxCharacters > 0
       ? Math.floor(maxCharacters)
       : MAX_WORLDBOOK_CHARACTERS;
@@ -144,12 +149,13 @@ function normalizeWorldbook(raw, fallbackName, makeId, normalizeCharacters, maxC
     }
   }
 
+  const opening = r.opening ?? own.opening;
   const genId = typeof makeId === 'function' ? makeId : () => `w${Date.now().toString(36)}`;
   return {
     id: typeof r.id === 'string' && r.id ? r.id : genId(),
     name: name.slice(0, 120),
     // 进这个世界时自动作为第一条消息；留空则由界面那边让模型现生成一段开局
-    opening: typeof r.opening === 'string' ? r.opening.slice(0, MAX_WORLDBOOK_OPENING) : '',
+    opening: typeof opening === 'string' ? opening.slice(0, MAX_WORLDBOOK_OPENING) : '',
     entries,
     characters,
     createdAt: Number(r.createdAt) || Date.now(),

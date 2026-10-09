@@ -38,7 +38,7 @@ const SUMMARY_RETRY_COOLDOWN_MS = 60000;
 export function convoContextMessages(convo) {
   if (!convo || !Array.isArray(convo.messages)) return [];
   return convo.messages.filter(
-    (m) => (m.role === 'user' || m.role === 'assistant') && String(m.content || '').trim()
+    (m) => m && (m.role === 'user' || m.role === 'assistant') && String(m.content || '').trim()
   );
 }
 
