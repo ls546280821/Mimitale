@@ -91,15 +91,6 @@ const MAX_CHAT_BACKGROUND_CHARS = 4000000;
 // 所以给个够用又不至于失控的额度。
 const MAX_ASSISTANT_PERSONA_CHARS = 20000;
 
-// 角色「属性」的快捷候选词。
-// 在角色编辑器里点一下就能多一个属性字段名，纯粹是省打字 —— 不承载任何逻辑，
-// 所以它就是一个字符串数组，放在设置里可编辑就够了，不值得单开一套「管理」界面。
-// （真到了需要给属性附加额外信息的时候 —— 类型、默认值、是否常驻 —— 那才值得升级。）
-const DEFAULT_COMMON_ATTRIBUTES = [
-  '金币', '生命', '体力', '心情', '好感度',
-  '时间', '地点', '天气', '背包', '线索'
-];
-
 // 配色方案的可选值。渲染层 style.css 里每种都有一个 token 块，
 // ui/theme.js 按这个顺序循环切换 —— 加新配色要改这里 + style.css + ui/theme.js + preload.js。
 const ACCENTS = ['pink', 'blue', 'matcha'];
@@ -163,13 +154,14 @@ const DEFAULT_SETTINGS = {
   chatFontSize: 14,     // 消息正文字号（px）
   chatBoldColor: '',    // **加粗** 用什么颜色，空 = 跟随主题
   chatBackground: '',   // 消息区背景图（dataURL），空 = 没有
-  // --- 下面两个是界面自己写得出来的键，**必须列在这儿** ---
-  // saveSettings 的白名单是「默认设置里有 or 磁盘上本来就有」。这两个键当初漏在
-  // DEFAULT_SETTINGS 之外，靠的就是「用户磁盘上早写过了」才没被拦 ——
-  // 全新装一份（config.json 里还没有它们）时，第一次保存就会被静默丢掉：
-  // 快捷候选词和自动续写怎么改都不生效，只在主进程打一行看不见的 warn。
+  // --- 界面自己写得出来的键，**必须列在这儿** ---
+  // saveSettings 的白名单是「默认设置里有 or 磁盘上本来就有」。autoContinue 和
+  // commonAttributes 当初都漏在 DEFAULT_SETTINGS 之外，靠的就是「用户磁盘上早
+  // 写过了」才没被拦 —— 全新装一份（config.json 里还没有它们）时，第一次保存
+  // 就会被静默丢掉：自动续写怎么改都不生效，只在主进程打一行看不见的 warn。
+  // （commonAttributes 对应的功能 2026-10-09 已删，见 normalizeSettings 里那句
+  //   `delete s.commonAttributes`。）
   autoContinue: true,       // 正文被 maxTokens 截断时自动接着写完
-  commonAttributes: [],     // 角色编辑器里「属性」的快捷候选词
   // --- 默认人设：**没绑定角色卡**的会话（通用助手）用这一套，而且**按模型各存一份** ---
   // 换模型（推理写手 / 日常闲聊往往不是同一个模型）时人设跟着换，
   // 不用每次切完再回来改文字。
@@ -389,20 +381,12 @@ function normalizeSettings(saved) {
   s.chatBackground =
     bg.startsWith('data:image/') && bg.length <= MAX_CHAT_BACKGROUND_CHARS ? bg : '';
 
-  // 常用属性候选词：去重、去空、限个数。
-  // 注意判断的是「磁盘上有没有这个键」—— 用户把清单清空是合法操作，
-  // 不能因为合并结果为空就又把默认值塞回去。
-  const rawAttrs = Array.isArray(raw.commonAttributes) ? raw.commonAttributes : DEFAULT_COMMON_ATTRIBUTES;
-  const seenAttrs = new Set();
-  s.commonAttributes = rawAttrs
-    .filter((n) => typeof n === 'string')
-    .map((n) => n.trim().slice(0, 24))
-    .filter((n) => {
-      if (!n || seenAttrs.has(n)) return false;
-      seenAttrs.add(n);
-      return true;
-    })
-    .slice(0, 40);
+  // 角色「属性」的快捷候选词（commonAttributes）：功能本身 2026-10-09 删了 ——
+  // 属性名按角色写，一份全局清单省不了几个字，编辑器里却多占一行、还要人去维护。
+  // 键从 DEFAULT_SETTINGS 里撤掉的同时在这儿删一次：老 config.json 里显式写着
+  // 它（normalizeSettings 是 `{...DEFAULT_SETTINGS, ...raw}`，不删就会一直留着）。
+  // ⚠️ 保存白名单是「默认里有 or 磁盘上有」，光从默认里撤掉**拦不住**它落回磁盘。
+  delete s.commonAttributes;
 
   // 默认人设：按模型各存一份（没绑角色卡的会话用）。
   // 逐条过一遍，只留形状对的：

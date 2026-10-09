@@ -498,6 +498,27 @@ await scenario('设置弹窗', async () => {
   await waitFor('设置弹窗打开', () => shown('#settings-modal'));
   check('设置弹窗里有表单卡片', !!$('#settings-modal .modal-card'));
 
+  // 大版块是**折叠卡片**（2026-10-09）。这里是整套冒烟里第一次打开设置，
+  // 所以正好验默认那一条：还没手动点过 = 只展开第一张「模型服务」。
+  const visible = (node) => !!node && node.offsetParent !== null;
+  check('第一张卡默认展开', byId('sec-models').classList.contains('open'));
+  check('其余卡片默认收着', !byId('sec-behavior').classList.contains('open'));
+  check(
+    '收起的卡片内容是真看不见（不是只加了个类）',
+    visible(byId('p-baseurl')) && !visible(byId('s-max-turns')),
+    `baseurl=${visible(byId('p-baseurl'))} maxturns=${visible(byId('s-max-turns'))}`
+  );
+
+  // 打开设置**不再**把光标塞进输入框。以前服务商填过 Key 就 el.s.temp.focus()，
+  // 而 <input type="number"> 一获得焦点就整段选中 —— 第一眼看到「温度 0.7」
+  // 被高亮成一块，像是自己改了什么。
+  const focused = document.activeElement;
+  check(
+    '打开设置时焦点不在任何输入框里',
+    !focused || focused.tagName !== 'INPUT',
+    focused ? `${focused.tagName}#${focused.id}` : 'null'
+  );
+
   // 「对话轮数」2026-10-07 从 core/config.js 写死的 CONFIG.MAX_TURNS 挪到设置里。
   // 白名单断言只能证明「这个键在 DEFAULT_SETTINGS 里」，证不了「表单读得到、写得出」——
   // readSettingsForm 里漏一行就正好卡在中间，所以这里真存一次。
@@ -521,6 +542,63 @@ await scenario('设置弹窗', async () => {
   await sleep(150);
   const turnsBack = ((await window.mimitale.getSettings()).settings || {}).maxTurns;
   check('「对话轮数」还原成 20（后面的场景还等着它）', turnsBack === 20, String(turnsBack));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 3.5：设置的大版块是折叠卡片
+//
+//  设置项越加越多，一屏铺不完。改成「一列卡片 + 点头部展开」之后要守住三件事：
+//   ① 点头部能开、也能关（且收起的卡片里内容是真不显示）；
+//   ② 折叠**不能让表单失效** —— 收着的卡片里的值照样读得到、存得住；
+//   ③ 关掉再打开，回到刚才翻到的那一页（本次运行内记住，但不写进 config.json）。
+// ---------------------------------------------------------------------------
+await scenario('设置：大版块是折叠卡片', async () => {
+  const visible = (node) => !!node && node.offsetParent !== null;
+  const beforeTokens = String(((await window.mimitale.getSettings()).settings || {}).maxTokens ?? 8192);
+
+  click('#btn-settings');
+  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+
+  const modelsHead = byId('sec-models').querySelector('.section-head');
+  const paramsHead = byId('sec-params').querySelector('.section-head');
+  check('头部是一颗真按钮（键盘也点得动）', modelsHead.tagName === 'BUTTON', modelsHead.tagName);
+  check(
+    '从「头部」到底下的卡片：一条 closest 链',
+    modelsHead.closest('.panel-section.collapsible') === byId('sec-models')
+  );
+
+  // 展开第二张
+  click(paramsHead);
+  check('点头部就展开', byId('sec-params').classList.contains('open') && visible(byId('s-temp')));
+  check('aria-expanded 跟着走', paramsHead.getAttribute('aria-expanded') === 'true', paramsHead.getAttribute('aria-expanded'));
+
+  // 收起第一张
+  click(modelsHead);
+  check('再点一下收起', !byId('sec-models').classList.contains('open'));
+  check('收起的卡片里内容看不见', !visible(byId('p-baseurl')));
+
+  // 收着的卡片里的值照样存得住（折叠只是 display:none，不该让表单失效）
+  setValue('#s-maxtokens', '2048');
+  click('#btn-save-settings');
+  await waitFor('设置已保存', () => !shown('#settings-modal'));
+  await sleep(150);
+  const saved = ((await window.mimitale.getSettings()).settings || {});
+  check('收起的卡片里的值照样落盘', Number(saved.maxTokens) === 2048, String(saved.maxTokens));
+
+  // 关掉再打开：回到刚才翻到的那一页
+  click('#btn-settings');
+  await waitFor('设置弹窗再开', () => shown('#settings-modal'));
+  check(
+    '重开回到刚才翻到的那一页（参数开着、模型收着）',
+    byId('sec-params').classList.contains('open') && !byId('sec-models').classList.contains('open'),
+    `params=${byId('sec-params').classList.contains('open')} models=${byId('sec-models').classList.contains('open')}`
+  );
+
+  // 收尾：把回复上限放回去（这个场景用了一个和初值不同的数字来证明「真存住了」）
+  if (!byId('sec-params').classList.contains('open')) click(paramsHead);
+  setValue('#s-maxtokens', beforeTokens);
+  click('#btn-save-settings');
+  await waitFor('回复上限已还原', () => !shown('#settings-modal'));
 });
 
 // ---------------------------------------------------------------------------
@@ -795,24 +873,10 @@ await scenario('角色库：卡片上删除', async () => {
 //  场景 8：角色属性 → 状态面板（属性模板的完整链路）
 // ---------------------------------------------------------------------------
 await scenario('属性：从角色卡种到状态面板', async () => {
-  // --- 1) 设置里编辑「常用属性」，快捷候选词要跟着变 ---
-  click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
-  check('设置里有常用属性输入框', !!byId('s-commonattrs'));
-
-  setValue('#s-commonattrs', '金币, 上衣, 下衣');
-  click('#btn-save-settings');
-  await waitFor('设置弹窗关闭', () => !shown('#settings-modal'));
-  await sleep(150);
-
-  const savedSettings = (await window.mimitale.getSettings()).settings;
-  check(
-    '常用属性已落盘',
-    JSON.stringify(savedSettings.commonAttributes) === JSON.stringify(['金币', '上衣', '下衣']),
-    JSON.stringify(savedSettings.commonAttributes)
-  );
-
-  // --- 2) 角色编辑器里用快捷按钮加属性 ---
+  // --- 1) 加属性：只有手写和「粘贴文本」两条路 ---
+  // （曾经还有一排行「快捷候选词」，内容来自「设置 → 状态属性」；那份全局清单
+  //   2026-10-09 连同设置区块一起去掉了 —— 属性名按角色写，清单省不了几个字。
+  //   所以下面顺带守一句「它别再长回来」。）
   click('#btn-chars');
   await waitFor('切到角色库页面', () => shown('#view-chars'));
   click('#btn-new-char');
@@ -823,15 +887,15 @@ await scenario('属性：从角色卡种到状态面板', async () => {
   // 年龄/性别/种族已从编辑器移除（归入描述），这里不再通过 UI 填。
   // 身份三项的流转由下方「保存后补数据」保证，见 saveCharacters 那段。
 
-  const quick = $$('#c-attr-quick .attr-quick-btn');
-  check('快捷候选词按钮出现了', quick.length === 3, `实际 ${quick.length} 个`);
+  check('角色编辑器里没有快捷候选词那一行', !byId('c-attr-quick'));
 
-  click(quick[0]); // 金币
+  // 手写第一个
+  setValue('#c-attr-new', '金币');
+  click('#btn-add-attr');
   await waitFor('属性行出现', () => $$('#c-attr-list .attr-row').length === 1);
-  check('快捷加进来的名字对', byId('c-attr-list').querySelector('.attr-name').textContent === '金币');
-  check('加过的候选词就不再显示了', $$('#c-attr-quick .attr-quick-btn').length === 2, `剩余 ${$$('#c-attr-quick .attr-quick-btn').length} 个`);
+  check('手写加进来的名字对', byId('c-attr-list').querySelector('.attr-name').textContent === '金币');
 
-  // 手写一个（不走快捷按钮）
+  // 手写第二个
   setValue('#c-attr-new', '上衣');
   click('#btn-add-attr');
   await waitFor('第二个属性行', () => $$('#c-attr-list .attr-row').length === 2);
@@ -2004,7 +2068,21 @@ await scenario('消息：重新生成候选', async () => {
 
   // --- 重新生成：应该「多出一条候选」，而不是把老的扔掉 ---
   click(buttonByText(lastNode(), '重新生成'));
-  await waitFor('生成完', () => byId('btn-send').disabled === false, 10000);
+  // ⚠️ 别只等 `btn-send.disabled === false` —— 那颗按钮**在流式开始之前就是可点的**：
+  //    点完「重新生成」还要先 await 世界书匹配 / 语义检索两轮预检，才轮到
+  //    `setStreaming(true)`。而 waitFor 是**先求值、再等**，于是这个条件当场为真、
+  //    等于没等 —— 机器一忙就会在「正在思考」那一刻去断言，报出来的却是「正文不对」。
+  //    （2026-10-09 实测：忙的那一次连累出 3 个场景红 —— 这条 + 后面的切会话、导出，
+  //      因为流没结束 → `state.streaming` 一直是 true → 点会话条被 `switchConvo`
+  //      的守卫挡下 → 视图没切回去 → 后面全歪。闲的那一次 1160/1160 绿。）
+  //
+  //    两个条件缺一不可：候选切换出现了（那一下是 push + renderAll 画的，
+  //    但它画在 `setStreaming(true)` **之前**，所以单独用它也不够）+ 流式确实结束了。
+  await waitFor(
+    '生成完',
+    () => !!navOf(lastNode()) && byId('btn-send').disabled === false,
+    10000
+  );
   await sleep(250);
 
   check('重新生成后出现候选切换', !!navOf(lastNode()));

@@ -88,7 +88,7 @@ import {
   deletePresetById,
   closePresetEditor
 } from './views/preset.js';
-import { initSettings, setEditingProvider, openSettings, closeSettings, closePersonaDialog } from './views/settings.js';
+import { initSettings, setEditingProvider, openSettings, closeSettings, closePersonaDialog, expandSettingsSection } from './views/settings.js';
 import { initAppearance, applyChatAppearance, closeAppearanceModal } from './views/appearance.js';
 import { streamPainter, initStreamFollow } from './views/stream.js';
 import { initChatImages } from './views/chatImages.js';
@@ -638,7 +638,11 @@ async function init() {
   // 右键菜单点「桌宠设置 / 查看记忆」→ 把主窗口叫到前面并打开设置
   api.onPetOpenSettings((payload) => {
     openSettings();
-    openPetSection((payload && payload.focus) || '').catch((err) =>
+    const focus = (payload && payload.focus) || '';
+    // 「查看记忆」要直接滚到桌宠那一块 —— 设置页现在是折叠卡片，
+    // 那块多半是收着的；不收起来的话 scrollIntoView 只会滚到一张合着的卡上。
+    if (focus === 'memory') expandSettingsSection('pet-section');
+    openPetSection(focus).catch((err) =>
       console.error('打开桌宠区块失败', err)
     );
   });

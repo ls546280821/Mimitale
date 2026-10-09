@@ -14,7 +14,7 @@
 //  表单里的改动是「读的时候填进去、保存/切走的时候收回来」（fillCharForm /
 //  stashCharForm）—— 中途不写回角色卡，所以填到一半关掉不会留下半个改动。
 //
-//  属性区（快捷候选词 / 类型 / 范围）搬去了 views/charAttributes.js，
+//  属性区（字段类型 / 范围 / 分组 / 批量粘贴）搬去了 views/charAttributes.js，
 //  它接收本模块的草稿数组（传引用），保存时由本模块一起写回角色卡。
 //
 //  表情图（几十条的大列表）也搬出去、并单独做了个弹窗：views/charExpressions.js。
@@ -1316,7 +1316,7 @@ export function initCharacterEditor(injected) {
     if (event.target === el.charsModal) closeCharsModal();
   });
 
-  // 属性区的按钮（快捷候选词是渲染时就带的）
+  // 属性区的按钮（分组标签栏是渲染时就带的）
   initCharAttrsUi({ getList: () => charAttrs });
 
   // 表情弹窗的按钮：草稿仍是本模块的 charExpressions，通过 getList 传过去；

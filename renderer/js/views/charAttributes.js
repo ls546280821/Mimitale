@@ -21,7 +21,6 @@
 //  让它自己存一份就得来回同步 —— 传引用、就地改，两边看到的永远是同一份。
 // ============================================================================
 
-import { state } from '../core/state.js';
 import { el } from '../core/dom.js';
 import { showToast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/confirm.js';
@@ -219,7 +218,6 @@ export function renderCharAttrs(list) {
   renderAttrGroupEdit(draft, current);
   renderAttrRows(draft, current);
   renderAttrAddRow(current);
-  renderAttrQuick(draft);
 }
 
 /** 切到某个分组。点的是当前组就什么都不做 —— 白重画一次会清掉输入框里没提交的字 */
@@ -777,23 +775,6 @@ function renderAttrAddRow(bucket) {
   el.c.attrNew.placeholder = bucket.id ? `往「${bucket.title}」里加一个属性` : '属性名，比如 金币';
 }
 
-/** 快捷候选词：来自「设置 → 状态属性」，点一下就加进**当前分组** */
-function renderAttrQuick(list) {
-  if (!el.c.attrQuick) return;
-
-  // 已经在属性里的就不再显示，免得点了个寂寞
-  const used = new Set(list.map((a) => a.name));
-  const quick = (state.settings && state.settings.commonAttributes) || [];
-  clear(el.c.attrQuick);
-  for (const name of quick) {
-    if (used.has(name)) continue;
-    el.c.attrQuick.appendChild(
-      button({ class: 'attr-quick-btn', text: `＋ ${name}`, onClick: () => addCharAttr(list, name) })
-    );
-  }
-  el.c.attrQuick.classList.toggle('hidden', !el.c.attrQuick.childElementCount);
-}
-
 /**
  * 把粘贴进来的一段文本解析成属性。
  *
@@ -991,7 +972,7 @@ function applyInteractiveTemplate(list) {
 // 所以这里不存它，只在需要的时候问一声。
 let getDraft = () => [];
 
-/** 绑属性区的按钮（标签栏和快捷候选词是渲染时就带的，不用绑） */
+/** 绑属性区的按钮（分组标签栏是渲染时就带的，不用绑） */
 export function initCharAttrsUi({ getList } = {}) {
   if (typeof getList === 'function') getDraft = getList;
 

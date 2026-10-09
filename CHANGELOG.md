@@ -4,6 +4,70 @@
 
 ---
 
+## 2026-10-09 改：设置页收成折叠卡片、去掉「属性快捷候选词」、修打开设置抢焦点
+
+三件事都在界面层（`renderer/` 改完刷新即生效，主进程那处要重启）。
+
+### 一、设置页改成「一列可折叠的卡片」
+
+设置项越加越多（模型服务 / 生成参数 / 行为 / 生图 / 语义检索 / 桌宠），一屏铺不完，
+想改一项得滚半天。现在每个大版块是**一张卡片**，头部整块是一颗按钮：点一下展开、再点一下收起。
+
+- `renderer/index.html`：每个 `.panel-section` 加 `collapsible` + 一个 id（`sec-models` …），
+  头部从 `<div class="section-head">` 换成 `<button class="section-head">`。
+  **内容不包容器** —— 收起靠 CSS 把「除头部以外的直接孩子」`display:none`，
+  所以里面几百行保持原缩进，diff 只有头部那几行。
+- `renderer/style.css`：`.panel-section.collapsible` 那一段。展开时的长相和改动前**一模一样**
+  （同 padding / 同 margin-bottom），只有收起时把那 14px 下留白收掉。
+  收起/展开的箭头沿用 `--select-arrow`（跟着明暗和配色走），不用再抄 7 份 SVG。
+  `.collapsible` 只加在设置弹窗上：「记忆 → 存档点」那种静态区块不受影响。
+- `renderer/js/views/settings.js`：折叠逻辑 + `expandSettingsSection()`（导出）。
+  收起状态**不落盘** —— 那只是「刚才翻到哪了」，不值得为它动 `config.json`；
+  但同一次运行里关掉再打开会回到原样。还没手动点过时默认展开第一张「模型服务」
+  （头一回配 Key 的人多半冲它来），点过之后就完全按记下的来（包括「全关掉」）。
+- `renderer/js/main.js`：桌宠右键菜单的「查看记忆」进设置页时，先 `expandSettingsSection('pet-section')`
+  再 `scrollIntoView` —— 不收起来的话只会滚到一张合着的卡上。
+- `tools/smoke-test.js`：`--shot=petSettings` 的截图驱动补一步「点开桌宠那张卡」，
+  否则截出来只有一张合着的卡（图就白截了）。
+
+### 二、打开设置不再自动聚焦「温度」
+
+**旧行为**：服务商填过 Key 就 `el.s.temp.focus()`。而 `<input type="number">` 一获得焦点
+就**整段选中** —— 每次打开设置第一眼都是「温度 0.7」被高亮成一块，像是不小心改了什么。
+
+- 改成把焦点收到弹窗卡片自己身上（`.modal-card` 加 `tabindex="-1"`，CSS 去掉它的焦点环）。
+  要打字 Tab 一下就到，或者点开对应的卡片；折叠之后那个框还可能是收着的，更不该往里丢焦点。
+
+### 三、去掉「设置 → 状态属性」和角色编辑器里的快捷候选词
+
+那一行「＋ 金币 ＋ 生命」的候选词来自一份全局清单，平时没人维护，却要在编辑器里占一行。
+属性名本来就得按角色写，省不了几个字 —— 去掉。属性照旧**手写 + 「粘贴文本」**两条路，
+类型 / 范围 / 分组一个没少。
+
+- `renderer/index.html`：删掉设置里的「状态属性」区块和 `#c-attr-quick` 那一行。
+- `renderer/js/views/settings.js`、`renderer/js/core/dom.js`：读写和引用一起去掉。
+- `renderer/js/views/charAttributes.js`：删 `renderAttrQuick()`（连带 `state` import）。
+- `renderer/style.css`：删 `.attr-quick` 那两条。
+- `main/providers.js`：`DEFAULT_SETTINGS.commonAttributes` 撤掉，并在 `normalizeSettings` 里
+  `delete s.commonAttributes` —— 光从默认里撤**拦不住**它（保存白名单是「默认里有 or 磁盘上有」，
+  老配置里显式写着，会一直留着）。
+- `tools/smoke-renderer.js` 场景 8：改成手写加属性，并顺带守一句「那一行别再长回来」。
+
+### 顺手修掉一个测试里的假等待
+
+`tools/smoke-renderer.js` 场景 12「重新生成候选」里 `waitFor('生成完', () => btn-send.disabled === false)`
+**是个空等**：那颗按钮在流式开始之前就是可点的（点完「重新生成」还要先 await 世界书 / 语义检索两轮预检
+才 `setStreaming(true)`），而 `waitFor` 是先求值再等，条件当场为真。
+机器一忙就会在「正在思考」那一刻去断言，报出来却是「正文不对」；更糟的是流没结束 →
+`state.streaming` 一直是 true → 后面点会话条被 `switchConvo` 的守卫挡下 → **连累切会话和导出两个场景一起红**
+（2026-10-09 实测：一次 3 红，紧接着一次 1160/1160 全绿）。
+改成「候选切换出现了 **且** 流式确实结束了」才算生成完。
+
+**验收**：冒烟 **1160/1160 全绿、控制台报错 0**；`--shot=settings` / `--shot=petSettings`
+（含夜间版）肉眼核过折叠卡片和箭头。
+
+---
+
 ## 2026-10-09 修：酒馆世界书语义、桌宠运行时缺陷、界面可达性
 
 这一轮是「按证据改」：每一条都先定位到具体代码行为，改完补上能证伪它的测试。

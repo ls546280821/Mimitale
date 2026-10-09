@@ -199,7 +199,6 @@ export const el = {
     btnAttrTemplate: $('btn-attr-template'),
     // 分组标签栏：属性按分组切开，点哪个标签就只看哪一组
     attrTabs: $('c-attr-tabs'),
-    attrQuick: $('c-attr-quick'),
     attrList: $('c-attr-list'),
     // 分组操作条（改名 / 解散），铺在字段列表上面
     attrGroupEdit: $('c-attr-group-edit'),
@@ -239,8 +238,7 @@ export const el = {
     imageSize: $('s-image-size'),
     ragEnabled: $('s-rag-enabled'),
     embeddingProvider: $('s-embedding-provider'),
-    embeddingModel: $('s-embedding-model'),
-    commonAttrs: $('s-commonattrs')
+    embeddingModel: $('s-embedding-model')
   },
   // 默认人设：设置里只留一行入口（按钮 + 当前状态），正文在弹窗里编辑
   btnAssistantPersona: $('btn-assistant-persona'),

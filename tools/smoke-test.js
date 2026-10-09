@@ -2913,7 +2913,6 @@ function probeSettingsWhitelist(result) {
     'autoContinue', 'worldbookRecursiveDepth', 'maxTurns',
     'imageProviderId', 'imageModel', 'imageSize',
     'ragEnabled', 'embeddingProviderId', 'embeddingModel',
-    'commonAttributes',
     'assistantPersonas',
     // appearance.js / theme.js
     'chatFontSize', 'chatBoldColor', 'chatBackground', 'theme', 'accent'
@@ -3468,6 +3467,10 @@ app.whenReady().then(async () => {
         petSettings: `
           document.querySelector('#btn-settings')?.click();
           await new Promise(r => setTimeout(r, 900));
+          // 设置页的区块 2026-10-09 起是折叠卡片，桌宠那块默认是收着的 ——
+          // 不先点开，截出来的就只有一张合着的卡（图就白截了）。
+          document.querySelector('#pet-section .section-head')?.click();
+          await new Promise(r => setTimeout(r, 250));
           document.querySelector('#btn-pet-preview')?.click();
           await new Promise(r => setTimeout(r, 1000));
           document.querySelector('#btn-pet-memory-refresh')?.click();

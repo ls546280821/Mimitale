@@ -11,6 +11,12 @@
 //   · openSettings 必须导出：发消息前发现没配模型、点「配图」发现没配生图时，
 //     那两个流程（都在入口层）要弹这个设置窗。
 //
+//   · expandSettingsSection 也要导出：桌宠右键菜单的「查看记忆」是入口层接的
+//     （renderer/js/main.js），它得先把「桌宠」那张折叠卡拆开再滚过去。
+//
+//  大版块是**折叠卡片**：头部整块是一颗按钮，点一下展开 / 收起。逻辑在本文件
+//  下半段（折叠区块那一段），样式在 style.css 的 .panel-section.collapsible。
+//
 //  弹窗只在打开时渲染，不参与整体重绘，所以不向刷新总线登记
 //  （和 views/perspectiveUi.js 一样，只做事件绑定）。
 //
@@ -115,6 +121,15 @@ export function initSettings(opts = {}) {
   });
 
   el.modal.addEventListener('click', (event) => {
+    // 点头部 = 展开 / 收起这一块。只有**点在头部里**才算 ——
+    // 卡片自身的 padding 不算（展开时那一圈就在输入框边上，
+    // 顺手点一下就收起会烦死人）。
+    const section = sectionOf(event.target);
+    if (section) {
+      setSectionOpen(section, !section.classList.contains('open'));
+      return;
+    }
+    // 点弹窗外面的遮罩 = 关上
     if (event.target === el.modal) closeSettings();
   });
 }
@@ -122,6 +137,65 @@ export function initSettings(opts = {}) {
 /** 启动时把「当前服务商」带进设置弹窗（入口层拿到配置之后调） */
 export function setEditingProvider(id) {
   editingProviderId = id || null;
+}
+
+// ---------------------------------------------------------------------------
+//  折叠区块：大版块 = 一张卡片，点头部展开 / 收起
+//
+//  为什么要有它：设置项越加越多（模型服务 / 生成参数 / 行为 / 生图 / 语义检索 /
+//  桌宠），一屏铺不完，找一项要滚半天。改成「一列卡片」之后，打开设置先看到的
+//  是一张目录，想改什么点开哪张。
+//
+//  折叠状态**不落盘**：那只是「刚才翻到哪了」，不值得为它动 config.json。
+//  但同一次运行里关掉再打开会回到原样（openSections）。
+// ---------------------------------------------------------------------------
+
+/** 这次运行里开着哪些区块（存 section 的 id） */
+const openSections = new Set();
+/** 用户手动点过头部了吗 —— 点过之后完全按 openSections 来（包括「全关掉」） */
+let touchedFolds = false;
+
+/** 事件目标 → 它所属的可折叠区块（点的不在头部里就返回 null） */
+function sectionOf(target) {
+  const head = target && target.closest ? target.closest('.section-head') : null;
+  return head ? head.closest('.panel-section.collapsible') : null;
+}
+
+/** 展开 / 收起一个区块。remember=false 用于打开弹窗时的批量回填 */
+function setSectionOpen(section, open, remember = true) {
+  if (!section) return;
+  section.classList.toggle('open', open);
+  const head = section.querySelector(':scope > .section-head');
+  if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (!remember || !section.id) return;
+  touchedFolds = true;
+  if (open) openSections.add(section.id);
+  else openSections.delete(section.id);
+}
+
+/**
+ * 按 id 展开某个区块。
+ *
+ * 给「在桌宠右键菜单里点『查看记忆』→ 直接跳进设置页」用：那条路在入口层
+ * （renderer/js/main.js）触发，它拿不到这里的 openSections，只能反过来喊一声。
+ */
+export function expandSettingsSection(id) {
+  const section = id ? el.modal.querySelector(`#${id}`) : null;
+  if (section) setSectionOpen(section, true);
+}
+
+/**
+ * 打开弹窗时铺一遍折叠状态。
+ *
+ * 还没手动点过（touchedFolds = false）就默认展开第一张「模型服务」——
+ * 头一回配 Key / 换服务商的人基本都是冲它来的，全收起来会让人不知道从哪下手。
+ * 点过之后一律按记下的来：没点开的就是收着的（「全关掉」也是他的选择，别自作主张）。
+ */
+function syncSectionFolds() {
+  for (const section of el.modal.querySelectorAll('.panel-section.collapsible')) {
+    const open = touchedFolds ? openSections.has(section.id) : section.id === 'sec-models';
+    setSectionOpen(section, open, false);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -443,7 +517,6 @@ function fillSettingsForm(settings) {
   el.s.maxTurns.value = String(
     Number.isFinite(Number(settings.maxTurns)) && Number(settings.maxTurns) >= 1 ? Math.floor(Number(settings.maxTurns)) : 20
   );
-  el.s.commonAttrs.value = (Array.isArray(settings.commonAttributes) ? settings.commonAttributes : []).join(', ');
 
   // 默认人设：弹窗字段跟着设置表单一起刷新，这样「设置里点保存」读到的
   // 永远是当前这一份 —— 用户从头到尾没开过弹窗，也不会把它清空。
@@ -703,8 +776,6 @@ function readSettingsForm() {
     ragEnabled: el.s.ragEnabled.checked,
     embeddingProviderId: el.s.embeddingProvider.value || '',
     embeddingModel: el.s.embeddingModel.value.trim(),
-    // 和「服务商模型列表」一样是「分隔符拆开的字符串列表」，直接复用那个解析
-    commonAttributes: parseModels(el.s.commonAttrs.value).slice(0, 40),
     // 默认人设：只动**当前模型**那一条，别的模型的条目原样带回去。
     // 名字和人设都清空 = 这个模型不要人设了，把那条删掉（别在 config.json 里留空壳）。
     assistantPersonas: (() => {
@@ -735,16 +806,22 @@ export function openSettings() {
 
   el.modal.classList.remove('hidden');
 
+  // 折叠状态要在弹窗可见之后再铺：收起靠 CSS（display:none），
+  // 顺序反了会让「该展开的那个」先按旧状态闪一下。
+  syncSectionFolds();
+
   // 桌宠区块要现拉一次状态（它改的是另一个窗口里的东西，不能拿旧快照画）。
   // 不 await：设置弹窗不该等一个 IPC 往返才出现，区块自己会随后填上。
   openPetSection().catch((err) => console.error('桌宠区块加载失败', err));
 
-  const current = providerById(editingProviderId);
-  if (current && current.apiKey) {
-    el.s.temp.focus();
-  } else {
-    el.p.baseUrl.focus();
-  }
+  // 焦点收到卡片自己身上（卡片带 tabindex="-1"）。
+  //
+  // 以前这里是「服务商填过 Key 就把光标放进温度框」—— 而 <input type="number">
+  // 一获得焦点就**整段选中**，于是每次打开设置，第一眼都是「温度 0.7」被高亮成
+  // 一块蓝，像是自己不小心改了什么；折叠之后那个框还可能是收着的，更不该往
+  // 里面丢焦点。要打字的话 Tab 一下就到，或者点开对应那几张卡。
+  const card = el.modal.querySelector('.modal-card');
+  if (card) card.focus();
 }
 
 export function closeSettings() {
