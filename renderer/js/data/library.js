@@ -161,12 +161,12 @@ export const WORLDBOOK_SCAN_DEPTH = 6;
 /**
  * 递归扫描最多连锁几层（设置里调，0 = 关掉递归）。
  *
- * 默认 0（关）对齐酒馆的 Recursive Scan 默认关，理由见 main/providers.js 里
- * DEFAULT_SETTINGS.worldbookRecursiveDepth 那段注释。
+ * 默认 1（只带一层），和 main/providers.js 的 DEFAULT_SETTINGS 保持一致；
+ * 那个值为什么选 1、代价是什么，注释写在那儿。
  */
 export function recursiveDepthSetting() {
   const value = Number((state.settings || {}).worldbookRecursiveDepth);
-  return Number.isFinite(value) && value >= 0 && value <= 5 ? Math.floor(value) : 0;
+  return Number.isFinite(value) && value >= 0 && value <= 5 ? Math.floor(value) : 1;
 }
 
 /**

@@ -112,18 +112,26 @@ test('条目级递归按 ST 语义：两个字段都是「限制项」，缺省=
   assert.equal(own.entries[0].recursive, false, '内部 recursive 显式值优先于 ST 字段');
 });
 
-test('递归深度默认必须是 0：条目可参与 + 全局默认开 = token 翻倍', () => {
-  // 这两件事必须一起成立，所以放在同一个测试里 —— 只改一边就会出事：
-  //   · 条目级按 ST 语义「缺省可参与」（上面那条测试）
-  //   · 全局深度默认 0（关），等价于 ST 的 Recursive Scan 默认关
-  // 如果深度默认回到 3，导入一本标准酒馆书（每条都可递归）就会连锁三层。
-  const providers = require('node:fs').readFileSync(
-    require('node:path').join(__dirname, '..', 'main', 'providers.js'),
-    'utf8'
-  );
+test('递归深度默认是 1（只带一层），而且和迁移目标必须是同一个值', () => {
+  // 这个数字是**有意选的**，三层理由（详见 main/providers.js 的 DEFAULT_SETTINGS）：
+  //   · 条目级按 ST 语义「缺省即可参与递归」（上面那条测试）—— 导入酒馆书之后
+  //     每一条都可递归，所以默认值必须小，不能再是以前的 3；
+  //   · 但也不能是 0：0 等于把这功能默认关掉，条目编辑器那颗「递归」框勾了也不生效
+  //     （下一轮根本不会发生），用户会以为功能坏了；
+  //   · 1 = 功能可用 + 代价最小：只把直接命中那条的正文再扫一遍。
+  // 这条断言的作用：谁要动这个值，必须是有意识的改动。
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const providers = fs.readFileSync(path.join(__dirname, '..', 'main', 'providers.js'), 'utf8');
   const hit = providers.match(/worldbookRecursiveDepth:\s*(\d+)/);
   assert.ok(hit, 'DEFAULT_SETTINGS 里应当有 worldbookRecursiveDepth');
-  assert.equal(Number(hit[1]), 0, '全局递归深度默认必须是 0（对齐 ST 的 Recursive Scan 默认关）');
+  assert.equal(Number(hit[1]), 1, '全局递归深度默认是 1（0 = 用户自己关掉）');
+
+  // 迁移的目标值必须写成 DEFAULT_SETTINGS.worldbookRecursiveDepth 而不是写死数字 ——
+  // 它的语义就是「旧默认值 → 新默认值」，写死就会在下一次改默认值时悄悄对不上。
+  // （真踩过：目标是 0、默认还是 3 的时候，注释和代码各说各话。）
+  const migrateLine = providers.match(/s\.worldbookRecursiveDepth\s*=\s*DEFAULT_SETTINGS\.worldbookRecursiveDepth/);
+  assert.ok(migrateLine, '迁移的目标必须引用 DEFAULT_SETTINGS，不要写死数字');
 });
 
 test('v2内嵌书满足必需字段类型并保留开场白、NPC及条目设置', async () => {

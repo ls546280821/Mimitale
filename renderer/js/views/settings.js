@@ -438,7 +438,7 @@ function fillSettingsForm(settings) {
   el.s.showUsage.checked = settings.showUsage !== false;
   el.s.autoContinue.checked = settings.autoContinue !== false;
   el.s.wbDepth.value = String(
-    Number.isFinite(Number(settings.worldbookRecursiveDepth)) ? Number(settings.worldbookRecursiveDepth) : 0
+    Number.isFinite(Number(settings.worldbookRecursiveDepth)) ? Number(settings.worldbookRecursiveDepth) : 1
   );
   el.s.maxTurns.value = String(
     Number.isFinite(Number(settings.maxTurns)) && Number(settings.maxTurns) >= 1 ? Math.floor(Number(settings.maxTurns)) : 20
@@ -685,7 +685,7 @@ function readSettingsForm() {
       el.s.wbDepth,
       Number.isFinite(Number(saved.worldbookRecursiveDepth))
         ? Number(saved.worldbookRecursiveDepth)
-        : 0,
+        : 1,
       0,
       5,
       true

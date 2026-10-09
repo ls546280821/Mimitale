@@ -57,10 +57,12 @@ const legacy = (depth) => ({
   ...(depth === undefined ? {} : { worldbookRecursiveDepth: depth })
 });
 
-test('旧配置（无版本号）+ 深度为旧默认值 3 → 迁移成 0', () => {
+test('旧配置（无版本号）+ 深度为旧默认值 3 → 收敛到新的默认值', () => {
   takeSettingsNotices(); // 清空，避免上一条用例的残留
   const out = normalizeSettings(legacy(3));
-  assert.equal(out.worldbookRecursiveDepth, 0, '值必须真的变成 0（不是只发通知）');
+  // 目标值不写死：迁移的语义就是「旧默认值 → 新默认值」，写死会在下次改默认值时对不上。
+  assert.equal(out.worldbookRecursiveDepth, DEFAULT_SETTINGS.worldbookRecursiveDepth, '值必须真的被改掉');
+  assert.equal(DEFAULT_SETTINGS.worldbookRecursiveDepth, 1, '当前的新默认值是 1（只带一层）');
   assert.equal(out.settingsVersion, 2, '版本号要抬到 2，迁移只做一次');
 
   const notices = takeSettingsNotices();
@@ -69,9 +71,9 @@ test('旧配置（无版本号）+ 深度为旧默认值 3 → 迁移成 0', () 
   assert.deepEqual(takeSettingsNotices(), [], '通知取走即清空，不该反复弹');
 });
 
-test('用户自己把深度改成 1/2/4/5 时一律不动', () => {
+test('用户自己把深度改成 0/2/4/5 时一律不动', () => {
   takeSettingsNotices();
-  for (const depth of [1, 2, 4, 5]) {
+  for (const depth of [0, 2, 4, 5]) {
     const out = normalizeSettings(legacy(depth));
     assert.equal(out.worldbookRecursiveDepth, depth, `用户选的 ${depth} 不能被迁移覆盖`);
   }
@@ -91,16 +93,16 @@ test('迁移幂等：把迁移结果再归一化一次，值不变、也不再�
   const once = normalizeSettings(legacy(3));
   takeSettingsNotices();
   const twice = normalizeSettings({ ...legacy(3), ...once });
-  assert.equal(twice.worldbookRecursiveDepth, 0);
+  assert.equal(twice.worldbookRecursiveDepth, DEFAULT_SETTINGS.worldbookRecursiveDepth);
   assert.equal(twice.settingsVersion, 2);
   assert.deepEqual(takeSettingsNotices(), [], '第二次不该再通知');
 });
 
-test('全新安装（没有任何配置）：默认就是 0，且不产生迁移通知', () => {
+test('全新安装（没有任何配置）：用默认值，且不产生迁移通知', () => {
   takeSettingsNotices();
   const out = normalizeSettings({});
-  assert.equal(out.worldbookRecursiveDepth, 0, 'DEFAULT_SETTINGS 里就得是 0');
-  assert.equal(DEFAULT_SETTINGS.worldbookRecursiveDepth, 0);
+  assert.equal(out.worldbookRecursiveDepth, DEFAULT_SETTINGS.worldbookRecursiveDepth);
+  assert.equal(DEFAULT_SETTINGS.worldbookRecursiveDepth, 1, '新装默认 1 层');
   assert.deepEqual(takeSettingsNotices(), [], '全新安装没什么好告知的');
 });
 

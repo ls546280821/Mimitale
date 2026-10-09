@@ -78,8 +78,8 @@ function normalizeWorldbookEntry(raw) {
   // 两个字段都是**限制项**，都靠勾选打开 → 缺省即 false，也就是「不限制、可参与」。
   // 所以这里的默认是「可递归」，与 ST 一致。
   //
-  // 真正防「导入一本书就把 token 翻几倍」的是**全局开关**：递归深度默认 0（关），
-  // 见 main/providers.js 的 DEFAULT_SETTINGS.worldbookRecursiveDepth。
+  // 代价控制在**全局那道闸**上：递归深度（见 main/providers.js 的
+  // DEFAULT_SETTINGS.worldbookRecursiveDepth，默认 1 = 只带一层）。
   // ⚠️ 别再改回「条目级默认关」来省 token —— 那等于把 ST 的语义改掉，
   //    「导出再导回来」和「导入别人的书」两个方向都会和酒馆对不上。
   const preventRecursion = r.preventRecursion ?? r.prevent_recursion ?? ext.prevent_recursion;

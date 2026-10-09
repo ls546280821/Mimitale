@@ -130,15 +130,22 @@ const DEFAULT_SETTINGS = {
   showDate: true,
   showUsage: true,
   // 世界书递归扫描最多连锁几层。0 = 完全关掉递归。
-  // 只有「可递归」的条目才会往下带，所以这个上限是第二道闸。
+  // 只有「可递归」的条目才会往下带，所以这个上限是第二道闸 ——「总闸」。
   //
-  // ⚠️ 默认 **0（关）** 是刻意的，对齐酒馆：ST 的总开关 Recursive Scan 默认就是关
-  //    （源码 `world_info_recursive = false`，官方文档也把它列为可选功能）。
-  //    为什么不能默认非 0：ST 的条目级开关只用来「限制」（缺省即「可参与递归」），
-  //    所以导入一本标准酒馆书之后**每一条都是可递归的** —— 这时若默认还开着 3 层，
-  //    用户只是导入了别人的书，注入量就会翻好几倍。用「全局默认关 + 用户想开再开」
-  //    既忠于 ST 的语义，又不会在导入时偷偷放大 token。
-  worldbookRecursiveDepth: 0,
+  // ⚠️ 默认 **1（只带一层）** 是有意选的，理由分三层：
+  //    ① 条目级已对齐酒馆语义（缺省即「可参与递归」，见 main/worldbook-parse.js），
+  //       所以导入一本标准酒馆书之后**每一条都是可递归的** —— 默认值必须小，
+  //       否则「只是导入了别人的书」就会连锁很多层。
+  //    ② 但也不选 0：0 等于把这个功能默认关掉，条目编辑器里那颗「递归」框
+  //       勾了也不会生效（下一轮根本不会发生），用户会以为功能坏了。
+  //    ③ 1 正好是「功能可用 + 代价最小」：只把直接命中那条的正文再扫一遍，
+  //       能带出它直接提到的条目，而不会一层层滚下去。
+  //    酒馆那边的总开关 Recursive Scan 默认是关的（`world_info_recursive = false`），
+  //    我们选了「默认开一层」—— 这是刻意的偏离，代价可控。
+  //
+  // ⚠️ Mimitale **没有**世界书注入的 token 预算（酒馆有，默认约占上下文 25%），
+  //    深度是唯一的刹车。导入互引很多的大书时觉得费 token，就调成 0。
+  worldbookRecursiveDepth: 1,
   // 最多把多少轮对话带进请求（1 轮 = 一问一答）。
   // 调大 = 记得更牢，但每轮都重发一遍，token 花得更多；再早的内容归「记忆摘要」管。
   // ⚠️ 这个值原来写死在 renderer/js/core/config.js 的 CONFIG.MAX_TURNS 里，
@@ -174,11 +181,12 @@ const DEFAULT_SETTINGS = {
   // 为什么要它：`DEFAULT_SETTINGS` 只对「磁盘上缺这个键」生效。而每次 saveSettings
   // 都会把 normalizeSettings 的**整份结果**落盘，所以老用户的 config.json 里
   // 每个键都是显式写着的 —— 光改默认值对他们**完全无效**（踩过：
-  // 把 worldbookRecursiveDepth 默认改成 0，老配置里那个 3 依然纹丝不动）。
+  // 把 worldbookRecursiveDepth 的默认值调小，老配置里那个显式的 3 纹丝不动，
+  // 界面上还是 3）。
   // 于是需要版本号来判断「这份配置是旧结构写的」，从而在加载时做一次性修正。
   // 版本历史：
   //   1（或缺失）= 旧结构
-  //   2          = 世界书递归深度按酒馆语义迁移，见 normalizeSettings 里的 v1→v2
+  //   2          = 世界书递归深度收敛到新默认值，见 normalizeSettings 里的 v1→v2
   settingsVersion: 2
 };
 
@@ -234,12 +242,15 @@ function normalizeSettings(saved) {
   const settingsVersion = Number.isFinite(Number(raw.settingsVersion)) ? Number(raw.settingsVersion) : 1;
 
   // v1 → v2：世界书递归的**条目级语义**改成了酒馆口径（「缺省即可参与递归」，
-  // 见 main/worldbook-parse.js）。在这个口径下，深度 3 的含义从
+  // 见 main/worldbook-parse.js）。在这个口径下，同一个「深度 3」的含义从
   // 「只有勾了递归的条目才连锁」变成「导入的整本书都连锁」——
-  // 导入一本标准酒馆书就会连锁三层、注入量成倍上涨。
+  // 也就是说旧配置里那个 3 变得比它当初写下的意思更激进。
   //
-  // 所以把**恰好等于旧默认值 3** 的那种改写成 0（= 酒馆 Recursive Scan 的默认关）。
-  // 用户自己改成 1/2/4/5 说明他有明确意愿，一律不碰。
+  // 所以把**恰好等于旧默认值 3** 的那种收敛到**新的默认值**（现在是 1：只带一层）。
+  // ⚠️ 目标写成 DEFAULT_SETTINGS.worldbookRecursiveDepth 而不是写死数字：
+  //    这个迁移的语义就是「旧默认值 → 新默认值」，两处必须一致，
+  //    写死一个数字的话，下次默认值再变就会悄悄对不上。
+  // 用户自己改成 0/2/4/5 说明他有明确意愿，一律不碰。
   // （无法区分「他主动选了 3」和「3 只是当初的默认值」—— 这是有意的取舍：
   //   宁可让他自己再调一次，也不要在导入别人的书时静默放大 token。）
   //
@@ -335,15 +346,17 @@ function normalizeSettings(saved) {
   s.embeddingProviderId = typeof raw.embeddingProviderId === 'string' ? raw.embeddingProviderId.trim().slice(0, 60) : '';
   s.embeddingModel = typeof raw.embeddingModel === 'string' ? raw.embeddingModel.trim().slice(0, 120) : '';
 
-  // 世界书递归深度：0 表示关掉递归（就算条目勾了也不连锁）。
+  // 世界书递归深度：0 表示关掉递归（就算条目勾了也不连锁）。默认 1，见 DEFAULT_SETTINGS。
   // ⚠️ 迁移优先于磁盘上的值：旧配置里这个键一定是显式写着的 3，
   //    不在这里拦，上面算出来的 migrateRecursiveDepth 就白算了（见那段注释）。
   const depth = Number(raw.worldbookRecursiveDepth);
   if (migrateRecursiveDepth) {
-    s.worldbookRecursiveDepth = 0;
+    // 目标 = 新的默认值（1：只带一层）。理由见 DEFAULT_SETTINGS 那一段。
+    s.worldbookRecursiveDepth = DEFAULT_SETTINGS.worldbookRecursiveDepth;
     const notice =
-      '世界书递归深度的旧默认值（3 层）在新语义下会明显多花 token，已改为 0（关）。' +
-      '点一次「保存设置」就会固化；想保持开启就在「设置 → 行为」里调回 1~5。';
+      '世界书递归深度的旧默认值（3 层）在新的条目语义下会比以前更激进，' +
+      `已收敛到新的默认值 ${DEFAULT_SETTINGS.worldbookRecursiveDepth} 层（只带一层）。` +
+      '点一次「保存设置」就会固化；想恢复多层就在「设置 → 行为」里调大，想全关就填 0。';
     if (!pendingSettingsNotices.includes(notice)) pendingSettingsNotices.push(notice);
   } else {
     s.worldbookRecursiveDepth =
