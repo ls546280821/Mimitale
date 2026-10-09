@@ -362,6 +362,10 @@ function stashEntryForm() {
   entry.title = el.wb.e.title.value.trim().slice(0, 200) || parseEntryKeys(el.wb.e.keys.value)[0] || '未命名条目';
   entry.keys = parseEntryKeys(el.wb.e.keys.value);
   entry.secondaryKeys = parseEntryKeys(el.wb.e.keys2.value);
+  // 界面上没有「启用副关键词」这个开关，所以它由「格子里有没有填」决定。
+  // 必须在这里同步：从酒馆导入的条目可能带着 selective:false + 旧副关键词，
+  // 用户之后在界面上填了副关键词却仍被忽略，是看不出原因的静默失效。
+  entry.selective = entry.secondaryKeys.length > 0;
   entry.selectiveLogic = el.wb.e.logic.value;
   entry.content = el.wb.e.content.value.slice(0, 20000);
 

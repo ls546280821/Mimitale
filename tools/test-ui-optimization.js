@@ -7,6 +7,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const { app, BrowserWindow } = require('electron');
 app.disableHardwareAcceleration();
+const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mimitale-ui-'));
+app.setPath('userData', path.join(tmpRoot, 'user-data'));
 
 app.whenReady().then(async () => {
   const win = new BrowserWindow({ show: false, width: 1100, height: 800, webPreferences: { nodeIntegration: false, contextIsolation: true } });
@@ -16,6 +18,10 @@ app.whenReady().then(async () => {
     const page = path.join(os.tmpdir(), 'mimitale-ui-optimization.html');
     fs.writeFileSync(page, html);
     await win.loadFile(page);
+    // 隐藏窗口不一定持有页面焦点，而下面「键盘聚焦要露出操作区」这条依赖它 ——
+    // 不显式给一次焦点的话，element.focus() 会被 Blink 忽略，
+    // 断言时好时坏（而且它一失败就在断言处抛出，后面的表格检查根本跑不到）。
+    win.webContents.focus();
     const rootUrl = require('node:url').pathToFileURL(path.join(__dirname, '..', 'renderer') + path.sep).href;
     const panelUrl = require('node:url').pathToFileURL(path.join(__dirname, '..', 'main', 'panel-fields.js')).href;
     const checks = await win.webContents.executeJavaScript(`(async () => {
@@ -45,8 +51,17 @@ app.whenReady().then(async () => {
       const actions = document.querySelector('.msg-actions');
       check('未悬停的操作区保持淡出', getComputedStyle(actions).opacity === '0');
       document.querySelector('.mini-btn').focus();
-      await new Promise(resolve => setTimeout(resolve, 180));
-      check('键盘聚焦显示消息操作', getComputedStyle(actions).opacity === '1');
+      // 这条规则带 0.15s 过渡，固定等 180ms 在忙的机器上会踩到边界 ——
+      // 改成有界轮询：只要最终变成 1 就算过，超时才算失败（断言口径没放松）。
+      const waitOpacity = async (want, ms) => {
+        const until = performance.now() + ms;
+        while (performance.now() < until) {
+          if (getComputedStyle(actions).opacity === want) return true;
+          await new Promise(resolve => requestAnimationFrame(resolve));
+        }
+        return getComputedStyle(actions).opacity === want;
+      };
+      check('键盘聚焦显示消息操作', await waitOpacity('1', 1500));
       const table = document.querySelector('table');
       check('宽表格在气泡内部滚动', getComputedStyle(table).overflowX === 'auto' && table.scrollWidth > table.clientWidth && table.getBoundingClientRect().width <= 360);
       return results;

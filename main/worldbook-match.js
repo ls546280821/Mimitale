@@ -100,21 +100,15 @@ function allKeywordsHit(haystack, keywords, entry) {
 }
 
 /** 单条 entry 是否应该被注入 */
-function entryMatches(entry, haystack) {
+function entryMatches(entry, haystack, probabilityCache) {
   if (!entry || entry.enabled === false) return false;
   if (!String(entry.content || '').trim()) return false;
 
-  // constant（蓝圈）不需要关键词，永远注入
-  if (entry.constant) return true;
-  if (!entry.keys.length) return false;
+  const hasPrimaryHit = entry.constant || anyKeywordHit(haystack, entry.keys || [], entry);
+  if (!hasPrimaryHit) return false;
 
-  // 触发概率：100 必中，50 一半概率，0 等于停用
-  if (entry.probability < 100 && Math.random() * 100 >= entry.probability) return false;
-
-  if (!anyKeywordHit(haystack, entry.keys, entry)) return false;
-
-  // 附加过滤词（secondary keys）
-  if (entry.secondaryKeys.length) {
+  // 常驻条目只跳过关键词过滤；概率仍然适用，和 ST 的 verifyProbability 一致。
+  if (!entry.constant && entry.selective !== false && (entry.secondaryKeys || []).length) {
     switch (entry.selectiveLogic) {
       case 'AND_ALL':
         if (!allKeywordsHit(haystack, entry.secondaryKeys, entry)) return false;
@@ -130,6 +124,18 @@ function entryMatches(entry, haystack) {
         if (!anyKeywordHit(haystack, entry.secondaryKeys, entry)) return false;
         break;
     }
+  }
+
+  // 概率在关键词条件合格后才抽；同一次递归扫描只抽一次，避免失败后被后续轮次复活。
+  const probability = Number.isFinite(Number(entry.probability)) ? Number(entry.probability) : 100;
+  if (probability < 100) {
+    const key = entry.id || entry;
+    let allowed = probabilityCache && probabilityCache.get(key);
+    if (allowed === undefined) {
+      allowed = Math.random() * 100 < probability;
+      if (probabilityCache) probabilityCache.set(key, allowed);
+    }
+    if (!allowed) return false;
   }
 
   return true;
@@ -159,12 +165,13 @@ function matchWorldbookEntries(entries, scanText, options) {
   let rounds = 0;
   let recursiveCount = 0;
   let text = String(scanText == null ? '' : scanText);
+  const probabilityCache = new Map();
 
   for (let round = 0; round <= chainLimit; round += 1) {
     const fresh = [];
     for (const entry of entries) {
-      if (seen.has(entry.id)) continue;
-      if (entryMatches(entry, text)) fresh.push(entry);
+      if (seen.has(entry.id) || entry.excludeRecursion && round > 0) continue;
+      if (entryMatches(entry, text, probabilityCache)) fresh.push(entry);
     }
     if (!fresh.length) break;
 

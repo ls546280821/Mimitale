@@ -667,7 +667,7 @@
             <button id="btn-test" class="btn btn-ghost btn-sm" type="button">测试当前服务商</button>
           </div>
 
-          <!-- 默认人设：没绑定角色卡的对话里「AI 是谁」，按模型各存一份。
+          <!-- 默认人设：没绑定角色卡、也没进世界的对话里「AI 是谁」，按模型各存一份。
                正文往往是一整段设定（很长），所以设置页只留一行入口，编辑走弹窗。 -->
           <div class="persona-row">
             <div class="persona-row-info">
@@ -758,8 +758,10 @@
             <span class="field-label">世界书递归深度</span>
             <input id="s-wb-depth" type="number" min="0" max="5" step="1" aria-label="世界书递归深度" />
             <span class="field-help">
-              勾了「递归」的世界书条目，命中后还能再带出别的条目，最多连锁几层。<br />
-              0 = 完全关掉递归。层数越多带进来的设定越多，<b>token 也越多</b>。
+              「可递归」的世界书条目（编辑器里勾了「递归」的，或从酒馆导入时没勾
+              Prevent further recursion 的），命中后还能再带出别的条目，最多连锁几层。<br />
+              <b>0 = 完全关掉递归</b>，也是默认值 —— 和酒馆的「Recursive Scan」默认关一致。<br />
+              调大才开启：层数越多带进来的设定越多，<b>token 也越多</b>。
             </span>
           </label>
 
@@ -1535,7 +1537,8 @@
                   <span class="check-title">递归</span>
                   <span class="check-desc">
                     这条命中后，把它的正文也拿去做下一轮匹配 —— 正文里提到的词能再带出别的条目，
-                    一路连锁（最多几层在「设置 → 行为」里调）<br />
+                    一路连锁（最多几层在「设置 → 行为」里调，<b>默认 0 = 关</b>，那时勾了也不会连锁）<br />
+                    对应酒馆的「Prevent further recursion」：那边是勾上才禁止，这里是勾上才允许。<br />
                     <b>会明显增加 token</b>，只给「总览 / 索引」这类条目开
                   </span>
                 </span>
@@ -2088,7 +2091,8 @@
           <textarea id="persona-text" rows="12" spellcheck="false" aria-label="默认人设正文" placeholder="例如：&#10;你是……&#10;性格：……&#10;说话习惯：……"></textarea>
           <span class="field-help">
             写法和「角色卡」一样：你是谁、什么性格、怎么说话。<b>留空就是通用助手</b>（不扮演任何角色）。<br />
-            只对<b>没绑定角色卡</b>的对话生效 —— 一旦在某张卡上点了「聊天」，这段话就不参与，改由那张卡自己说话。
+            只对<b>没绑定角色卡、也没进世界</b>的对话生效 —— 一旦在某张卡上点了「聊天」、
+            或者从世界书里「游玩」进去，这段话就不参与，改由那张卡自己的设定 / 那个世界的世界书说话。
           </span>
         </label>
 

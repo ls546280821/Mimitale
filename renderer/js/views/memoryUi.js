@@ -38,7 +38,6 @@ import {
   MAX_SUMMARY_CHARS,
   convoContextMessages,
   convoSummaries,
-  nextSegmentTitle,
   buildTranscript,
   pendingSummaryRange,
   generateSummary,

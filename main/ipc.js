@@ -41,7 +41,8 @@ const {
   endpointFor,
   isBridgeProvider,
   loadSettings,
-  saveSettings
+  saveSettings,
+  takeSettingsNotices
 } = require('./providers.js');
 const {
   buildHeaders,
@@ -272,7 +273,9 @@ function openFolderInExplorer(dir) {
 function registerIpc() {
   ipcMain.handle('settings:get', () => {
     const settings = loadSettings();
-    return { settings, models: COMMON_MODELS, presets: PROVIDER_PRESETS };
+    // notices：设置迁移的「一次性告知」。取走即清空，所以只有界面启动那一次拉取能拿到，
+    // 由 renderer/main.js 弹成 toast —— 迁移动过用户的设置，不能只在日志里说。
+    return { settings, models: COMMON_MODELS, presets: PROVIDER_PRESETS, notices: takeSettingsNotices() };
   });
 
   ipcMain.handle('settings:save', (_event, patch) => saveSettings(patch));

@@ -29,6 +29,7 @@ import {
   petState,
   loadPetMemory,
   muteRemainMs,
+  turnsUntilNextSpeak,
   previewSpeak,
   sayThisNow
 } from '../data/petContext.js';
@@ -36,8 +37,27 @@ import {
 /** 预览框里当前那句话（「让桌宠说出这句」推的就是它） */
 let previewText = '';
 
-/** 数字输入防抖：边打字边落盘会把每一步中间值都写进去（比如 1→12 中间的 "1"） */
+/**
+ * 数字输入防抖：边打字边落盘会把每一步中间值都写进去（比如 1→12 中间的 "1"）。
+ *
+ * ⚠️ 三个数字框**共用一份待提交表**，而不是各留一个定时器。
+ * 各留一个的话，先改「轮数」再改「句数」会这样翻车：
+ *   轮数的定时器先到 → patchPet → 重画 → 用缓存里的旧值把「句数」输入框冲掉；
+ *   句数的定时器随后读到那个被冲掉的旧值，用户这次修改就丢了。
+ * 合并成一次 patch 之后，重画只发生在两个字段都已经写进去之后。
+ */
 let numberTimer = null;
+const pendingNumbers = new Map();
+
+/** 取出并清空待提交的数字字段；没有待提交的返回 null */
+function flushPendingNumbers() {
+  clearTimeout(numberTimer);
+  numberTimer = null;
+  if (!pendingNumbers.size) return null;
+  const patch = Object.fromEntries(pendingNumbers);
+  pendingNumbers.clear();
+  return patch;
+}
 
 function currentPet() {
   const cache = petState();
@@ -52,7 +72,11 @@ function currentConfig() {
 async function patchPet(patch) {
   const pet = currentPet();
   if (!pet) return;
-  await api.petUpdate({ petId: pet.id, patch });
+  // 把还没提交的数字改动并进来：紧随其后的重画会按缓存重填输入框，
+  // 漏掉任何一项都等于把用户刚敲的值抹掉。
+  const pending = flushPendingNumbers();
+  const merged = { ...(pending || {}), ...(patch || {}) };
+  await api.petUpdate({ petId: pet.id, patch: merged });
   await refreshPetCache();
   renderPetSettings();
 }
@@ -79,8 +103,15 @@ function renderStatusLine() {
   const bits = [pet.visible ? '在桌面上' : '已隐藏'];
   if (!pet.speakEnabled) bits.push('主动发言已暂停');
   const remain = muteRemainMs();
-  if (remain > 0) bits.push(`静音中，还剩 ${Math.ceil(remain / 60000)} 分钟`);
-  else bits.push(`每 ${pet.speakEveryTurns} 轮说 ${pet.speakLines} 句`);
+  if (remain > 0) {
+    bits.push(`静音中，还剩 ${Math.ceil(remain / 60000)} 分钟`);
+  } else {
+    bits.push(`每 ${pet.speakEveryTurns} 轮说 ${pet.speakLines} 句`);
+    // 再攒几轮才开口。没有会话时 turnsUntilNextSpeak 返回 null —— 那时不显示这一项，
+    // 而不是显示「还差 0 轮」（那会像是它马上就要说话了）。
+    const wait = turnsUntilNextSpeak();
+    if (Number.isFinite(wait)) bits.push(wait > 0 ? `还差 ${wait} 轮开口` : '下一轮就开口');
+  }
   bits.push(`记忆 ${(petState() && petState().memoryCount) || 0} 条`);
 
   node.textContent = bits.join(' · ');
@@ -205,11 +236,18 @@ export function renderPetSettings() {
 
   el.pet.enabled.checked = config.enabled !== false;
   el.pet.speakEnabled.checked = pet.speakEnabled !== false;
-  el.pet.every.value = String(pet.speakEveryTurns);
-  el.pet.lines.value = String(pet.speakLines);
+  // 还没提交的数字改动不要用缓存值冲掉（其他操作也会触发重画）
+  const setNumber = (input, key, value) => {
+    if (pendingNumbers.has(key)) return;
+    input.value = String(value);
+  };
+  setNumber(el.pet.every, 'speakEveryTurns', pet.speakEveryTurns);
+  setNumber(el.pet.lines, 'speakLines', pet.speakLines);
   // temperature 为 null 表示「跟随全局」，输入框留空
-  el.pet.temp.value = Number.isFinite(pet.temperature) ? String(pet.temperature) : '';
-  el.pet.memoryMax.value = String(pet.memoryMaxItems);
+  if (!pendingNumbers.has('temperature')) {
+    el.pet.temp.value = Number.isFinite(pet.temperature) ? String(pet.temperature) : '';
+  }
+  setNumber(el.pet.memoryMax, 'memoryMaxItems', pet.memoryMaxItems);
   el.pet.style.value = pet.style || '';
 
   // 人格是有可能要重读文件的，所以只在框里还是空的时候才覆盖，
@@ -309,13 +347,16 @@ export function initPetSettings(opts) {
 
   const bindNumber = (input, key, min, max) => {
     input.addEventListener('input', () => {
+      const n = Number(input.value);
+      if (!Number.isFinite(n)) return;
+      const clamped = Math.max(min, Math.min(max, Math.round(n)));
+      if (clamped !== n) input.value = String(clamped);
+
+      pendingNumbers.set(key, clamped);
       clearTimeout(numberTimer);
       numberTimer = setTimeout(() => {
-        const n = Number(input.value);
-        if (!Number.isFinite(n)) return;
-        const clamped = Math.max(min, Math.min(max, Math.round(n)));
-        if (clamped !== n) input.value = String(clamped);
-        patchPet({ [key]: clamped });
+        const patch = flushPendingNumbers();
+        if (patch) patchPet(patch);
       }, 600);
     });
   };

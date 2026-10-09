@@ -25,8 +25,11 @@
 //      页面用 elementFromPoint 判断指针有没有落在宠物/气泡上，落在上面才关掉穿透。
 //      判断在 renderer/pet/pet.js 里，这里只提供开关。
 //
-//   ② **位置按屏幕记**。存的是「在哪块屏 + 屏内坐标」，不是绝对坐标 ——
-//      拔掉副屏之后绝对坐标会落到屏幕外面，宠物就再也找不到了。
+//   ② **位置能自我救回**。存的其实是**绝对坐标**（外加一个 displayId 作为记录），
+//      还原时不做「按屏内坐标换算」，而是拿这块矩形问系统它落在哪块屏
+//      （screen.getDisplayMatching），再检查它是否还和那块屏的工作区相交。
+//      副屏拔掉后坐标会落在屏幕外 → 相交检查不过 → 退回主屏右下角，
+//      所以「宠物存在但再也看不见」这条同样不会发生（displayId 只留作记录）。
 //
 //  拖动不用渲染层发增量坐标（那样会抖、还会跟系统缩放打架），
 //  而是拖拽开始记下「光标离窗口左上角多远」，之后按光标真实位置摆窗口。
@@ -98,7 +101,8 @@ function resolveBounds(pet) {
     const area = { x: saved.x, y: saved.y, width, height };
     const display = screen.getDisplayMatching(area);
     const work = display.workArea;
-    // 至少要有四分之一露在工作区里，否则等于看不见了
+    // 至少要有 20px 和这块屏的工作区相交，否则等于看不见了
+    // （比「四分之一可见」宽：猫本体的命中区小于窗口，压到边角也还能拖回来）
     const visible =
       saved.x + width > work.x + 20 &&
       saved.x < work.x + work.width - 20 &&

@@ -19,6 +19,21 @@ const {
 const DEFAULT_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_MODEL = 'deepseek-chat';
 
+/**
+ * 待告知用户的「设置迁移」通知。
+ *
+ * normalizeSettings 是纯函数、可能被频繁调用（每次 loadSettings 都会走），
+ * 所以这里用一条队列 + 去重：同样的提示在一次运行里只留一条。
+ * 由 IPC 的 settings:get 取走（takeSettingsNotices），界面启动时弹一次 toast ——
+ * 迁移改了用户的设置，就不能只在日志里悄悄说一句。
+ */
+let pendingSettingsNotices = [];
+function takeSettingsNotices() {
+  const out = pendingSettingsNotices;
+  pendingSettingsNotices = [];
+  return out;
+}
+
 // 内置的常见服务商预设：「添加服务商」时一键填充
 const PROVIDER_PRESETS = [
   {
@@ -115,8 +130,15 @@ const DEFAULT_SETTINGS = {
   showDate: true,
   showUsage: true,
   // 世界书递归扫描最多连锁几层。0 = 完全关掉递归。
-  // 只有勾了「递归」的条目才会往下带，所以这个上限是第二道闸。
-  worldbookRecursiveDepth: 3,
+  // 只有「可递归」的条目才会往下带，所以这个上限是第二道闸。
+  //
+  // ⚠️ 默认 **0（关）** 是刻意的，对齐酒馆：ST 的总开关 Recursive Scan 默认就是关
+  //    （源码 `world_info_recursive = false`，官方文档也把它列为可选功能）。
+  //    为什么不能默认非 0：ST 的条目级开关只用来「限制」（缺省即「可参与递归」），
+  //    所以导入一本标准酒馆书之后**每一条都是可递归的** —— 这时若默认还开着 3 层，
+  //    用户只是导入了别人的书，注入量就会翻好几倍。用「全局默认关 + 用户想开再开」
+  //    既忠于 ST 的语义，又不会在导入时偷偷放大 token。
+  worldbookRecursiveDepth: 0,
   // 最多把多少轮对话带进请求（1 轮 = 一问一答）。
   // 调大 = 记得更牢，但每轮都重发一遍，token 花得更多；再早的内容归「记忆摘要」管。
   // ⚠️ 这个值原来写死在 renderer/js/core/config.js 的 CONFIG.MAX_TURNS 里，
@@ -147,7 +169,17 @@ const DEFAULT_SETTINGS = {
   // 结构：{ [模型名]: { name, persona } }；没有条目的模型 = 通用助手
   // （无人设 = 不扮演任何角色、也不提名字，见 renderer 的 data/cast.js）。
   // 绑了角色卡的会话一律用那张卡自己的设定，这个键完全不参与。
-  assistantPersonas: {}
+  assistantPersonas: {},
+  // --- 设置结构版本：**只用来做一次性迁移**，不是给用户看的选项 ---
+  // 为什么要它：`DEFAULT_SETTINGS` 只对「磁盘上缺这个键」生效。而每次 saveSettings
+  // 都会把 normalizeSettings 的**整份结果**落盘，所以老用户的 config.json 里
+  // 每个键都是显式写着的 —— 光改默认值对他们**完全无效**（踩过：
+  // 把 worldbookRecursiveDepth 默认改成 0，老配置里那个 3 依然纹丝不动）。
+  // 于是需要版本号来判断「这份配置是旧结构写的」，从而在加载时做一次性修正。
+  // 版本历史：
+  //   1（或缺失）= 旧结构
+  //   2          = 世界书递归深度按酒馆语义迁移，见 normalizeSettings 里的 v1→v2
+  settingsVersion: 2
 };
 
 function newProviderId() {
@@ -186,6 +218,37 @@ function isBridgeProvider(provider) {
 function normalizeSettings(saved) {
   const raw = saved && typeof saved === 'object' ? saved : {};
   const s = { ...DEFAULT_SETTINGS, ...raw };
+
+  // ---------------------------------------------------------------------------
+  //  设置结构迁移（一次性）
+  //
+  //  ⚠️ 判据一律基于 `raw`（磁盘上的原样），**不能用合并后的 `s`** ——
+  //     理由同下面 hasProviders 那段：DEFAULT_SETTINGS 会把缺的键补上，
+  //     合并之后就再也分不出「用户写的」和「默认给的」。
+  //
+  //  ⚠️ 这里**只改内存里的值、不落盘**。落盘必须走 saveSettings，因为只有那条路径
+  //     会把 API Key 加密（直接在这里 writeJson 等于把明文 Key 写进 config.json）。
+  //     因此：迁移会在下一次保存设置时被固化（连同 settingsVersion 一起写下去）；
+  //     在那之前每次启动都会重新应用一次 —— 结果是一样的，只是通知会再弹一次。
+  // ---------------------------------------------------------------------------
+  const settingsVersion = Number.isFinite(Number(raw.settingsVersion)) ? Number(raw.settingsVersion) : 1;
+
+  // v1 → v2：世界书递归的**条目级语义**改成了酒馆口径（「缺省即可参与递归」，
+  // 见 main/worldbook-parse.js）。在这个口径下，深度 3 的含义从
+  // 「只有勾了递归的条目才连锁」变成「导入的整本书都连锁」——
+  // 导入一本标准酒馆书就会连锁三层、注入量成倍上涨。
+  //
+  // 所以把**恰好等于旧默认值 3** 的那种改写成 0（= 酒馆 Recursive Scan 的默认关）。
+  // 用户自己改成 1/2/4/5 说明他有明确意愿，一律不碰。
+  // （无法区分「他主动选了 3」和「3 只是当初的默认值」—— 这是有意的取舍：
+  //   宁可让他自己再调一次，也不要在导入别人的书时静默放大 token。）
+  //
+  // ⚠️ 这里**只算「要不要迁移」，不在这里改 s**：下面每个字段都有自己的
+  //    「从 raw 重算一遍」逻辑，在这儿写的值会被它们覆盖掉 ——
+  //    实际踩过：这里写了 0，走到「世界书递归深度」那段又被改回 3，静默失效。
+  //    真正的赋值必须贴着那段字段归一化做。
+  const migrateRecursiveDepth = settingsVersion < 2 && Number(raw.worldbookRecursiveDepth) === 3;
+  s.settingsVersion = DEFAULT_SETTINGS.settingsVersion;
 
   // 注意：判断的是「磁盘上有没有 providers」，不能看合并后的 s ——
   // 因为 DEFAULT_SETTINGS 自带 providers，合并后永远有，旧配置就永远进不了迁移分支。
@@ -272,12 +335,22 @@ function normalizeSettings(saved) {
   s.embeddingProviderId = typeof raw.embeddingProviderId === 'string' ? raw.embeddingProviderId.trim().slice(0, 60) : '';
   s.embeddingModel = typeof raw.embeddingModel === 'string' ? raw.embeddingModel.trim().slice(0, 120) : '';
 
-  // 世界书递归深度：0 表示关掉递归（就算条目勾了也不连锁）
+  // 世界书递归深度：0 表示关掉递归（就算条目勾了也不连锁）。
+  // ⚠️ 迁移优先于磁盘上的值：旧配置里这个键一定是显式写着的 3，
+  //    不在这里拦，上面算出来的 migrateRecursiveDepth 就白算了（见那段注释）。
   const depth = Number(raw.worldbookRecursiveDepth);
-  s.worldbookRecursiveDepth =
-    Number.isFinite(depth) && depth >= 0 && depth <= 5
-      ? Math.floor(depth)
-      : DEFAULT_SETTINGS.worldbookRecursiveDepth;
+  if (migrateRecursiveDepth) {
+    s.worldbookRecursiveDepth = 0;
+    const notice =
+      '世界书递归深度的旧默认值（3 层）在新语义下会明显多花 token，已改为 0（关）。' +
+      '点一次「保存设置」就会固化；想保持开启就在「设置 → 行为」里调回 1~5。';
+    if (!pendingSettingsNotices.includes(notice)) pendingSettingsNotices.push(notice);
+  } else {
+    s.worldbookRecursiveDepth =
+      Number.isFinite(depth) && depth >= 0 && depth <= 5
+        ? Math.floor(depth)
+        : DEFAULT_SETTINGS.worldbookRecursiveDepth;
+  }
 
   // 带进请求的对话轮数。上限给得宽（200 轮）：这是用户自己的选择，
   // 拦太死反而像 bug；只管住下限和「不是个数」的情况。
@@ -447,5 +520,6 @@ module.exports = {
   endpointFor,
   isBridgeProvider,
   loadSettings,
-  saveSettings
+  saveSettings,
+  takeSettingsNotices
 };

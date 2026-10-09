@@ -125,8 +125,12 @@ Windows 用户也可以直接**双击 `Start-Mimitale.cmd`**，它会自动检�
 | 智谱 GLM   | `https://open.bigmodel.cn/api/paas/v4`              |
 | Kimi     | `https://api.moonshot.cn/v1`                        |
 
-> 接口地址是**原样拼接**的（后面直接接 `/chat/completions`），  
-> 所以该带 `/v1` 的服务商必须带上，否则会 404。
+> 接口地址会先**清洗**再拼接：去掉首尾空白、去掉末尾多余的 `/`，并循环剥掉末尾
+> 误粘进来的端点路径（`/chat/completions`、`/images/generations`、`/embeddings`、
+> `/models`）—— 把整条端点当「接口地址」粘进来的情况很常见，不剥就会拼成
+> `.../chat/completions/chat/completions` 而 404。  
+> 但服务商要求的**版本前缀必须自己带上**（`/v1`、`/api/paas/v4`、`/compatible-mode/v1`），
+> 清洗不会替你补，少了照样 404。
 
 详细用法见 **[使用说明.md](使用说明.md)**。
 
@@ -180,41 +184,63 @@ mimitale/
 │   ├── index.html
 │   ├── style.css
 │   └── js/          界面逻辑（ES module，不需要打包器）
-│       ├── main.js      入口层 · 只剩启动流程 + 事件绑定 + 跨视图编排（689 行）
+│       ├── main.js      入口层 · 只剩启动流程 + 事件绑定 + 跨视图编排
 │       ├── core/        常量 / 状态 / DOM 引用 / preload 桥 / 工具 / 面板字段桥
 │       ├── ui/          提示条 / 确认框 / 主题 / Markdown / 建 DOM 的小工具
 │       ├── data/        纯逻辑地基：服务商模型 / 角色库 / 状态面板 / 叙述规则 /
 │       │                记忆摘要 / 持久化 / 导出收尾 / 演出阵容 / 消息 / 语义检索 /
-│       │                剧情选项 / 会话骨架（14 个文件）
-│       └── views/       一个功能一块，共 35 个模块（refresh 总线 / redraw 门面 /
-│                        header / perspectiveUi / panelUi / worldbookList / worldbook /
+│       │                剧情选项 / 桌宠上下文 / 会话骨架
+│       └── views/       一个功能一块（refresh 总线 / redraw 门面 / header /
+│                        perspectiveUi / panelUi / worldbookList / worldbook /
 │                        presetList / preset / presetIO / settings / settingsCatalog /
-│                        appearance / player / memoryUi / viewSwitch / requestLog /
-│                        characterList / characterEditor / charAttributes /
+│                        appearance / player / memoryUi / petSettings / viewSwitch /
+│                        requestLog / characterList / characterEditor / charAttributes /
 │                        charExpressions / characterImport / aiGen / stream /
 │                        chatImages / suggestionsUi / stateCard / convoActions /
 │                        summarize / composer / chatMessages / chatList / chatExport /
 │                        worldPlay / help）
 └── tools/           冒烟测试脚手架（假后端，不动你的真实数据）
+                    + 一组不需要启动程序就能跑的静态检查（见下面「自检工具」）
 ```
+
+### 自检工具
+
+这些都是**纯静态检查**，不需要起 Electron、不碰你的数据，几秒跑完。
+输出「(无)」= 没问题；有问题时退出码非 0，方便挂进脚本。
+
+| 命令 | 抓什么 |
+| --- | --- |
+| `node tools/analyze.js` | 分层与规模：分区、fan-in、疑似重复的函数对 |
+| `node tools/check-imports.js` | 导入了但对面没导出（名字对不上 = 整个模块图链接失败） |
+| `node tools/check-channels.js` | IPC 通道三向对齐（preload 调的 / 主进程注册的 / 主进程推的） |
+| `node tools/check-dead-code.js` | 死导入、主进程死 `require`、死导出（并区分「只是多写了 export」） |
+| `node tools/check-dom-ids.js` | JS 抓的 DOM id 在 HTML 里不存在 |
+| `node tools/check-el-refs.js` | `el.<分组>.<字段>` 在 `core/dom.js` 里不存在 |
+| `node tools/check-api-settings.js` | `api.xxx()` 没被 preload 暴露；设置键不在 `DEFAULT_SETTINGS` 白名单（会被静默丢掉） |
+
+> 为什么值得有这一组：这个仓库的坑集中在「**不会报错，只会静默失效**」这一类 ——
+> 通道名写错、id 拼错、设置键漏进白名单，症状都是「点了没反应」。
+> 靠人肉 review 容易漏，靠这几条正则能稳定挡住。
 
 > **主进程为什么拆成 `main/`**：这些模块是纯逻辑，抽出来以后冒烟测试能  
 > `require` **同一份代码**去验，而不是在测试里另写一套 —— 「内嵌世界书被丢掉」  
 > 「导入后绑定指向不存在的书」这两个 bug 就是这么做才被抓住的。
 >
-> `renderer/js/main.js` 的重构**已经收尾**：从峰值 **7902 行**降到 **689 行**，  
-> 只剩入口层编排 —— 启动流程（`init()`）、事件绑定（`bindEvents()`，含 Esc 的  
-> 有序关闭链和 `api.onChunk / onReasoning` 全局监听）、刷新接线板  
-> （`registerRefreshListeners()`）、以及跨视图编排（`importWorldbooks()`）。
+> `renderer/js/main.js` 的重构**已经收尾**：从峰值 7900 多行降到只剩入口层编排 ——  
+> 启动流程（`init()`）、事件绑定（`bindEvents()`，含 Esc 的有序关闭链和  
+> `api.onChunk / onReasoning` 全局监听）、刷新接线板（`registerRefreshListeners()`）、  
+> 以及跨视图编排（`importWorldbooks()`）。
 >
-> 功能代码按 `core ← ui ← data ← views ← 入口` 单向分层：**data 15 个文件**  
-> 放纯逻辑，**views 35 个模块**一个功能一块，刷新走 `views/refresh.js` 总线，  
+> 功能代码按 `core ← ui ← data ← views ← 入口` 单向分层：`data/` 放纯逻辑，  
+> `views/` 一个功能一块，刷新走 `views/refresh.js` 总线，  
 > 全量重绘统一走 `views/redraw.js` 门面。视图要用入口层的动作时，由入口层  
 > `initXxx({ action })` 注入，视图不向上 import —— 这条是防循环依赖的铁律。
 >
-> 想自己复核分层与规模数字：`node tools/analyze.js`。
+> ⚠️ 这里**故意不写「多少行 / 多少个模块」**：这类数字每次改动都会过期，  
+> 而过期数字比没有数字更误导。要复核分层与规模，直接跑 `node tools/analyze.js`  
+> （它按真实文件统计并列出分区、fan-in 和疑似重复函数）。
 
-**为什么文件操作都在 `main.js`？** 因为页面被 CSP 锁死了：
+**为什么文件操作都在主进程？** 因为页面被 CSP 锁死了：
 
 ```
 default-src 'none'; script-src 'self'; img-src 'self' data:;

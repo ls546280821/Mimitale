@@ -8,7 +8,12 @@
 //    providers.js  服务商 + 模型列表 + 设置（config.json）的形状
 //    http.js       大模型 HTTP 请求（含流式）
 //    window.js     窗口 + 开发模式热重载
-//    ipc.js        IPC 通道注册（每个 handler 只做参数转发）
+//    ipc.js        IPC 通道注册（handler 里是参数校验 + 编排，落盘/请求转发给上面几个模块）
+//    data-dir.js   数据目录解析（程序旁边的 data\，写不了才退回 %APPDATA%）
+//    characters.js / worldbook-*.js / presets.js / panel-fields.js
+//                  角色卡 · 世界书 · 预设 · 状态面板字段的归一化与匹配
+//    card-import.js / import-files.js / png.js  导入链路与 PNG 角色卡读写
+//    pet-*.js      桌宠：数据层 / 窗口 / 提示词与模型调用 / IPC 编排 / 散步
 //  界面的逻辑在 renderer\ 目录里。
 // ============================================================================
 

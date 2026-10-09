@@ -20,6 +20,7 @@ import { createConvo, branchSkeleton } from '../data/conversations.js';
 import { persistConversations } from '../data/persist.js';
 import { showView } from './viewSwitch.js';
 import { renderAll } from './redraw.js';
+import { resetPetTurns } from '../data/petContext.js';
 
 export function switchConvo(id) {
   if (state.streaming) {
@@ -55,6 +56,9 @@ export async function removeConvo(id) {
   if (!ok) return;
 
   state.conversations = state.conversations.filter((c) => c.id !== id);
+  // 桌宠的「攒了几轮」是按会话 id 记的，会话没了就把那条计数删掉 ——
+  // 否则这个 Map 会随着删掉的会话一直长，而且 id 万一被复用会带着旧计数。
+  resetPetTurns(id);
   if (state.activeId === id) {
     state.activeId = state.conversations.length ? state.conversations[0].id : null;
   }

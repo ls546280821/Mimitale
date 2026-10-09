@@ -158,10 +158,15 @@ export function selectableDialoguePresets() {
 /** 扫一遍近期消息拼注入块时，往回看几条消息 */
 export const WORLDBOOK_SCAN_DEPTH = 6;
 
-/** 递归扫描最多连锁几层（设置里调，0 = 关掉递归） */
+/**
+ * 递归扫描最多连锁几层（设置里调，0 = 关掉递归）。
+ *
+ * 默认 0（关）对齐酒馆的 Recursive Scan 默认关，理由见 main/providers.js 里
+ * DEFAULT_SETTINGS.worldbookRecursiveDepth 那段注释。
+ */
 export function recursiveDepthSetting() {
   const value = Number((state.settings || {}).worldbookRecursiveDepth);
-  return Number.isFinite(value) && value >= 0 && value <= 5 ? Math.floor(value) : 3;
+  return Number.isFinite(value) && value >= 0 && value <= 5 ? Math.floor(value) : 0;
 }
 
 /**
@@ -214,14 +219,14 @@ export function worldbookPayload(book) {
       keysecondary: asArray(entry.secondaryKeys),
       content: entry.content || '',
       constant: entry.constant === true,
-      selective: Array.isArray(entry.secondaryKeys) && entry.secondaryKeys.length > 0,
+      selective: entry.selective !== false && Array.isArray(entry.secondaryKeys) && entry.secondaryKeys.length > 0,
       selectiveLogic: { AND_ANY: 0, NOT_ALL: 1, NOT_ANY: 2, AND_ALL: 3 }[entry.selectiveLogic] ?? 0,
       order: Number.isFinite(entry.order) ? entry.order : 100,
       probability: Number.isFinite(entry.probability) ? entry.probability : 100,
       disable: entry.enabled === false,
-      // 递归：写法两边都给 —— 酒馆认 excludeRecursion（true = 不参与递归），
-      // 我们自己认 recursive。这样导出的书酒馆能用，我们自己再导回来也不丢这个开关。
-      excludeRecursion: entry.recursive !== true,
+      // ST 将“正文能否继续触发”与“能否作为递归目标”分开保存。
+      preventRecursion: entry.recursive !== true,
+      excludeRecursion: entry.excludeRecursion === true,
       recursive: entry.recursive === true,
       matchWholeWords: entry.matchWholeWords === true,
       caseSensitive: entry.caseSensitive === true
@@ -259,6 +264,8 @@ export function characterBookPayload(book) {
         selectiveLogic: entry.selectiveLogic,
         probability: entry.probability,
         useProbability: true,
+        prevent_recursion: entry.recursive !== true,
+        exclude_recursion: entry.excludeRecursion === true,
         match_whole_words: entry.matchWholeWords,
         case_sensitive: entry.caseSensitive,
         mimitale: { recursive: entry.recursive }

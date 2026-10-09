@@ -29,7 +29,6 @@
 
 const path = require('node:path');
 const fs = require('node:fs');
-const { app } = require('electron');
 
 const { dataDir } = require('./data-dir.js');
 const { loadJsonWithFallback, writeJson, writeJsonNow } = require('./store.js');
@@ -195,6 +194,27 @@ function clampInt(value, min, max, fallback) {
   return Math.max(min, Math.min(max, Math.round(n)));
 }
 
+/**
+ * 形象目录名怎么收。
+ *
+ * ⚠️ 别复用 safeId：那是给**宠物 id** 用的（要拿去拼 persona/memory 的文件名），
+ *    只认 [A-Za-z0-9_-] 而且**非法就返回 'pet1'** —— 拿它收形象名会出这种查不出来的错位：
+ *    下拉里明明有「蓝猫」，选中后却被存成 `pet1`，然后去找 assets/pet/pet1 显示占位框。
+ *
+ * ⚠️ 也别统一转小写：Linux 和区分大小写的 macOS 卷上，目录 `MyCat` 转成 `mycat`
+ *    之后就再也找不到了（Windows 无所谓，但没理由只在这一个平台上对）。
+ *
+ * 这里只清洗「不能当目录名用」的东西（路径分隔符、通配符、`..`），其余原样保留 ——
+ * 保证「下拉里列出的名字」和「真去读的目录名」永远是同一个。
+ */
+function safeSkinName(name) {
+  const raw = String(name == null ? '' : name)
+    .trim()
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/\.{2,}/g, '_');
+  return raw.slice(0, 60) || 'cat';
+}
+
 function normalizeLook(raw) {
   const look = raw && typeof raw === 'object' ? raw : {};
   // 只认 rig —— 第一版的 'png'（单张静态图）已经移除。
@@ -204,7 +224,7 @@ function normalizeLook(raw) {
   return {
     kind: known ? look.kind : 'rig',
     source: known && look.source === 'user' ? 'user' : 'assets',
-    skin: safeId(known ? look.skin || 'cat' : 'cat').toLowerCase()
+    skin: safeSkinName(known ? look.skin || 'cat' : 'cat')
   };
 }
 
@@ -251,7 +271,7 @@ function normalizePet(raw, fallbackId) {
     useMainModel: p.useMainModel !== false,
     providerId: String(p.providerId || '').trim().slice(0, 60),
     model: String(p.model || '').trim().slice(0, 120),
-    temperature: Number.isFinite(Number(p.temperature))
+    temperature: p.temperature !== null && p.temperature !== '' && Number.isFinite(Number(p.temperature))
       ? Math.max(0, Math.min(2, Number(p.temperature)))
       : null,
     style: typeof p.style === 'string' ? p.style.trim().slice(0, 2000) : '',
@@ -294,10 +314,27 @@ function loadPetConfig() {
   return normalizePetConfig(loadJsonWithFallback(petConfigFile()));
 }
 
-/** 覆盖式保存（界面传完整一份回来）。返回写盘的 Promise —— 别改成 return data */
-function savePetConfig(config) {
+// 写队列必须包含读取：只排队落盘仍会让并发修改覆盖同一份旧快照。
+let mutationQueue = Promise.resolve();
+function queueMutation(operation) {
+  const result = mutationQueue.then(operation);
+  mutationQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+function writePetConfig(config) {
   const data = normalizePetConfig(config);
   return writeJson(petConfigFile(), data).then(() => data);
+}
+
+/** 完整替换配置；增量修改请用 patchPetConfig / patchPet。 */
+function savePetConfig(config) {
+  return queueMutation(() => writePetConfig(config));
+}
+
+/** 在队列内读取最新配置再修改根字段。 */
+function patchPetConfig(patch) {
+  return queueMutation(() => writePetConfig({ ...loadPetConfig(), ...patch }));
 }
 
 /** 关窗口时的最后一次保存：同步写，理由同 main/store.js 的 immediate 那套 */
@@ -307,15 +344,24 @@ function savePetConfigNow(config) {
   return data;
 }
 
-/** 改**其中一只**的字段，别的原样带过 */
+/**
+ * 改**其中一只**的字段，别的原样带过。
+ *
+ * ⚠️ 读也必须排队内：先读再排队写的话，两个并发修改会各自拿着同一份旧快照，
+ * 队列只保证「写的顺序」，后一次写会把前一次的字段整份盖回去（改频率 + 改句数
+ * 只生效一个，就是这么来的）。`pet:update` 会同时改多个字段，撞上散步存位
+ * 的防抖落盘就会真的发生。
+ */
 function patchPet(petId, patch) {
-  const config = loadPetConfig();
-  const index = config.pets.findIndex((p) => p.id === petId);
-  if (index < 0) return Promise.reject(new Error('找不到这只桌宠'));
+  return queueMutation(() => {
+    const config = loadPetConfig();
+    const index = config.pets.findIndex((p) => p.id === petId);
+    if (index < 0) throw new Error('找不到这只桌宠');
 
-  const merged = { ...config.pets[index], ...(patch && typeof patch === 'object' ? patch : {}) };
-  config.pets[index] = merged;
-  return savePetConfig(config);
+    const merged = { ...config.pets[index], ...(patch && typeof patch === 'object' ? patch : {}) };
+    config.pets[index] = merged;
+    return writePetConfig(config);
+  });
 }
 
 function findPet(config, petId) {
@@ -393,7 +439,9 @@ function listRigSkins() {
         if (m) label = m[1].trim();
       } catch (err) { /* 没有 README 很常见 */ }
       out.push({
-        id: name.toLowerCase(),
+        // 用**真实目录名**，不转小写：设置页拿它和 look.skin 比对、rigSkinDir 拿它拼路径，
+        // 转小写会让 MyCat 这类目录在区分大小写的文件系统上「列得出来、选不中」。
+        id: safeSkinName(name),
         label,
         source,
         hasThumb: ['thumb.png', 'preview.png', 'thumb.jpg']
@@ -500,9 +548,10 @@ function petRigPack(look) {
   return pack;
 }
 
-// 形象只有内置 rig 一种，没有「从文件选一张图当形象」这条路了 ——
+// 形象只有 rig 一种：**没有**「从文件选一张静态图当形象」这条路了 ——
 // 原来的 importPetSkin / listPetSkins（都是围着静态 PNG 转的）已随之移除。
-// 以后要支持导入别人的 rig 形象包时，重新加一个**认 model.json 的目录扫描**即可。
+// 但「换形象」本身还在：往 assets/pet/<名字>/ 或 <数据目录>/pet/skins/<名字>/
+// 放一个带 model.json 的目录，就会被上面的 listRigSkins() 扫到并出现在下拉里。
 
 // ---------------------------------------------------------------------------
 //  人格
@@ -603,69 +652,79 @@ function newMemoryId() {
  */
 function appendPetMemory(petId, item, maxItems) {
   const id = safeId(petId);
-  const store = loadMemoryStore();
-  const bucket = store.pets[id] && typeof store.pets[id] === 'object' ? store.pets[id] : {};
-  const items = Array.isArray(bucket.items) ? bucket.items.slice() : [];
 
   const kind = MEMORY_ITEM_KINDS.has(item && item.kind) ? item.kind : 'event';
   const text = String((item && item.text) || '').trim().slice(0, MAX_MEMORY_TEXT);
-  if (!text) return Promise.resolve(items);
+  if (!text) return Promise.resolve(petMemoryItems(id));
 
-  items.push({
-    id: newMemoryId(),
-    at: Date.now(),
-    kind,
-    text,
-    convoTitle: String((item && item.convoTitle) || '').trim().slice(0, 60)
+  // 读改写整段排队（理由同 patchPet）：桌宠说完话会连着追加「说过的一句」和
+  // 「记下的事」两条，两次调用各自读旧快照的话，前面那条会被整份覆盖掉。
+  return queueMutation(async () => {
+    const store = loadMemoryStore();
+    const bucket = store.pets[id] && typeof store.pets[id] === 'object' ? store.pets[id] : {};
+    const items = Array.isArray(bucket.items) ? bucket.items.slice() : [];
+
+    items.push({
+      id: newMemoryId(),
+      at: Date.now(),
+      kind,
+      text,
+      convoTitle: String((item && item.convoTitle) || '').trim().slice(0, 60)
+    });
+
+    // 超上限：把最早的那些折进摘要
+    const limit = clampInt(maxItems, MEMORY_MAX_ITEMS_MIN, MEMORY_MAX_ITEMS_MAX, 30);
+    let folded = [];
+    if (limit === 0) {
+      folded = items.splice(0, items.length);
+    } else if (items.length > limit) {
+      folded = items.splice(0, items.length - limit);
+    }
+
+    store.pets[id] = { items };
+    const writes = [writeJson(petMemoryFile(), store)];
+
+    if (folded.length) {
+      const summaries = loadSummaryStore();
+      const prev = summaries.pets[id] && typeof summaries.pets[id].digest === 'string'
+        ? summaries.pets[id].digest
+        : '';
+      // 折叠就是本地拼接，**不额外调模型** —— 记忆是后台动作，
+      // 让「超过上限」这个纯机械事件去偷偷花一次钱是不对的
+      const joined = folded
+        .map((m) => (m.kind === 'say' ? `${m.convoTitle || '某次对话'}：${m.text}` : m.text))
+        .join('；');
+      const digest = [prev, joined].filter(Boolean).join('；').slice(-4000);
+      summaries.pets[id] = {
+        digest,
+        folded: ((summaries.pets[id] && summaries.pets[id].folded) || 0) + folded.length,
+        updatedAt: Date.now()
+      };
+      writes.push(writeJson(petSummaryFile(), summaries));
+    }
+
+    await Promise.all(writes);
+    return items;
   });
-
-  // 超上限：把最早的那些折进摘要
-  const limit = clampInt(maxItems, MEMORY_MAX_ITEMS_MIN, MEMORY_MAX_ITEMS_MAX, 30);
-  let folded = [];
-  if (limit === 0) {
-    folded = items.splice(0, items.length);
-  } else if (items.length > limit) {
-    folded = items.splice(0, items.length - limit);
-  }
-
-  store.pets[id] = { items };
-  const writes = [writeJson(petMemoryFile(), store)];
-
-  if (folded.length) {
-    const summaries = loadSummaryStore();
-    const prev = summaries.pets[id] && typeof summaries.pets[id].digest === 'string'
-      ? summaries.pets[id].digest
-      : '';
-    // 折叠就是本地拼接，**不额外调模型** —— 记忆是后台动作，
-    // 让「超过上限」这个纯机械事件去偷偷花一次钱是不对的
-    const joined = folded
-      .map((m) => (m.kind === 'say' ? `${m.convoTitle || '某次对话'}：${m.text}` : m.text))
-      .join('；');
-    const digest = [prev, joined].filter(Boolean).join('；').slice(-4000);
-    summaries.pets[id] = {
-      digest,
-      folded: ((summaries.pets[id] && summaries.pets[id].folded) || 0) + folded.length,
-      updatedAt: Date.now()
-    };
-    writes.push(writeJson(petSummaryFile(), summaries));
-  }
-
-  return Promise.all(writes).then(() => items);
 }
 
 /** 清空记忆（条目 + 摘要）。reset 只删条目、保留折叠摘要，clear 全清。 */
 function clearPetMemory(petId, keepDigest) {
   const id = safeId(petId);
-  const store = loadMemoryStore();
-  delete store.pets[id];
-  const writes = [writeJson(petMemoryFile(), store)];
+  // 同样整段排队：清空与正在进行的追加如果交错，刚清掉的记忆会被旧快照写回来。
+  return queueMutation(async () => {
+    const store = loadMemoryStore();
+    delete store.pets[id];
+    const writes = [writeJson(petMemoryFile(), store)];
 
-  if (!keepDigest) {
-    const summaries = loadSummaryStore();
-    delete summaries.pets[id];
-    writes.push(writeJson(petSummaryFile(), summaries));
-  }
-  return Promise.all(writes).then(() => true);
+    if (!keepDigest) {
+      const summaries = loadSummaryStore();
+      delete summaries.pets[id];
+      writes.push(writeJson(petSummaryFile(), summaries));
+    }
+    await Promise.all(writes);
+    return true;
+  });
 }
 
 /** 记忆导出成一个自带说明的 JSON 文本（界面直接拿它存文件） */
@@ -723,6 +782,7 @@ module.exports = {
   loadPetConfig,
   savePetConfig,
   savePetConfigNow,
+  patchPetConfig,
   patchPet,
   findPet,
   // 形象（只有 rig）

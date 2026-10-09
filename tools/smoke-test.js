@@ -164,7 +164,17 @@ function makeStore() {
       // 打开用量显示：头部那行「输入 / 输出（其中思考 N）」才有得测 ——
       // 「思考花了多少」是判断「是不是它在吃额度」的关键数字，值得一直摆在测试里
       showUsage: true,
-      autoContinue: true
+      autoContinue: true,
+      // ⚠️ 必须显式写出来，别依赖产品默认值：这份夹具代表「一份已经存过的 config.json」，
+      //    而真实的 config.json 经过 normalizeSettings 之后一定含这个键。
+      //    产品默认是 0（关递归，对齐酒馆的 Recursive Scan 默认关），
+      //    而下面「世界书：递归扫描」那个场景验的是**功能本身** ——
+      //    这里给 3 就是「用户自己把递归打开了」的那种配置。
+      //    默认值本身由 tools/test-tavern-compat.js 里那条专门的断言守着。
+      worldbookRecursiveDepth: 3,
+      // 同上：这份夹具是「当前版本的配置」，必须带上结构版本号，
+      // 否则会被 v1→v2 的迁移当成旧配置、把上面那个 3 改成 0（迁移见 main/providers.js）。
+      settingsVersion: 2
     },
     characters: [],
     worldbooks: [

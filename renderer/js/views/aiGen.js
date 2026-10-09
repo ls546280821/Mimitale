@@ -25,7 +25,6 @@
 
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
-import { el } from '../core/dom.js';
 import { uid } from '../core/util.js';
 import { h } from '../ui/build.js';
 import { showToast } from '../ui/toast.js';

@@ -18,6 +18,7 @@
 import { api } from '../core/api.js';
 import { state } from '../core/state.js';
 import { el } from '../core/dom.js';
+import { safeFileName } from '../core/util.js';
 import { showToast } from '../ui/toast.js';
 import { dialoguePresets, dialoguePresetById } from '../data/library.js';
 import { persistPresets } from '../data/persist.js';
@@ -75,14 +76,18 @@ function exportShape(preset) {
   return out;
 }
 
-/** 文件名里不能有的字符统统换成下划线（Windows 上还禁冒号、星号这些） */
-function safeFileName(name) {
-  return String(name || '预设')
-    .replace(/[\\/:*?"<>|]/g, '_')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 60) || '预设';
-}
+/**
+ * 预设导出的文件名。
+ *
+ * 禁止字符替换 / 截长 / 空名兜底都在 core/util.js 的 safeFileName 里（那份多一个
+ * fallback 参数），这里只补预设自己的两条口径：**把连续空白压成一个空格**、
+ * **空名兜底叫「预设」**。util 的注释写明「内部空白由调用方处理」，就是这个意思。
+ *
+ * ⚠️ 别再在本模块里定义一个同名函数：import 和函数声明同名是
+ *    `Identifier 'safeFileName' has already been declared`，
+ *    整个模块解析失败（预设的导入/导出会一起哑掉）。
+ */
+const safePresetFileName = (name) => safeFileName(String(name || '').replace(/\s+/g, ' '), '预设');
 
 /** 按默认文件名导出，返回是否真的写了（用户取消 = false） */
 async function savePresetsToFile(presets, fileName, title) {
@@ -122,7 +127,7 @@ export async function exportPreset(id) {
   }
   const ok = await savePresetsToFile(
     [exportShape(preset)],
-    `${safeFileName(preset.name)}.json`,
+    `${safePresetFileName(preset.name)}.json`,
     '导出预设'
   );
   if (ok) showToast(`已导出「${preset.name}」`, 'ok');

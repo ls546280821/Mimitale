@@ -31,7 +31,7 @@ import { el } from '../core/dom.js';
 import { uid, now } from '../core/util.js';
 import { showToast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/confirm.js';
-import { h, button, clear } from '../ui/build.js';
+import { button } from '../ui/build.js';
 import { MAX_PANEL_FIELDS } from '../data/panel.js';
 import { MAX_EXPRESSIONS } from '../data/expressions.js';
 import {

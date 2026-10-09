@@ -4,8 +4,10 @@
 //  renderer/pet/cat-figure.js —— 蓝白猫（蓝自）的动画状态机
 //
 //  从 Coopanion 形象包 figure.js（改编自 Pal-AI-Lab 大肥鲸 whale/figure.js，
-//  AGPL-3.0）移植到 Mimitale 的宠物窗口。**动画逻辑一行未动** —— 弹簧、
-//  铰链步态、头部四层视差、猫耳情绪表、fx 特效全部照旧；只换了「挂载层」：
+//  AGPL-3.0）移植到 Mimitale 的宠物窗口。骨架算法照搬（弹簧、铰链步态、
+//  头部多层视差、fx 特效），但**按猫重算过参数**：腿短所以 hinge 的 fade 从 20
+//  收到 10（见下面 hinge 的注释）、HEAD 视差区按猫的头身比量过、猫耳情绪表是
+//  这里新加的 —— 所以「参数一行未动」并不成立，别照着鲸鱼的值反推。除此之外只换了「挂载层」：
 //
 //    原版（Coopanion）                      移植版（Mimitale pet 窗口）
 //    ─────────────────────                  ─────────────────────────
@@ -223,7 +225,7 @@ export function createCatFigure(opts = {}) {
   // 只有腾空、被拎、起跳下蹲和落地整组倾斜，跑步保留一半前倾，跳舞六成给整组
   const GROUP = { air: [1, 1], drag: [1, 1], crouch: [1, 1], land: [1, 1], walk: [1, .5], run: [1, .5], dance: [.6, 0] };
   let wTilt = 0, wLean = 0, facing = 1;
-  let earMood = 0, tailMood = 0, wagAmp = 0, sitK = 0, walkK = 0, runK = 0;
+  let earMood = 0, tailMood = 0, wagAmp = 0, sitK = 0, runK = 0;
   const groupTilt = (mode, tilt, lean) => tilt * wTilt + lean * wLean + runK * 14 * facing;
   const st = {};
 
@@ -333,7 +335,8 @@ export function createCatFigure(opts = {}) {
     const lift = o.legs.map(l => clamp(29 - Math.hypot(l[2] - l[0], l[3] - l[1]), -8, 20));
 
     /* 手臂：走路时与腿反向摆，腾空张开，被拎时扑腾 */
-    walkK = lerp(walkK, walking ? 1 : 0, ease(8, dt));
+    // （原来这里还维护了一个 walkK，但全文件没有任何地方读它 —— 手臂摆幅直接
+    //   用的 walking / legA，所以那个弹簧是纯开销，已删。）
     runK = lerp(runK, mode === 'run' ? 1 : 0, ease(7, dt));
     let aN = 4, aF = -2;
     if (walking) { aN = -legA[0] * 1.3 + 4; aF = -legA[1] * 1.3 - 2; }
@@ -456,12 +459,13 @@ export function createCatFigure(opts = {}) {
     reset() {
       for (const k in sp) { sp[k].x = 0; sp[k].v = 0; }
       lastT = null; prevTilt = 0; prevYaw = 0; prevLow = 0; headTilt = 0;
-      wTilt = 0; wLean = 0; earMood = 0; tailMood = 0; wagAmp = 0; sitK = 0; walkK = 0; runK = 0;
+      wTilt = 0; wLean = 0; earMood = 0; tailMood = 0; wagAmp = 0; sitK = 0; runK = 0;
       blinkU = 1; blinkWait = 1.5 + Math.random() * 3; blinkAt = -1;
     },
     /** 释放 WebGL 上下文和挂上去的 DOM；figure 对象本身可复用（下次 draw 重挂） */
     dispose() {
       rig?.dispose();
+      if (box && box.parentNode) box.parentNode.removeChild(box);
       rig = null; canvas = null; fxSvg = null; sizer = null; box = null; container = null;
     },
     /** 挂载目标（draw 时自动挂上去） */

@@ -48,6 +48,8 @@ function normalizeWorldbookEntry(raw) {
 
   const keys = pickKeys(r.keys, r.key);
   const secondaryKeys = pickKeys(r.secondaryKeys, r.secondary_keys ?? r.keysecondary);
+  // ST 可以保留旧副关键词但关闭 selective；缺省时按“有副关键词即启用”兼容旧内部数据。
+  const selective = typeof r.selective === 'boolean' ? r.selective : secondaryKeys.length > 0;
   const content = str(r.content, MAX_WORLDBOOK_CONTENT);
   // 内容为空、又没有任何关键词的条目没有任何作用，直接丢掉
   if (!content.trim() && !keys.length) return null;
@@ -68,6 +70,24 @@ function normalizeWorldbookEntry(raw) {
   // 酒馆新版本用 enabled，老版本/部分导出工具用 disable（true = 停用）。
   // 两个都认，否则导入老世界书时停用的条目会全部复活。
   const enabled = typeof r.enabled === 'boolean' ? r.enabled : r.disable === true ? false : true;
+  // 「正文继续触发别的条目」这件事按**酒馆的语义**归一化。
+  //
+  // ST 把两个方向分开存（官方文档「Recursive scanning」一节的三选项）：
+  //   preventRecursion  —— 「Prevent further recursion」：激活后**不再触发别人**
+  //   excludeRecursion  —— 「Non-recursable」：**不能被别人触发**
+  // 两个字段都是**限制项**，都靠勾选打开 → 缺省即 false，也就是「不限制、可参与」。
+  // 所以这里的默认是「可递归」，与 ST 一致。
+  //
+  // 真正防「导入一本书就把 token 翻几倍」的是**全局开关**：递归深度默认 0（关），
+  // 见 main/providers.js 的 DEFAULT_SETTINGS.worldbookRecursiveDepth。
+  // ⚠️ 别再改回「条目级默认关」来省 token —— 那等于把 ST 的语义改掉，
+  //    「导出再导回来」和「导入别人的书」两个方向都会和酒馆对不上。
+  const preventRecursion = r.preventRecursion ?? r.prevent_recursion ?? ext.prevent_recursion;
+  const recursive = typeof r.recursive === 'boolean'
+    ? r.recursive
+    : typeof own.recursive === 'boolean'
+      ? own.recursive
+      : preventRecursion !== true;
 
   return {
     id: typeof r.id === 'string' && r.id ? r.id : `e${Math.random().toString(36).slice(2, 10)}`,
@@ -75,14 +95,18 @@ function normalizeWorldbookEntry(raw) {
     title: str(r.title || r.comment, 200).trim() || keys[0] || '未命名条目',
     keys,
     secondaryKeys,
+    selective,
     selectiveLogic,
     content,
     order,
     // 蓝圈：无条件注入，不需要关键词
     constant: r.constant === true || r.strategy === 'constant',
-    // 递归：这条命中后，它的正文也参与下一轮扫描，能再带出别的条目。
-    // 默认关 —— 递归会明显增加 token，得一条条显式打开。
-    recursive: (r.recursive ?? own.recursive) === true,
+    // 内部开关：这条命中后，正文也参与下一轮扫描（见上面 preventRecursion 的映射说明）
+    recursive,
+    // ST 的 excludeRecursion 只禁止条目作为递归目标，不能反向替代 recursive。
+    excludeRecursion: r.excludeRecursion === true
+      || r.exclude_recursion === true
+      || ext.exclude_recursion === true,
     // 全词匹配对无空格分词的中日文不适用，只有显式启用才生效。
     matchWholeWords: bool(r.matchWholeWords ?? r.match_whole_words ?? ext.match_whole_words, false),
     caseSensitive: bool(r.caseSensitive ?? r.case_sensitive ?? ext.case_sensitive, false),

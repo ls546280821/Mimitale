@@ -4,7 +4,8 @@
 //  main.js —— 界面逻辑的入口（跑在窗口里）
 //  职责：画对话、把消息发给主进程、接收流式增量做「打字机」效果、存历史。
 //
-//  已按 ES module 分层拆完（峰值 7902 → 482 行），分层是：
+//  已按 ES module 分层拆完（从峰值 7900 多行降下来；行数别写在注释里，
+//  改一次就过期 —— 要复核跑 `node tools/analyze.js`），分层是：
 //    core/   底层：常量、状态、DOM 引用、preload 桥、工具函数
 //    ui/     通用界面件：提示条、确认框、主题、Markdown
 //    data/   纯逻辑：服务商/模型、角色库、面板、叙述规则、摘要、持久化、导入重发 id、导出收尾、
@@ -50,7 +51,7 @@ import { applyFieldIcons } from './ui/icons.js';
 import { initMoreMenu } from './ui/menu.js';
 import { initModelMenu } from './ui/modelMenu.js';
 
-import { persistCharacters, persistLibrary, persistPresets, markWorldbooksLoaded, markPresetsLoaded } from './data/persist.js';
+import { persistCharacters, persistLibrary, markWorldbooksLoaded, markPresetsLoaded } from './data/persist.js';
 import { refreshPetCache, speakNow } from './data/petContext.js';
 import { initPetSettings, openPetSection } from './views/petSettings.js';
 import { currentEndpoint, isBridgeProvider } from './data/providers.js';
@@ -78,10 +79,7 @@ import { initMemoryUi, closeMemoryModal } from './views/memoryUi.js';
 import { initPanelUi } from './views/panelUi.js';
 import { initStateCards } from './views/stateCard.js';
 import { initWorldbookList, renderWorldbookPage } from './views/worldbookList.js';
-import {
-  initPresetList,
-  renderPresetPage
-} from './views/presetList.js';
+import { initPresetList } from './views/presetList.js';
 import { initPresetIo, exportPreset } from './views/presetIO.js';
 import {
   initPreset,
@@ -668,6 +666,10 @@ async function init() {
 
   state.settings = config.settings;
   state.presets = asArray(config.presets);
+  // 主进程改过用户的设置（比如一次性迁移）就要说出来 —— 取走即清空，只有启动这次拿得到。
+  // ⚠️ 先存着、等 init 末尾再弹：showToast 只有一个元素和一个定时器，
+  //    下面那条「填 API Key」的提示会把它顶掉，而这条最不该被顶掉。
+  const settingsNotices = asArray(config.notices);
   setEditingProvider(state.settings.activeProviderId);
 
   // 主题以设置里的值为准（preload 已经按启动参数先打过一次，这里只是对齐）
@@ -758,8 +760,16 @@ async function init() {
   el.input.focus();
 
   const endpoint = currentEndpoint();
-  if (!endpoint || (!endpoint.provider.apiKey && !isBridgeProvider(endpoint.provider))) {
+  const needsKeyHint = !endpoint || (!endpoint.provider.apiKey && !isBridgeProvider(endpoint.provider));
+  if (needsKeyHint) {
     setTimeout(() => showToast('先点左下角「设置」填入 API Key 就能聊了'), 500);
+  }
+
+  // 设置迁移的告知：排在「填 API Key」那条**之后**（那条 500ms 起、3.2 秒后自己收），
+  // 并给更长的显示时间 —— 它是一次性的、内容也长，一闪而过等于没说。
+  if (settingsNotices.length) {
+    setTimeout(() => showToast(settingsNotices.join('　'), undefined, { durationMs: 9000 }),
+      needsKeyHint ? 4200 : 600);
   }
 }
 

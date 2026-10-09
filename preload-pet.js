@@ -27,7 +27,10 @@ contextBridge.exposeInMainWorld('petBridge', {
   ready: () => ipcRenderer.send('pet:ready'),
 
   // --- 读 ---
-  // 拉一份当前状态：设置 + 形象（data URL）+ 可选模型清单 + 记忆条数。
+  // 拉一份当前状态：{ config: { enabled, activeId }, pet: { 字段 + rig } }。
+  // rig 里是 model.json 和贴图转成的 data URL（页面的 CSP 拦掉了 fetch，只能这么给）。
+  // ⚠️ 这里**没有**模型清单、也没有记忆条数 —— 那些是设置页（主界面）才要的东西，
+  //    见 main/pet-ipc.js 的 mainStatePayload。宠物窗口不该知道这些。
   // 窗口每次刷新都会重新拉一次，所以主进程那边必须能重复调用。
   getState: () => ipcRenderer.invoke('pet:state:get'),
 

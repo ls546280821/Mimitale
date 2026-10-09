@@ -80,17 +80,30 @@ let applySeq = 0;
  */
 async function applyState(rigData) {
   if (!rigData || !rigData.model || !rigData.tex) return;
-  if (rigData.key && rigData.key === modelKey && figure) return;
+  if (rigData.key && rigData.key === modelKey && figure) {
+    ++applySeq; // 返回已加载形象时也取消此前尚未完成的换肤。
+    return;
+  }
   const seq = ++applySeq;
-  modelKey = rigData.key || String(Date.now());
+  const nextKey = rigData.key || String(Date.now());
 
   const entries = Object.entries(rigData.tex);
-  const images = await Promise.all(entries.map(([, url]) => loadImage(url)));
+  let images;
+  try {
+    images = await Promise.all(entries.map(([, url]) => loadImage(url)));
+  } catch (err) {
+    // 贴图解码失败。但如果这次**已经被更新的一次换肤顶掉**，就不能把错误抛出去 ——
+    // 调用方（pet.js）的 catch 会 dispose 掉整个形象，而它拆的其实是刚成功挂上的新形象。
+    // 只有「我还是当前这一次」时才算真失败。
+    if (seq !== applySeq) return;
+    throw err;
+  }
   if (seq !== applySeq) return; // 贴图解码期间又来了新数据：本次作废
   texMap = Object.fromEntries(entries.map(([name], i) => [name, images[i]]));
 
   figure?.dispose();
   figure = createCatFigure({ model: rigData.model, texMap });
+  modelKey = nextKey;
   if (container) figure.mount(container);
   figure.setFacing(facing);
   lastFrameT = null;
@@ -292,6 +305,9 @@ export const catRig = {
 
   dispose() {
     stopLoop();
+    // 让还在解码贴图的 applyState 作废：否则它回来时照旧 createCatFigure + mount，
+    // 在我们已经「销毁」之后又凭空挂出一只猫（切到空形象包 / 关桌宠时能看到）。
+    applySeq += 1;
     figure?.dispose();
     figure = null; texMap = null; modelKey = '';
     mode = 'idle'; face = 'neutral'; walking = false; dragHeld = false;

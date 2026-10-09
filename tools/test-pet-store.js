@@ -252,6 +252,58 @@ const PET = 'pet1';
   eq(petStore.petMemoryDigest(PET), '', '清空后摘要也没了');
 
   // -------------------------------------------------------------------------
+  section('并发保存：读改写必须整段排队');
+  // 「先读再排队写」的写法下，并发调用各自拿旧快照，后写的会把前一次整份盖回去。
+  // 桌宠真实会遇到：设置页一次改两个字段、说完话连追两条记忆。
+
+  await Promise.all([
+    petStore.patchPet(PET, { speakEveryTurns: 7 }),
+    petStore.patchPet(PET, { speakLines: 5 })
+  ]);
+  const merged = petStore.findPet(petStore.loadPetConfig(), PET);
+  eq(merged.speakEveryTurns, 7, '并发改两个字段：轮数这次改动没被覆盖');
+  eq(merged.speakLines, 5, '并发改两个字段：句数这次改动也没被覆盖');
+
+  await petStore.clearPetMemory(PET, false);
+  await Promise.all([
+    petStore.appendPetMemory(PET, { kind: 'say', text: '并发第一条' }, 20),
+    petStore.appendPetMemory(PET, { kind: 'say', text: '并发第二条' }, 20)
+  ]);
+  const texts = petStore.petMemoryItems(PET).map((m) => m.text);
+  ok(
+    texts.includes('并发第一条') && texts.includes('并发第二条'),
+    '并发追加两条记忆都留下来了（不会只剩后一条）'
+  );
+
+  // -------------------------------------------------------------------------
+  section('温度：留空 = 跟随全局，不能变成 0');
+  // Number(null) === 0，所以「空值判断」必须在 Number() 之前做。
+  // 漏了这一步，界面上清空温度会变成「显式请求 temperature=0」，
+  // 模型会从跟随全局设置变成死板复读。
+
+  eq(petStore.normalizePetConfig({ pets: [{ temperature: null }] }).pets[0].temperature, null, 'null 温度保持跟随全局');
+  eq(petStore.normalizePetConfig({ pets: [{ temperature: '' }] }).pets[0].temperature, null, '空字符串温度保持跟随全局');
+  eq(petStore.normalizePetConfig({ pets: [{ temperature: 0 }] }).pets[0].temperature, 0, '显式的 0 是合法温度，不能被当成空值');
+  eq(petStore.normalizePetConfig({ pets: [{ temperature: '0.5' }] }).pets[0].temperature, 0.5, '数字字符串照常解析');
+
+  // 落盘往返一次：默认配置存回去再读，温度不能被写成 0
+  await petStore.patchPet(PET, { temperature: null });
+  eq(petStore.findPet(petStore.loadPetConfig(), PET).temperature, null, '清空温度落盘后仍是 null');
+
+  // -------------------------------------------------------------------------
+  section('形象名：下拉里显示的必须就是真去读的目录名');
+  // 这里原先用 safeId 收（只认 ASCII，非法**直接回落 'pet1'**）再强制小写，
+  // 于是「下拉里有蓝猫 / MyCat，选中却去读 assets/pet/pet1 或 mycat」——
+  // 界面显示得出来、实际读不到，属于查不出原因的静默错位。
+  const skinOf = (look) => petStore.normalizePetConfig({ pets: [{ look }] }).pets[0].look.skin;
+
+  eq(skinOf({ kind: 'rig', skin: '蓝猫' }), '蓝猫', '中文目录名原样保留（不再被换成 pet1）');
+  eq(skinOf({ kind: 'rig', skin: 'MyCat' }), 'MyCat', '大小写原样保留（区分大小写的文件系统才找得到）');
+  eq(skinOf({ kind: 'rig', skin: '../../etc/passwd' }), '____etc_passwd', '路径分隔符和 .. 仍被清洗掉');
+  eq(skinOf({ kind: 'png', skin: 'default' }), 'cat', '老 png 形象照旧迁移成默认 rig 猫');
+  eq(skinOf({ kind: 'rig', skin: '' }), 'cat', '空名字退回默认 cat');
+
+  // -------------------------------------------------------------------------
   section('人格文件');
 
   const seeded = petStore.readPersona(PET);

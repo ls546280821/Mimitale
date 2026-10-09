@@ -15,8 +15,10 @@
 //    6. 角色卡里的「对话后指令」，放最后最管用
 //
 //  人设只有两个来源，而且互斥：绑了角色卡 → 用那张卡的 systemPrompt；
-//  没绑卡（默认对话）→ 用设置里的「默认人设」（可编辑，见 main/providers.js）。
+//  **既没绑卡、也没进世界**（默认对话）→ 用设置里的「默认人设」（可编辑，见 main/providers.js）。
 //  两者不会同时出现，免得两份设定打架（你扮演雷电将军，提示词却在说另一套人设）。
+//  ⚠️ 「默认人设」只管默认对话：进世界（GM）时角色卡字段本来就全跳过，若还把人设
+//  塞进去，GM 会拿它当自己的身份，跟世界书 / 主持规则拧在一起（用户报过这个）。
 //
 //  默认聊天只带人设、历史、摘要、日期和用户选定的预设及视角设置；
 //  扮演 / GM 规则、世界书、玩家角色、面板、剧情选项和表情仅用于角色或世界模式。
@@ -247,13 +249,20 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   const character = characterForConvo(convo);
   // 进了世界的会话用玩家自己创建的角色名，其它会话用设置里的名字
   const me = convoUserName(convo);
-  const charName = (character && character.name) || assistantName(convo);
   const gmMode = isGmMode(convo);
   // 「默认对话」= 既没绑角色卡、也不是世界模式 —— 那就是**跟 AI 模型聊天**，
   // 不是扮演酒馆里的某个角色。这种会话只带人设和聊天记录，应用不再往里塞
   // 酒馆那一套（扮演规则 / 世界书 / 状态面板 / 剧情选项 / 表情标签）：
   // 人设是自己写的、自足的，多叠一层规则只会跟它打架。
   const plainChat = !character && !gmMode;
+
+  // 助手那侧叫什么名字：绑卡用卡名，「默认对话」用人设里配的名字。
+  // ⚠️ 世界模式（GM）**没有「某个人」**，不取人设名 —— 否则那段「默认人设」
+  //    会顺着 charName/charMacro 漏进世界书宏替换和冒出的 NPC 名单里。
+  const charName = (character && character.name) || (plainChat ? assistantName(convo) : '');
+  // {{char}} / <BOT> 的替换值：GM 下没有具体角色，统一落成「叙述者」；
+  // 其它情况就是上面的 charName（为空时由 applyMacros 各自兜底）。
+  const charMacro = charName || (gmMode ? '叙述者' : '');
 
   // 摘要覆盖点按同一份有效历史计数；空占位和无正文消息不发给模型。
   const history = convoContextMessages(convo);
@@ -270,10 +279,11 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // ---- 1. 系统提示词 ----
   const parts = [];
 
-  // 人设：绑了卡就用卡自己的 systemPrompt；**没绑卡**（通用助手）才用「默认人设」。
+  // 人设：绑了卡就用卡自己的 systemPrompt；**通用助手（默认对话）**才用「默认人设」。
   // 两者互斥 —— 一张卡一旦被绑定，默认人设就不参与，免得两份设定打架。
-  // 世界模式（GM）没有「某个人」的人设，叙述者由主持规则来立。
-  const persona = character ? '' : assistantPersona(convo);
+  // 世界模式（GM）同样不参与：它没有「某个人」的人设，叙述者由主持规则来立，
+  // 再叠一份模型人设只会让 GM 把自己的身份跟世界设定搅在一起（见文件头注释）。
+  const persona = plainChat ? assistantPersona(convo) : '';
   const base = character ? character.systemPrompt || '' : persona;
   if (String(base).trim()) parts.push(applyMacros(base, character, me, charName).trim());
 
@@ -359,7 +369,7 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   // 比对话历史靠后又容易被忽略，这里是比较稳的位置。
   // 默认对话不带：那是「这个世界有哪些设定」的补充，属于扮演那一套。
   if (!plainChat && String(worldbookSection || '').trim()) {
-    messages.push({ role: 'system', content: applyMacros(worldbookSection, character, me, charName || (gmMode ? '叙述者' : '')).trim() });
+    messages.push({ role: 'system', content: applyMacros(worldbookSection, character, me, charMacro).trim() });
   }
 
   // ---- 2.2 语义检索捞回来的往事 / 设定 ----
@@ -392,7 +402,7 @@ export function buildApiMessages(convo, worldbookSection, ragSection) {
   const panelFields = convoFieldDisplayNames(convo);
   const panelGroups = [...panelGroupNames(convo)];
   for (const m of recent) {
-    const raw = applyMacros(m.content, character, me);
+    const raw = applyMacros(m.content, character, me, charMacro);
     const text = m.role === 'assistant' ? cleanAssistantText(raw, panelFields, panelGroups) : raw;
 
     messages.push({ role: m.role, content: text });

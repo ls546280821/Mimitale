@@ -39,6 +39,7 @@ const STEP_MS = 16;
 let planTimer = null;   // 等待下一趟的定时器
 let walkTimer = null;   // 一趟中的 16ms 步进
 let target = null;      // { x, y } 目标窗口左上角
+let walkPosition = null; // 浮点位置；窗口 API 只接受四舍五入后的坐标
 let paused = false;     // 拖拽等临时暂停（不拆整个循环）
 
 // ---------------------------------------------------------------------------
@@ -101,6 +102,7 @@ function startTrip() {
   const dx = x - bounds.x;
   if (Math.abs(dx) < 8) { stopTrip(true); return; } // 几乎是原地，不值得走
 
+  walkPosition = { x: bounds.x, y: bounds.y };
   const facing = dx > 0 ? 1 : -1;
   sendToPet('pet:walk', { walking: true, facing });
 
@@ -113,14 +115,19 @@ function startTrip() {
     const step = SPEED * Math.max(0.001, (now - last) / 1000);
     last = now;
     const b = w.getBounds();
-    const ddx = target.x - b.x, ddy = target.y - b.y;
+    if (!walkAllowed()) { stopTrip(true); return; }
+    if (!walkPosition) walkPosition = { x: b.x, y: b.y };
+    const ddx = target.x - walkPosition.x, ddy = target.y - walkPosition.y;
     const d = Math.hypot(ddx, ddy);
     if (d <= Math.max(2, step)) {
+      walkPosition = { x: target.x, y: target.y };
       w.setPosition(target.x, target.y);
       stopTrip(true);
       return;
     }
-    w.setPosition(Math.round(b.x + (ddx / d) * step), Math.round(b.y + (ddy / d) * step));
+    walkPosition.x += (ddx / d) * step;
+    walkPosition.y += (ddy / d) * step;
+    w.setPosition(Math.round(walkPosition.x), Math.round(walkPosition.y));
   }, STEP_MS);
 }
 
@@ -132,8 +139,9 @@ function stopTrip(notify) {
   clearInterval(walkTimer);
   walkTimer = null;
   target = null;
+  walkPosition = null;
   if (notify) sendToPet('pet:walk', { walking: false });
-  if (!planTimer) scheduleNextTrip();
+  if (!planTimer && !paused && walkAllowed()) scheduleNextTrip();
 }
 
 // ---------------------------------------------------------------------------

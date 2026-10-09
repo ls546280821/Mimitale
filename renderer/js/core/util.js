@@ -23,8 +23,8 @@ export function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
-/** 文件名里不能出现的字符（Windows 最严），换成下划线 */
-export function safeFileName(name) {
+/** 替换 Windows 文件名禁用字符，去掉首尾空白并截长；空名用 fallback，内部空白由调用方处理。 */
+export function safeFileName(name, fallback = 'export') {
   const base = String(name || '').trim().replace(/[\\/:*?"<>|]/g, '_');
-  return base.slice(0, 60) || 'export';
+  return base.slice(0, 60) || fallback;
 }

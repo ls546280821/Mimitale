@@ -29,8 +29,8 @@ const { loadSettings } = require('./providers.js');
 const { getMainWindow, sendToRenderer } = require('./window.js');
 const {
   loadPetConfig,
-  savePetConfig,
   savePetConfigNow,
+  patchPetConfig,
   patchPet,
   findPet,
   petMemoryItems,
@@ -187,6 +187,12 @@ async function speakOnce(payload) {
   petController = new AbortController();
   const { signal } = petController;
 
+  // ⚠️ 被掐掉的那次请求还没走完它的 finally / onDelta —— 那些回调如果照常往
+  //    宠物窗口推消息，就会把**新**这次请求的流式和「思考中」状态搅乱
+  //    （旧的 finally 会把新请求的思考气泡关掉）。所以每次推送前先确认
+  //    「我还是当前那一次」。abort 只取消底层的网络请求，不会取消已经排好的回调。
+  const isCurrent = () => petController !== null && petController.signal === signal;
+
   const win = getPetWindow();
   const petVisible = !!(win && win.isVisible());
   if (win) {
@@ -199,7 +205,7 @@ async function speakOnce(payload) {
       pet,
       request: request.context || {},
       signal,
-      onDelta: (text) => sendToPet('pet:chunk', text)
+      onDelta: (text) => { if (isCurrent()) sendToPet('pet:chunk', text); }
     });
 
     if (!result.ok) {
@@ -207,13 +213,16 @@ async function speakOnce(payload) {
       return { ok: false, error: result.error };
     }
 
-    sendToPet('pet:say', {
-      lines: result.lines,
-      text: result.text,
-      reason,
-      providerName: result.providerName,
-      model: result.model
-    });
+    // 已经被新一次请求顶掉时，这一句就不该再往窗口里挤
+    if (isCurrent()) {
+      sendToPet('pet:say', {
+        lines: result.lines,
+        text: result.text,
+        reason,
+        providerName: result.providerName,
+        model: result.model
+      });
+    }
 
     if (reason !== 'preview') {
       const convoTitle = String((request.context && request.context.convoTitle) || '').slice(0, 60);
@@ -241,8 +250,12 @@ async function speakOnce(payload) {
       fellBack: result.tried > 1
     };
   } finally {
-    sendToPet('pet:busy', false);
-    if (petController && petController.signal === signal) petController = null;
+    // 只有「还是当前这一次」才关思考状态并交还控制器：
+    // 被顶掉的那次如果照关，新请求刚点亮的思考气泡会被它顺手吹灭。
+    if (isCurrent()) {
+      sendToPet('pet:busy', false);
+      petController = null;
+    }
     broadcastState();
   }
 }
@@ -397,7 +410,10 @@ function popupPetMenu() {
     { type: 'separator' },
     {
       label: pet.walkEnabled ? '暂停散步（原地待着）' : '允许散步（在桌面上溜达）',
-      click: () => patchPet(pet.id, { walkEnabled: !pet.walkEnabled }).then(broadcastState)
+      click: () => patchPet(pet.id, { walkEnabled: !pet.walkEnabled }).then(() => {
+        refreshWalk();
+        broadcastState();
+      })
     },
     pet.visible
       ? { label: '隐藏桌宠', click: () => setVisibleAndRemember(pet, false) }
@@ -407,7 +423,7 @@ function popupPetMenu() {
       click: () => {
         stopWalkLoop();
         destroyPetWindow();
-        savePetConfig({ ...loadPetConfig(), enabled: false }).then(broadcastState);
+        patchPetConfig({ enabled: false }).then(broadcastState);
       }
     }
   );
@@ -418,10 +434,15 @@ function popupPetMenu() {
 
 function setVisibleAndRemember(pet, visible) {
   setPetVisible(visible);
-  return patchPet(pet.id, { visible }).then(broadcastState);
+  return patchPet(pet.id, { visible }).then(() => {
+    refreshWalk();
+    broadcastState();
+  });
 }
 
-// 「换形象」已移除：形象只有内置 rig 一种，没有「从文件选一张图」这条路了。
+// 「从文件选一张静态图当形象」已移除（第一版的 PNG 路径）。
+// ⚠️ 但「换形象」功能还在：设置页那个下拉走 pet:skins / listRigSkins，
+//    列出 assets/pet/ 和 data/pet/skins/ 下所有带 model.json 的目录。
 
 // ---------------------------------------------------------------------------
 //  窗口位置记忆（pet-window.js 里是懒 require 调过来的）
@@ -462,8 +483,8 @@ function registerPetIpc() {
     if (data.petId) {
       await patchPet(data.petId, patch);
     } else {
-      const config = loadPetConfig();
-      await savePetConfig({ ...config, ...patch });
+      // 走队列内的读改写：这里以前是「先读再写」，和并发的字段修改会互相覆盖
+      await patchPetConfig(patch);
     }
 
     // 几个字段改完有副作用，得跟上

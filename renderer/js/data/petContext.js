@@ -19,7 +19,7 @@
 
 import { api } from '../core/api.js';
 import { activeConvo, asArray } from '../core/util.js';
-import { assistantName, convoUserName } from './cast.js';
+import { speakerName, convoUserName } from './cast.js';
 import {
   cleanAssistantText,
   convoPanel,
@@ -55,11 +55,6 @@ export async function refreshPetCache() {
 
 export function petState() {
   return petCache;
-}
-
-export function petEnabled() {
-  const config = petCache && petCache.config;
-  return !!(config && config.enabled);
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +94,13 @@ export function buildPetContext() {
   const convo = activeConvo();
   if (!convo) return { convoTitle: '', characters: '', recent: [], summary: '', panel: '' };
 
-  const charName = assistantName(convo) || '';
+  // 助手那侧显示成谁，交给 cast.js 的 speakerName 统一裁决：
+  // 绑了卡 → 卡名；进了世界 → 世界名；都没有 → 「默认人设」那个名字。
+  // ⚠️ 这里以前直接取 assistantName(convo)，于是绑卡 / 进世界的会话里，
+  //    助手那些消息会被贴上「默认人设」的名字 —— 跟 messages.js 里那个
+  //    「人设漏进世界模式」是同一类漏法（宠物会被绕晕：明明在演顾言，
+  //    上下文里却写着这些台词是「团子」说的）。
+  const charName = speakerName(convo) || '';
   const userName = convoUserName(convo) || '我';
   const panelFields = convoPanelFields(convo);
   const groups = panelGroupNames(convo);
@@ -138,7 +139,7 @@ export function buildPetContext() {
  */
 const turnCounters = new Map();
 
-/** 换会话/删会话时清一下计数，免得计数器越积越多 */
+/** 删会话时清一下计数（views/convoActions.js 的 removeConvo 调），免得 Map 越积越多 */
 export function resetPetTurns(convoId) {
   if (convoId) turnCounters.delete(convoId);
   else turnCounters.clear();
@@ -168,9 +169,14 @@ export async function maybePetAutoSpeak() {
   if (!config || !config.enabled || !pet) return { ok: false, skipped: true, why: 'off' };
   if (!pet.speakEnabled) return { ok: false, skipped: true, why: 'paused' };
   // 「隐藏桌宠」= 用户不想看见它，那也不该听见它。和上面几个闸门同一个口径：
-  // 返回在**计数之前**，所以隐藏期间不攒轮数，重新显示后要重新攒够 N 轮才开口
-  // （否则一显示出来就立刻蹦一句，像是「隐藏根本没用」）。
-  if (!pet.visible) return { ok: false, skipped: true, why: 'hidden' };
+  // 隐藏期间不攒轮数，而且要把**已经攒的那部分清掉** —— 只「不计数」是不够的，
+  // 攒到 N-1 再藏、重新显示时下一轮照样立刻开口，正是注释里说的
+  // 「一显示出来就蹦一句，像是隐藏根本没用」。
+  if (!pet.visible) {
+    const hiddenConvo = activeConvo();
+    if (hiddenConvo) turnCounters.delete(hiddenConvo.id);
+    return { ok: false, skipped: true, why: 'hidden' };
+  }
   if (pet.mutedUntil > Date.now()) return { ok: false, skipped: true, why: 'muted' };
 
   const convo = activeConvo();
@@ -220,11 +226,6 @@ export function sayThisNow(text) {
     ok: false,
     error: (err && err.message) || '推送失败'
   }));
-}
-
-/** 当前宠物的展示名（状态行 / 标题用） */
-export function petName() {
-  return (petCache && petCache.pet && petCache.pet.name) || '桌宠';
 }
 
 /** 静音剩余毫秒（不在静音期就是 0） */

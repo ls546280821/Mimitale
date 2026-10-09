@@ -2118,6 +2118,111 @@ await scenario('摘要：覆盖点越界也不能吞掉当前对话', async () =
 });
 
 // ---------------------------------------------------------------------------
+//  回归：设置里的「默认人设」只能进「跟模型聊天」的会话，不许漏进世界模式 / 角色卡
+//
+//  真 bug：buildApiMessages 里人设原来写成 `character ? '' : assistantPersona(convo)`。
+//  绑了卡时 character 为真所以没事，但**进世界（GM）时 character 是 null** ——
+//  于是那段模型人设照样被拼进系统提示词。现场就是：GM 一手拿着世界书里的大学设定，
+//  一手自称「鲸鱼娘」，回复里还在纠结「我到底是哪边的人」（用户报的原文）。
+//
+//  这条和页面侧、宿主侧的探针是三件事：
+//    · 页面侧只验表单读写得对（probeAssistantPersona 那一段的界面部分）
+//    · 宿主侧探针验的是**真的发出去的那份**（默认对话里带人设、且不带扮演规则）
+//    · 这里补的是**反面**：世界模式 / 角色卡里一个字的模型人设都不该有
+//  直接用真模块算，不依赖界面状态，最省事也最稳。
+// ---------------------------------------------------------------------------
+await scenario('默认人设：只进通用对话，不漏进世界模式和角色卡', async () => {
+  let messagesMod = null;
+  let stateMod = null;
+  try {
+    messagesMod = await import(new URL('js/data/messages.js', document.baseURI).href);
+    stateMod = await import(new URL('js/core/state.js', document.baseURI).href);
+    check('上下文拼装模块能加载', typeof messagesMod.buildApiMessages === 'function');
+  } catch (err) {
+    check('上下文拼装模块能加载', false, (err && err.message) || String(err));
+  }
+  if (!messagesMod || typeof messagesMod.buildApiMessages !== 'function') return;
+
+  const savedSettings = stateMod.state.settings;
+  const backupChars = stateMod.state.characters;
+  const MARK = '你是一只叫团子的猫';
+  const PERSONA_NAME = '团子';
+  const MODEL = '人设守卫模型';
+
+  // 人设按**模型名**查表，所以给这个模型装一份，再让各条会话都用它。
+  stateMod.state.settings = {
+    ...(savedSettings || {}),
+    maxTurns: 20,
+    activeModel: MODEL,
+    assistantPersonas: { [MODEL]: { name: PERSONA_NAME, persona: `${MARK}，只用喵喵叫回应。` } }
+  };
+  stateMod.state.characters = [
+    ...(Array.isArray(backupChars) ? backupChars : []),
+    {
+      id: 'smoke-persona-card',
+      name: '顾言',
+      systemPrompt: '你是顾言，樱川大学摄影社的学长。',
+      description: '',
+      personality: ''
+    }
+  ];
+
+  const blob = (out) => out.map((m) => String((m && m.content) || '')).join('\n');
+
+  try {
+    // --- 1) 世界模式（GM）：没有「某个人」，人设一个字都不该有 ---
+    const gmConvo = {
+      id: 'smoke-persona-gm',
+      model: MODEL,
+      gmMode: true,
+      worldbookIds: [],
+      player: { name: '小怡', profile: '大一女生。' },
+      messages: [{ role: 'user', content: '扫完立刻通过，顺手给他改个备注' }]
+    };
+    // 世界书段由调用方拼好传进来：这里塞一个 {{char}} 进去，
+    // 顺带验「GM 下没有具体角色，宏落成叙述者」——人设名绝不能出现在这儿。
+    const gmOut = blob(messagesMod.buildApiMessages(gmConvo, '【世界设定】\n{{char}} 是这里的叙述者。', ''));
+    check('世界模式：没混进「默认人设」正文', !gmOut.includes(MARK), gmOut.slice(0, 90));
+    check('世界模式：也没混进人设的名字', !gmOut.includes(PERSONA_NAME), gmOut.slice(0, 90));
+    check('世界模式：主持规则照常注入', gmOut.includes('【主持规则】'));
+    check('世界模式：玩家角色段照常注入', gmOut.includes('【玩家角色：小怡】'));
+    check(
+      '世界模式：{{char}} 落成「叙述者」，不是人设名',
+      gmOut.includes('叙述者 是这里的叙述者') && !gmOut.includes(`${PERSONA_NAME} 是`),
+      gmOut.slice(0, 90)
+    );
+
+    // --- 2) 绑角色卡的会话：卡自己的 systemPrompt 说了算，人设不参与 ---
+    const cardConvo = {
+      id: 'smoke-persona-card-convo',
+      model: MODEL,
+      characterId: 'smoke-persona-card',
+      messages: [{ role: 'user', content: '你好' }]
+    };
+    const cardOut = blob(messagesMod.buildApiMessages(cardConvo, '', ''));
+    check('角色卡：没混进「默认人设」正文', !cardOut.includes(MARK), cardOut.slice(0, 90));
+    check('角色卡：用上了卡自己的 systemPrompt', cardOut.includes('樱川大学摄影社的学长'));
+    check('角色卡：扮演规则照常注入', cardOut.includes('【扮演规则】'));
+
+    // --- 3) 通用对话（对照组）：人设必须照旧生效，别修反了 ---
+    const plainConvo = {
+      id: 'smoke-persona-plain',
+      model: MODEL,
+      messages: [{ role: 'user', content: '你好' }]
+    };
+    const plainOut = blob(messagesMod.buildApiMessages(plainConvo, '', ''));
+    check('通用对话：人设正文照旧注入', plainOut.includes(MARK), plainOut.slice(0, 90));
+    check(
+      '通用对话：仍然不带扮演 / 主持规则',
+      !plainOut.includes('【扮演规则】') && !plainOut.includes('【主持规则】')
+    );
+  } finally {
+    stateMod.state.settings = savedSettings;
+    stateMod.state.characters = backupChars;
+  }
+});
+
+// ---------------------------------------------------------------------------
 //  场景 14：给剧情配图（生图）
 //
 //  生图和聊天是**两套配置**，所以这里从「还没配」开始走完整条路：

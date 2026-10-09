@@ -469,7 +469,8 @@ body {
   border-radius: 4px;
 }
 
-.convo-item:hover .convo-del { opacity: 1; }
+.convo-item:hover .convo-del,
+.convo-del:focus-visible { opacity: 1; }
 .convo-del:hover { color: var(--danger); background: var(--danger-bg); }
 
 /* 侧栏底部这四颗（角色库 / 世界书 / 设置 / 数据文件夹）：
@@ -992,8 +993,10 @@ body {
   border-top-right-radius: 6px;
 }
 
-/* AI 的回答：不要投影、不要重边框，但内边距要跟用户气泡一致，
-   否则文字紧贴边缘，看着特别挤。 */
+/* AI 的回答：不要**重**边框，但内边距要跟用户气泡一致，
+   否则文字紧贴边缘，看着特别挤。
+   （投影是有的，而且刻意留得很轻 —— 见下面那行 box-shadow 的说明，
+     它的作用是让白气泡从暖粉白的页底上浮起来。） */
 .msg.assistant .bubble { 
   background: var(--bg-card);
   border: 1px solid var(--border-soft);
@@ -1232,7 +1235,18 @@ body {
   margin: 8px 0;
   font-size: 0.93em;
 }
-.bubble th, .bubble td { border: 1px solid var(--border); padding: 4px 10px; }
+/* ⚠️ 这两行不是多余的默认值，别当冗余删掉：
+   `.bubble` 上写着 `overflow-wrap/word-break: break-word`，而这两个属性**会继承**，
+   表格单元格会跟着「把长单词从中间掰断」。于是一张宽表格会被压成又窄又高的
+   一坨，永远触发不了上面那条 overflow-x: auto —— 表头和数据错位得没法看。
+   改回 normal = 只在**空格处**换行，长内容撑宽 → 由气泡自己横向滚动。
+   （不用 white-space: nowrap：那会把整段说明文字也顶成一行。） */
+.bubble th, .bubble td {
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  overflow-wrap: normal;
+  word-break: normal;
+}
 .bubble th { background: var(--th-bg); }
 
 /* 消息操作按钮（悬停显示） */
@@ -1641,7 +1655,7 @@ body {
    确认框（70）仍然在它上面 —— 生成期间关掉要问一句。 */
 .ai-gen-modal { z-index: 65; }
 
-.ai-gen-card { max-width: 620px; }
+.modal-card.ai-gen-card { max-width: 620px; }
 
 .ai-gen-body {
   display: flex;
@@ -2313,8 +2327,11 @@ body {
       「右下角有两条斜线」的提示，让它看起来是可拖的。
 
    选择器刻意写成 .char-form .field-stack > textarea（(0,2,1)）——
-   通用 textarea 那条是 (0,0,1)，但它是**文件后面**写的，
-   只写类名（(0,1,0)）会被它盖掉（这个坑在属性区已经吃过一次）。 */
+   ⚠️ 要压的**不是**最后那条裸 `textarea`（(0,0,1)）：元素选择器权重最低，
+      无论写在前还是在后都输给任何带类的选择器。真正要压的是同样命中
+      textarea 的两条**类级**规则：上面 2303 行的 `.char-form textarea`（(0,1,1)）
+      和下面 `.field > textarea`（(0,1,1)）。层叠里特异性优先于书写顺序，
+      所以得把权重抬到 (0,2,1) 才盖得住。 */
 .char-form .field-stack > textarea {
   /* ⚠️ 这里**不能**写 transition: height —— 踩过一个大坑。
      文本框的高度是 JS 按内容算出来写进 inline style 的，一旦加上
@@ -2918,9 +2935,10 @@ body {
 }
 
 /* 分组下拉 / 「＋ 新建分组…」临时输入框。
-   ⚠️ 两条都要写足选择器（(0,2,1)）：通用那条 `input[type="text"], select`
-   是 (0,1,1) 而且写在文件更后面，光写 `.attr-more .attr-group`
-   照样会输给它的 min-height:40px / padding。 */
+   写足到 (0,2,1) 是为了和属性区其它 `.attr-more ...` 规则保持一致的权重口径。
+   （注意别把这条读成「通用规则写在后面所以能盖住」：通用那条是
+   `input[type="text"], select`，权重 (0,1,1)，本来就不如任意两段类选择器；
+   层叠里特异性优先于书写顺序。） */
 .attr-more select.attr-group,
 .attr-more select.attr-mode,
 .attr-more input.attr-group-new {
@@ -3000,9 +3018,11 @@ body {
   background: var(--pre-bg);
 }
 
-/* ⚠️ 带 id 写，别只写 `.attr-paste textarea`：那条是 (0,1,1)，
-   通用 textarea 也是 (0,1,1) 且写在更后面 —— min-height / font-size
-   会被静默盖掉（这两行以前就是死的）。 */
+/* 带 id 写 = (1,0,1)，稳定压过下面所有通用输入框规则
+   （`textarea` 是 (0,0,1)、`input[type="text"]` 是 (0,1,1)）。
+   ⚠️ 别把这条读成「通用 textarea 也是 (0,1,1)、写在后面所以能盖掉」——
+   裸 `textarea` 只有 (0,0,1)，比 `.attr-paste textarea`（(0,1,1)）还低；
+   这两行以前之所以是死的，是因为当时的选择器**根本没写类名**那一层。 */
 #c-attr-paste textarea {
   width: 100%;
   min-height: 0;
@@ -3164,7 +3184,7 @@ body {
 .char-avatar:hover::after,
 .char-portrait:hover::after { opacity: 1; }
 
-/* 形象还在「沿用头像那张图」时压淡一点，提示它不是单独设的 */
+/* 形象还在“沿用头像那张图”时压淡一点，提示它不是单独设的 */
 .char-portrait.is-inherited { opacity: 0.7; }
 
 .char-avatar img,
@@ -3177,6 +3197,8 @@ body {
 .char-avatar.art-edge,
 .char-portrait.art-edge,
 .char-expr-thumb.art-edge { box-shadow: var(--art-edge); }
+.char-avatar.art-edge:focus-visible,
+.char-portrait.art-edge:focus-visible { box-shadow: var(--art-edge), var(--focus-ring); }
 
 /* 有图时才显示「清除」 */
 .char-avatar-col .btn-sm { padding: 4px 10px; font-size: 11px; }
@@ -4517,14 +4539,14 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   transition: opacity 0.15s;
 }
 
-/* 删除按钮平时不显示，悬停才出现，避免界面显得吵 */
+/* 删除按钮平时不显示，悬停或键盘聚焦时出现，避免界面显得吵 */
+.panel-del:focus-visible { opacity: 1; }
 .panel-del:hover { color: var(--danger-text); background: var(--bg-input); }
-
-/* ------------------------------ 视角设置弹窗 ------------------------------ */
 
 /* ------------------------------ 对话窗口外观弹窗 ------------------------------ */
 
-/* 比别的弹窗宽一点：「主题配色」三个色点要能并排站一行 */
+/* 比通用弹窗（.modal-card 的 700px）**窄**一档：这一页只有「明暗 + 配色」两组
+   小控件，撑到 700 会左右空出一大片。620 刚好够「主题配色」三个色点并排一行。 */
 .appearance-card { max-width: 620px; }
 
 /* 「主题配色」和「明暗」并排一行。单栏堆着的话弹窗会长出可视区，
@@ -4748,6 +4770,8 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   max-height: 120px;
   object-fit: cover;
 }
+
+/* ------------------------------ 视角设置弹窗 ------------------------------ */
 
 .perspective-card { max-width: 560px; }
 .perspective-note { margin: 4px 0 0; }

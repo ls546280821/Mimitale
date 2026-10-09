@@ -42,8 +42,6 @@ const ALPHA_THRESHOLD = 16;
 //  状态
 // ---------------------------------------------------------------------------
 
-let petState = null;
-
 /** 当前是否已经让窗口「穿透鼠标」。要缓存，否则每次 mousemove 都会跨进程发一遍 */
 let clickThroughApplied = null;
 
@@ -63,7 +61,6 @@ let streamBuffer = '';
 
 function applyState(payload) {
   if (!payload) return;
-  petState = payload;
 
   const pet = payload.pet || {};
   const scale = Math.max(0.4, Math.min(2, Number(pet.scale) || 1));
@@ -163,7 +160,16 @@ function inBubble(x, y) {
 
 /** 点是不是落在宠物的**实体像素**上 */
 function inSprite(x, y) {
-  if (!catRig.active) return false;
+  if (!catRig.active) {
+    // rig 起不来时露出的是**实心**占位框，它必须照常接鼠标。
+    // 早先这里直接 return false，结果是：形象一坏整块就穿透，
+    // 用户连右键菜单都调不出来，只能回主界面设置 —— 而占位框上明明写着
+    // 「检查 assets/pet/cat」这类提示，却点不动，很像 bug。
+    if (spriteEmpty.hidden) return false;
+    const r = spriteEmpty.getBoundingClientRect();
+    return r.width > 0 && r.height > 0
+      && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  }
   const src = catRig.canvas;
   if (!src) return false;
   const mirrored = catRig.mirrored;

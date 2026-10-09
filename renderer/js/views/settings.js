@@ -303,10 +303,15 @@ function updatePersonaHint(settings) {
   const others = configured - (name || hasText ? 1 : 0);
   const tail = others > 0 ? ` · 另有 ${others} 个模型配过` : '';
 
+  // 再说一句生效范围：这份人设**只管**没绑角色卡、也没进世界的通用对话。
+  // 不写清楚的话，用户会以为它是对所有对话都生效的全局设定（进世界时看到
+  // 模型拿人设跟世界书打架，就是这么来的）。
   el.assistantHint.textContent =
     (name || hasText
       ? `「${model}」已设置：${name || '（没写名字）'}`
-      : `「${model}」未设置，是通用助手`) + tail;
+      : `「${model}」未设置，是通用助手`) +
+    ' · 只用于没绑角色卡的对话' +
+    tail;
 }
 
 /** 弹窗字段里这份草稿跟已保存的那份有没有差别（换编辑对象前要据此问一句） */
@@ -433,7 +438,7 @@ function fillSettingsForm(settings) {
   el.s.showUsage.checked = settings.showUsage !== false;
   el.s.autoContinue.checked = settings.autoContinue !== false;
   el.s.wbDepth.value = String(
-    Number.isFinite(Number(settings.worldbookRecursiveDepth)) ? Number(settings.worldbookRecursiveDepth) : 3
+    Number.isFinite(Number(settings.worldbookRecursiveDepth)) ? Number(settings.worldbookRecursiveDepth) : 0
   );
   el.s.maxTurns.value = String(
     Number.isFinite(Number(settings.maxTurns)) && Number(settings.maxTurns) >= 1 ? Math.floor(Number(settings.maxTurns)) : 20
@@ -680,7 +685,7 @@ function readSettingsForm() {
       el.s.wbDepth,
       Number.isFinite(Number(saved.worldbookRecursiveDepth))
         ? Number(saved.worldbookRecursiveDepth)
-        : 3,
+        : 0,
       0,
       5,
       true

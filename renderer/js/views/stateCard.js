@@ -39,7 +39,6 @@ import {
   panelFieldGroup,
   panelFieldName,
   panelFieldOwner,
-  panelKey,
   setPanelField,
   appendPanelFields
 } from '../data/panel.js';
