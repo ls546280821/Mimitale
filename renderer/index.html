@@ -585,38 +585,33 @@
       <!-- 提示条放在主区域内：这样它居中于对话区，而不是整个窗口。
            故意放在两个视图外面，切换页面时提示不会跟着被藏起来。 -->
       <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
-    </main>
-  </div>
 
-  <!-- ================= 设置弹窗 ================= -->
-  <div id="settings-modal" class="modal hidden">
-    <!-- tabindex="-1"：打开时把焦点收到卡片自己身上（见 settings.js 的 openSettings）。
-         没有它，焦点会留在背后那颗「设置」按钮上，Esc 之外谁也接不住；
-         有了它，就不会再去自动聚焦某个输入框 —— 数字框一聚焦就整段选中。 -->
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title" tabindex="-1">
-      <header class="modal-head">
-        <div class="modal-heading">
-          <h2 id="settings-title">设置</h2>
-          <p class="modal-sub">配置模型接口与对话行为</p>
-        </div>
-        <!-- 放大：把这个弹窗铺满整个应用窗口（不是把窗口切成全屏），写长文本时能多看见几行；
-             再点还原。两个图标靠弹窗自己的 .modal-max 二选一显示（见 style.css 的 .fs-btn）。 -->
-        <button id="btn-fs-settings" class="icon-btn fs-btn" type="button" title="放大到窗口大小" aria-label="放大到窗口大小" aria-pressed="false">
-          <svg class="icon-expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
-          </svg>
-          <svg class="icon-restore" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M3 8h3a2 2 0 0 0 2-2V3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M21 16h-3a2 2 0 0 0-2 2v3" />
-          </svg>
-        </button>
-        <button id="btn-close-settings" class="icon-btn" type="button" title="关闭（Esc）" aria-label="关闭设置">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        </button>
-      </header>
+      <!-- ================= 视图六：设置 =================
+           2026-10-09 从弹窗改成**页面**。理由：设置项越加越多（六块卡片），塞在
+           86vh 的弹窗里得一路滚；而它本来就是「低频但会待一会儿」的界面（填 Key、
+           写人设、调桌宠人格），给一整屏更合适 —— 顺带也少了一层弹窗层级，
+           「默认人设」那个弹窗现在是压在页面上，不再是压在弹窗上。
 
-      <div class="modal-body">
+           打开 / 离开都由 views/settings.js 管：它要先刷新内容，还要记住**来处**
+           （保存 / 返回 / Esc 都回到进来之前那一屏，等于以前「关掉弹窗」的语义）。
+
+           ⚠️ 里面那六个 panel-section 保持从弹窗里带过来的缩进（比这里浅一级）——
+              它们是整段搬过来的，没重排，别为缩进单独起一次格式 diff。 -->
+      <section id="view-settings" class="view hidden" aria-label="设置">
+        <header class="page-head">
+          <div class="page-heading">
+            <h1 class="page-title">设置</h1>
+            <p class="page-sub">配置模型接口与对话行为 · 只保存在本机，改完记得点保存</p>
+          </div>
+          <div class="page-actions">
+            <!-- 返回 = 不保存直接走（就是以前那颗 × 的位置）。
+                 保存以前固定在弹窗底部，现在跟「返回」并排放在页头，滚到哪儿都能点。 -->
+            <button id="btn-back-settings" class="btn btn-ghost btn-sm" type="button" title="返回上一屏（Esc）">返回</button>
+            <button id="btn-save-settings" class="btn btn-primary btn-sm" type="button" aria-label="保存设置">保存</button>
+          </div>
+        </header>
+
+        <div class="page-body settings-body">
         <!-- 这一屏是「一列可折叠的卡片」：每个大版块一张卡，头部整块是一颗
              <button class="section-head">，点一下展开 / 收起（逻辑在 views/settings.js，
              样式在 style.css 的 .panel-section.collapsible 那一段）。
@@ -1035,15 +1030,9 @@
             <span class="field-help" id="s-pet-memory-hint">—</span>
           </div>
         </section>
-      </div>
-
-      <footer class="modal-foot">
-        <span class="foot-hint">设置只保存在本机，改完记得点保存</span>
-        <div class="foot-actions">
-          <button id="btn-save-settings" class="btn btn-primary" type="button" aria-label="保存设置">保存</button>
         </div>
-      </footer>
-    </div>
+      </section>
+    </main>
   </div>
 
   <!-- ================= 角色编辑弹窗 =================

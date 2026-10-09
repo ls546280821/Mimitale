@@ -511,7 +511,7 @@ export function initPetSettings(opts) {
   // 「设置页和右键菜单两边同步」这条需求的两个方向之一：
   // 右键菜单（在宠物窗口上）改了配置 → 主进程广播 pet:changed → 这里重画。
   //
-  // 弹窗关着的时候不画：表单在 DOM 里一直存在，没必要为一个看不见的界面
+  // 人不在设置页时不画：表单在 DOM 里一直存在，没必要为一个看不见的界面
   // 反复重排，而且那还会在用户下次打开前把正在编辑的内容冲掉一次。
   api.onPetChanged(async () => {
     // 缓存**永远**要刷：右键菜单（在宠物窗口上）改的就是这份配置，而
@@ -520,9 +520,8 @@ export function initPetSettings(opts) {
     // 这些刚落盘的设置要等到下一次成功说话才生效 —— 表现就是
     // 「我明明点了隐藏，过几轮它又自己冒出来」。
     await refreshPetCache();
-    // 表单只在看得见的时候重画：弹窗关着时重排没意义，而且会在你下次打开前
-    // 把正在编辑的内容冲掉一次。
-    if (el.modal && el.modal.classList.contains('hidden')) return;
+    // 2026-10-09 设置从弹窗改成页面：这条判据从「弹窗显不显示」换成「在不在这一屏」。
+    if (el.viewSettings && el.viewSettings.classList.contains('hidden')) return;
     onPetStateChanged();
   });
 }

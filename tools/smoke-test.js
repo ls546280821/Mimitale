@@ -3458,10 +3458,12 @@ app.whenReady().then(async () => {
       }
       // 每个场景 = 打开哪个界面。只点真实按钮，不调内部函数。
       const DRIVERS = {
+        // 设置页（视图六，2026-10-09 从弹窗改的）：一列折叠卡片的整体排版
+        //（页头那颗「返回/保存」、卡片间距、限宽居中）只靠 DOM 断言看不出来。
         settings: `
           document.querySelector('#btn-settings')?.click();
           await new Promise(r => setTimeout(r, 700));`,
-        // 桌宠区块（设置弹窗最下面那一段）：预览框、人格、记忆列表 ——
+        // 桌宠区块（设置页最下面那一段）：预览框、人格、记忆列表 ——
         // 全是排版密集的地方，「挤成一行」「按钮换行」这类问题 DOM 断言看不出来，
         // 只能靠图。顺手点一次「生成一句」，让预览框里真的有内容（空框看不出高矮）。
         petSettings: `
@@ -3758,15 +3760,6 @@ app.whenReady().then(async () => {
           if (btn) btn.click();
           await nap(650);
           $('#btn-fs-preset')?.click();
-          await nap(400);
-          const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
-        // 同上，换成设置弹窗（它没有自己的尺寸规则，做对照组）
-        modalMaxSettings: `
-          const $ = (s) => document.querySelector(s);
-          const nap = (ms) => new Promise(r => setTimeout(r, ms));
-          $('#btn-settings')?.click();
-          await nap(700);
-          $('#btn-fs-settings')?.click();
           await nap(400);
           const t = $('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }`,
         // 属性区的分组标签栏：新建一张卡，按真实交互铺出几个分组再截图 ——

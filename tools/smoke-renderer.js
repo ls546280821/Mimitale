@@ -491,12 +491,13 @@ await scenario('顶栏：切换模型', async () => {
 });
 
 // ---------------------------------------------------------------------------
-//  场景 3：设置弹窗
+//  场景 3：设置页
 // ---------------------------------------------------------------------------
-await scenario('设置弹窗', async () => {
+await scenario('设置页', async () => {
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
-  check('设置弹窗里有表单卡片', !!$('#settings-modal .modal-card'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
+  check('设置是一个视图、不是弹窗', !!$('#view-settings') && !$('#settings-modal'));
+  check('设置页有页头和「返回 / 保存」两颗按钮', !!$('#view-settings .page-head') && !!byId('btn-back-settings') && !!byId('btn-save-settings'));
 
   // 大版块是**折叠卡片**（2026-10-09）。这里是整套冒烟里第一次打开设置，
   // 所以正好验默认那一条：还没手动点过 = 只展开第一张「模型服务」。
@@ -528,17 +529,17 @@ await scenario('设置弹窗', async () => {
 
   setValue('#s-max-turns', '42');
   click('#btn-save-settings');
-  await waitFor('设置已保存', () => !shown('#settings-modal'));
+  await waitFor('设置已保存', () => !shown('#view-settings'));
   await sleep(150);
   const turnsSaved = ((await window.mimitale.getSettings()).settings || {}).maxTurns;
   check('改「对话轮数」能落盘', turnsSaved === 42, String(turnsSaved));
 
   // 改回去 —— 后面好几个场景都依赖默认的 20 轮
   click('#btn-settings');
-  await waitFor('设置弹窗再开', () => shown('#settings-modal'));
+  await waitFor('设置页再开', () => shown('#view-settings'));
   setValue('#s-max-turns', turnsBefore || '20');
   click('#btn-save-settings');
-  await waitFor('设置已还原', () => !shown('#settings-modal'));
+  await waitFor('设置已还原', () => !shown('#view-settings'));
   await sleep(150);
   const turnsBack = ((await window.mimitale.getSettings()).settings || {}).maxTurns;
   check('「对话轮数」还原成 20（后面的场景还等着它）', turnsBack === 20, String(turnsBack));
@@ -557,7 +558,7 @@ await scenario('设置：大版块是折叠卡片', async () => {
   const beforeTokens = String(((await window.mimitale.getSettings()).settings || {}).maxTokens ?? 8192);
 
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
 
   const modelsHead = byId('sec-models').querySelector('.section-head');
   const paramsHead = byId('sec-params').querySelector('.section-head');
@@ -580,14 +581,14 @@ await scenario('设置：大版块是折叠卡片', async () => {
   // 收着的卡片里的值照样存得住（折叠只是 display:none，不该让表单失效）
   setValue('#s-maxtokens', '2048');
   click('#btn-save-settings');
-  await waitFor('设置已保存', () => !shown('#settings-modal'));
+  await waitFor('设置已保存', () => !shown('#view-settings'));
   await sleep(150);
   const saved = ((await window.mimitale.getSettings()).settings || {});
   check('收起的卡片里的值照样落盘', Number(saved.maxTokens) === 2048, String(saved.maxTokens));
 
   // 关掉再打开：回到刚才翻到的那一页
   click('#btn-settings');
-  await waitFor('设置弹窗再开', () => shown('#settings-modal'));
+  await waitFor('设置页再开', () => shown('#view-settings'));
   check(
     '重开回到刚才翻到的那一页（参数开着、模型收着）',
     byId('sec-params').classList.contains('open') && !byId('sec-models').classList.contains('open'),
@@ -598,7 +599,53 @@ await scenario('设置：大版块是折叠卡片', async () => {
   if (!byId('sec-params').classList.contains('open')) click(paramsHead);
   setValue('#s-maxtokens', beforeTokens);
   click('#btn-save-settings');
-  await waitFor('回复上限已还原', () => !shown('#settings-modal'));
+  await waitFor('回复上限已还原', () => !shown('#view-settings'));
+});
+
+// ---------------------------------------------------------------------------
+//  场景 3.6：设置是**页面**，不是弹窗（2026-10-09 从弹窗搬过来）
+//
+//  从弹窗变成一屏之后，多出来三件必须守住的事：
+//   ① 侧边栏那颗「设置」要亮起来 —— 页面才有「我现在在哪一屏」这件事；
+//   ② 保存 / 返回 / Esc 都回到**进来之前那一屏**（弹窗时代是「关掉弹窗」，语义没变）；
+//   ③ 进来之前不一定是聊天 —— 从角色库进来就得回角色库，别写死。
+// ---------------------------------------------------------------------------
+await scenario('设置：是页面，来去都记得从哪来', async () => {
+  const esc = () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+
+  // --- 从「角色库」进去 ---
+  click('#btn-chars');
+  await waitFor('切到角色库', () => shown('#view-chars'));
+  click('#btn-settings');
+  await waitFor('切到设置页', () => shown('#view-settings'));
+  check('设置页是真的把别的视图藏起来（不是盖一层浮层）', !shown('#view-chat') && !shown('#view-chars'));
+  check(
+    '侧边栏「设置」亮着、角色库那颗灭了',
+    byId('btn-settings').classList.contains('active') && !byId('btn-chars').classList.contains('active')
+  );
+
+  // --- 「返回」原路回角色库 ---
+  click('#btn-back-settings');
+  await waitFor('返回角色库', () => shown('#view-chars'));
+  check('返回回到进来之前那一屏（角色库），不是硬回聊天', shown('#view-chars') && !shown('#view-settings'));
+
+  // --- Esc 是同一个动作 ---
+  click('#btn-settings');
+  await waitFor('再进设置页', () => shown('#view-settings'));
+  esc();
+  await waitFor('Esc 离开设置页', () => !shown('#view-settings'));
+  check('在设置页按 Esc = 返回上一屏', shown('#view-chars'));
+
+  // --- 从聊天进去 → 保存后回聊天 ---
+  // 点**当前这条会话**（带 active 那个）切回聊天：换个会话会让 activeId 变，
+  // 后面好几个场景都按原来那条算，别在这儿把它换掉。
+  click($('#convo-list .convo-item.active') || $('#convo-list .convo-item'));
+  await waitFor('切回聊天视图', () => shown('#view-chat'));
+  click('#btn-settings');
+  await waitFor('从聊天进设置', () => shown('#view-settings'));
+  click('#btn-save-settings');
+  await waitFor('保存后离开设置页', () => !shown('#view-settings'));
+  check('保存后回到聊天（进来之前那一屏）', shown('#view-chat'));
 });
 
 // ---------------------------------------------------------------------------
@@ -1721,7 +1768,7 @@ await scenario('分支：视角设置要跟着走', async () => {
 // ---------------------------------------------------------------------------
 await scenario('设置：清空数字框等于没改，不静默夹到下限', async () => {
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
 
   const before = ((await window.mimitale.getSettings()).settings || {});
   const beforeMaxTokens = Number(before.maxTokens);
@@ -1736,15 +1783,15 @@ await scenario('设置：清空数字框等于没改，不静默夹到下限', a
   setValue('#s-maxtokens', String(probeTokens));
   setValue('#s-max-turns', String(probeTurns));
   click('#btn-save-settings');
-  await waitFor('探针值已保存', () => !shown('#settings-modal'));
+  await waitFor('探针值已保存', () => !shown('#view-settings'));
   await sleep(150);
 
   click('#btn-settings');
-  await waitFor('设置弹窗打开（改完再清）', () => shown('#settings-modal'));
+  await waitFor('设置页打开（改完再清）', () => shown('#view-settings'));
   setValue('#s-maxtokens', '');
   setValue('#s-max-turns', '');
   click('#btn-save-settings');
-  await waitFor('设置已保存', () => !shown('#settings-modal'));
+  await waitFor('设置已保存', () => !shown('#view-settings'));
   await sleep(150);
 
   const after = ((await window.mimitale.getSettings()).settings || {});
@@ -1761,11 +1808,11 @@ await scenario('设置：清空数字框等于没改，不静默夹到下限', a
 
   // 收尾：还原成进这个场景之前的值，后面的场景还等着它们
   click('#btn-settings');
-  await waitFor('设置弹窗再开', () => shown('#settings-modal'));
+  await waitFor('设置页再开', () => shown('#view-settings'));
   setValue('#s-maxtokens', String(beforeMaxTokens));
   setValue('#s-max-turns', String(beforeMaxTurns));
   click('#btn-save-settings');
-  await waitFor('设置已还原', () => !shown('#settings-modal'));
+  await waitFor('设置已还原', () => !shown('#view-settings'));
 });
 
 // ---------------------------------------------------------------------------
@@ -1811,11 +1858,11 @@ await scenario('输入框：发不出去时字要留着', async () => {
 
   // --- 路径一：没填 API Key（最常见的第一次发送） ---
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
   const keyBefore = byId('p-apikey').value;
   setValue('#p-apikey', '');
   click('#btn-save-settings');
-  await waitFor('设置已保存', () => !shown('#settings-modal'));
+  await waitFor('设置已保存', () => !shown('#view-settings'));
   await sleep(150);
 
   setValue('#input', FILLED);
@@ -1840,10 +1887,10 @@ await scenario('输入框：发不出去时字要留着', async () => {
   // 恢复 Key，别影响后面的场景
   await sleep(200);
   click('#btn-settings');
-  await waitFor('设置弹窗再开（恢复 Key）', () => shown('#settings-modal'));
+  await waitFor('设置页再开（恢复 Key）', () => shown('#view-settings'));
   setValue('#p-apikey', keyBefore || 'test-key');
   click('#btn-save-settings');
-  await waitFor('Key 已恢复', () => !shown('#settings-modal'));
+  await waitFor('Key 已恢复', () => !shown('#view-settings'));
   await sleep(150);
 
   // --- 路径二：正在生成中按回车（输入框在流式期间并没有禁用） ---
@@ -2327,7 +2374,7 @@ await scenario('给剧情配图（生图）', async () => {
 
   // --- 去设置里配一组 ---
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
   await sleep(150);
 
   check('设置里有生图服务商下拉', !!byId('s-image-provider'));
@@ -2402,7 +2449,7 @@ await scenario('给剧情配图（生图）', async () => {
   // 继续后面的流程
   setValue('#s-image-size', '1024x1024');
   click('#btn-save-settings');
-  await waitFor('设置关闭', () => !shown('#settings-modal'));
+  await waitFor('设置关闭', () => !shown('#view-settings'));
   await sleep(400);
 
   const saved = (await window.mimitale.getSettings()).settings;
@@ -2538,67 +2585,58 @@ await scenario('外观：聊天区那几样', async () => {
 
 // ---------------------------------------------------------------------------
 //  场景 15b：编辑类弹窗头上的「放大到窗口」按钮
-//  四个弹窗各一颗（角色卡 / 世界书 / 设置 / 预设），行为一样：把**那个弹窗自己**
+//  三个弹窗各一颗（角色卡 / 世界书 / 预设），行为一样：把**那个弹窗自己**
 //  铺满应用窗口（纯渲染层：给 .modal 挂 modal-max，CSS 撑满；不碰 BrowserWindow，
 //  所以这里没有假后端可验 —— 验的就是 class + 按钮状态）。
-//  ⚠️ 场景结束必须把两个弹窗都关掉、且不留 modal-max：后面的截图/布局断言
+//  ⚠️ 2026-10-09：设置那颗撤了 —— 设置从弹窗改成**页面**（视图六），
+//     它本来就占满整个窗口，没有「放大」这回事。
+//  ⚠️ 场景结束必须把弹窗都关掉、且不留 modal-max：后面的截图/布局断言
 //     都按「弹窗是正常大小」算，留着放大的状态会拍出一张铺满屏幕的图。
 // ---------------------------------------------------------------------------
 await scenario('编辑弹窗的放大按钮', async () => {
-  const ids = ['btn-fs-chars', 'btn-fs-worldbooks', 'btn-fs-settings', 'btn-fs-preset'];
+  const ids = ['btn-fs-chars', 'btn-fs-worldbooks', 'btn-fs-preset'];
   const maxed = (id) => byId(id).classList.contains('modal-max');
-  check('四个编辑弹窗头上都有放大按钮', ids.every((id) => !!byId(id)));
+  check('三个编辑弹窗头上都有放大按钮', ids.every((id) => !!byId(id)));
+  check('设置那颗已经撤掉（它成了页面，没有「放大」这回事）', !byId('btn-fs-settings'));
 
-  // --- 开一下、放大、还原 ---
-  click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
-  check('刚打开时不是放大状态', !maxed('settings-modal'));
-
-  click('#btn-fs-settings');
-  await waitFor('弹窗放大', () => maxed('settings-modal'));
-  check('点一下把弹窗放大到窗口', maxed('settings-modal'));
-  // 图标是「四角向外 / 向内」两张 SVG 二选一，只看 class 验不出来；
-  // aria-pressed 和 title 是读屏 / 悬停唯一能读到的状态，必须跟着走。
-  check('放大后按钮标成「已按下」', byId('btn-fs-settings').getAttribute('aria-pressed') === 'true');
-  check('放大后按钮改说「还原」', /还原/.test(byId('btn-fs-settings').getAttribute('title') || ''));
-
-  click('#btn-fs-settings');
-  await waitFor('弹窗还原', () => !maxed('settings-modal'));
-  check('再点一下还原回正常大小', !maxed('settings-modal'));
-  check('还原后按钮回到「未按下」', byId('btn-fs-settings').getAttribute('aria-pressed') === 'false');
-
-  // --- 状态挂在各自的弹窗上：放大了设置，别的不该跟着放大 ---
-  click('#btn-fs-settings');
-  await waitFor('设置再放大', () => maxed('settings-modal'));
-  check('放大只作用于它自己那个弹窗',
-    !maxed('worldbooks-modal') && !maxed('chars-modal') && !maxed('preset-modal'));
-
-  // --- 关掉弹窗时把放大状态摘掉，下次打开别记住 ---
-  click('#btn-close-settings');
-  await waitFor('设置弹窗关闭', () => !shown('#settings-modal'));
-  check('关掉弹窗时放大状态被摘掉', !maxed('settings-modal'));
-
-  click('#btn-settings');
-  await waitFor('设置弹窗重开', () => shown('#settings-modal'));
-  check('重新打开回到正常大小（不记住上次放大）', !maxed('settings-modal'));
-  click('#btn-close-settings');
-  await waitFor('设置弹窗再关', () => !shown('#settings-modal'));
-
-  // --- 另一颗按钮管的是它自己那个弹窗 ---
-  // 弹窗得真的打开再点：按钮在 .modal-head 里，弹窗没开时它压根不可见。
-  // 注意 #btn-worldbooks 进的是**列表页**，编辑器得再从卡片上点「编辑」才出来。
+  // --- 开一下、放大、还原（拿世界书编辑器当样本）---
   click('#btn-worldbooks');
   await waitFor('切到世界书列表页', () => shown('#view-worldbooks'));
   click(buttonByText($$('#wb-page-grid .char-card')[0], '编辑'));
   await waitFor('世界书编辑器打开', () => shown('#worldbooks-modal'));
+  check('刚打开时不是放大状态', !maxed('worldbooks-modal'));
+
   click('#btn-fs-worldbooks');
-  await waitFor('世界书放大', () => maxed('worldbooks-modal'));
-  check('世界书那颗按钮放大的是世界书弹窗', maxed('worldbooks-modal') && !maxed('settings-modal'));
+  await waitFor('弹窗放大', () => maxed('worldbooks-modal'));
+  check('点一下把弹窗放大到窗口', maxed('worldbooks-modal'));
+  // 图标是「四角向外 / 向内」两张 SVG 二选一，只看 class 验不出来；
+  // aria-pressed 和 title 是读屏 / 悬停唯一能读到的状态，必须跟着走。
+  check('放大后按钮标成「已按下」', byId('btn-fs-worldbooks').getAttribute('aria-pressed') === 'true');
+  check('放大后按钮改说「还原」', /还原/.test(byId('btn-fs-worldbooks').getAttribute('title') || ''));
+
+  click('#btn-fs-worldbooks');
+  await waitFor('弹窗还原', () => !maxed('worldbooks-modal'));
+  check('再点一下还原回正常大小', !maxed('worldbooks-modal'));
+  check('还原后按钮回到「未按下」', byId('btn-fs-worldbooks').getAttribute('aria-pressed') === 'false');
+
+  // --- 状态挂在各自的弹窗上：放大了世界书，别的不该跟着放大 ---
+  click('#btn-fs-worldbooks');
+  await waitFor('世界书再放大', () => maxed('worldbooks-modal'));
+  check('放大只作用于它自己那个弹窗', !maxed('chars-modal') && !maxed('preset-modal'));
+
+  // --- 关掉弹窗时把放大状态摘掉，下次打开别记住 ---
   click('#btn-close-worldbooks');
   await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
+  check('关掉弹窗时放大状态被摘掉', !maxed('worldbooks-modal'));
+
+  click(buttonByText($$('#wb-page-grid .char-card')[0], '编辑'));
+  await waitFor('世界书编辑器重开', () => shown('#worldbooks-modal'));
+  check('重新打开回到正常大小（不记住上次放大）', !maxed('worldbooks-modal'));
+  click('#btn-close-worldbooks');
+  await waitFor('世界书弹窗再关', () => !shown('#worldbooks-modal'));
 
   check('收尾后没有任何弹窗还留着放大状态',
-    ['settings-modal', 'worldbooks-modal', 'chars-modal', 'preset-modal'].every((id) => !maxed(id)));
+    ['worldbooks-modal', 'chars-modal', 'preset-modal'].every((id) => !maxed(id)));
 });
 
 // ---------------------------------------------------------------------------
@@ -3798,7 +3836,7 @@ await scenario('会话：分支与存档点', async () => {
 await scenario('语义检索', async () => {
   // 先在设置里打开并配好
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
   await sleep(200);
 
   check('设置里有语义检索这一节', !!byId('s-rag-enabled') && !!byId('s-embedding-provider'));
@@ -3819,7 +3857,7 @@ await scenario('语义检索', async () => {
   click('#s-rag-enabled');
   await sleep(120);
   click('#btn-save-settings');
-  await waitFor('设置关闭', () => !shown('#settings-modal'));
+  await waitFor('设置关闭', () => !shown('#view-settings'));
   await sleep(400);
 
   const saved = (await window.mimitale.getSettings()).settings;
@@ -3837,12 +3875,12 @@ await scenario('语义检索', async () => {
 
   // 负向对照：关掉之后不该再注入
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
   await sleep(200);
   click('#s-rag-enabled');
   await sleep(120);
   click('#btn-save-settings');
-  await waitFor('设置关闭', () => !shown('#settings-modal'));
+  await waitFor('设置关闭', () => !shown('#view-settings'));
   await sleep(300);
 
   const off = (await window.mimitale.getSettings()).settings;
@@ -5819,11 +5857,11 @@ await scenario('聊天：截断续到上限后停下并提示', async () => {
 // ---------------------------------------------------------------------------
 await scenario('设置：关掉自动续写后不再自己续', async () => {
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
   click('#s-autocontinue');
   await sleep(150);
   click('#btn-save-settings');
-  await waitFor('设置关闭', () => !shown('#settings-modal'));
+  await waitFor('设置关闭', () => !shown('#view-settings'));
 
   const saved = (await window.mimitale.getSettings()).settings;
   check('关掉之后落盘也是关的', saved.autoContinue === false, String(saved.autoContinue));
@@ -5849,11 +5887,11 @@ await scenario('设置：关掉自动续写后不再自己续', async () => {
 
   // 改回来，免得影响后面的场景
   click('#btn-settings');
-  await waitFor('设置弹窗重新打开', () => shown('#settings-modal'));
+  await waitFor('设置页重新打开', () => shown('#view-settings'));
   click('#s-autocontinue');
   await sleep(150);
   click('#btn-save-settings');
-  await waitFor('设置再次关闭', () => !shown('#settings-modal'));
+  await waitFor('设置再次关闭', () => !shown('#view-settings'));
 });
 
 // ---------------------------------------------------------------------------
@@ -7688,7 +7726,7 @@ await scenario('默认人设：按模型可编辑，并注入没绑卡的对话'
 
   // --- 1) 「模型服务」里有一行入口，点开才进编辑弹窗 ---
   click('#btn-settings');
-  await waitFor('设置弹窗打开', () => shown('#settings-modal'));
+  await waitFor('设置页打开', () => shown('#view-settings'));
 
   const hintText = () => (byId('s-assistant-hint') || {}).textContent || '';
   check('模型服务里有「默认人设」入口按钮', !!byId('btn-assistant-persona'));
@@ -7776,8 +7814,8 @@ await scenario('默认人设：按模型可编辑，并注入没绑卡的对话'
     hintText()
   );
 
-  click('#btn-close-settings');
-  await waitFor('设置弹窗关闭', () => !shown('#settings-modal'));
+  click('#btn-back-settings');
+  await waitFor('离开设置页', () => !shown('#view-settings'));
 
   // --- 3) 空状态标题跟着人设的名字走 ---
   const emptyTitle = $('#messages .empty h2') ? $('#messages .empty h2').textContent : '';
@@ -7787,7 +7825,7 @@ await scenario('默认人设：按模型可编辑，并注入没绑卡的对话'
   const convo = stateMod.state.conversations.find((c) => c.id === stateMod.state.activeId);
   if (convo) convo.model = '另一个模型';
   click('#btn-settings');
-  await waitFor('设置弹窗再开一次', () => shown('#settings-modal'));
+  await waitFor('设置页再开一次', () => shown('#view-settings'));
   click('#btn-assistant-persona');
   await waitFor('人设弹窗再开', () => shown('#persona-modal'));
   check(
@@ -7883,8 +7921,8 @@ await scenario('默认人设：按模型可编辑，并注入没绑卡的对话'
     hintText()
   );
 
-  click('#btn-close-settings');
-  await waitFor('设置弹窗关闭', () => !shown('#settings-modal'));
+  click('#btn-back-settings');
+  await waitFor('离开设置页', () => !shown('#view-settings'));
 
   // 「另一个模型」没配人设 = 通用助手连名字都没有 —— 标题不该硬套一个内置假名
   redrawMod.renderAll({ forceScroll: true });

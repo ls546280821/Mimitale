@@ -1,5 +1,11 @@
 // ---------------------------------------------------------------------------
-//  设置弹窗（含服务商编辑 / 生图 / 语义检索 / 联网搜索）
+//  设置页（含服务商编辑 / 生图 / 语义检索 / 桌宠）
+//
+//  ⚠️ 2026-10-09：它从**弹窗**改成了**页面**（视图六 `#view-settings`）。理由和
+//  迁移口径见 index.html 那段注释 + CHANGELOG。对外的接口只变了两处：
+//   · openSettings() 现在切屏（showView('settings')）并记下来处；
+//   · closeSettings() 改名 leaveSettings()：回到进来之前那一屏
+//     （保存 / 返回 / Esc 都走它，等于以前「关掉弹窗」的语义）。
 //
 //  两处刻意的边界：
 //
@@ -9,7 +15,12 @@
 //     「对话头部」不在此列：views/header.js 只依赖 core / data，可以直接单向 import。
 //
 //   · openSettings 必须导出：发消息前发现没配模型、点「配图」发现没配生图时，
-//     那两个流程（都在入口层）要弹这个设置窗。
+//     那两个流程（发送在 views/composer.js、配图在 views/chatImages.js）
+//     要把用户带到这一屏。
+//
+//   · leaveSettings 也要导出：入口层的 Esc 判断链里有固定顺序
+//     （确认框 → 玩家弹窗 → 角色选择 → 角色编辑器 → 设置 → 外观），
+//     那一条留在入口层，拆成两个监听器会让顺序失效。
 //
 //   · expandSettingsSection 也要导出：桌宠右键菜单的「查看记忆」是入口层接的
 //     （renderer/js/main.js），它得先把「桌宠」那张折叠卡拆开再滚过去。
@@ -17,12 +28,8 @@
 //  大版块是**折叠卡片**：头部整块是一颗按钮，点一下展开 / 收起。逻辑在本文件
 //  下半段（折叠区块那一段），样式在 style.css 的 .panel-section.collapsible。
 //
-//  弹窗只在打开时渲染，不参与整体重绘，所以不向刷新总线登记
+//  内容只在「进这一屏」时刷新，不参与整体重绘，所以不向刷新总线登记
 //  （和 views/perspectiveUi.js 一样，只做事件绑定）。
-//
-//  Esc 关弹窗那一条**没搬过来**：它在入口层的 Esc 判断链里有固定顺序
-//  （确认框 → 玩家弹窗 → 角色选择 → 角色编辑器 → 设置 → 外观），
-//  拆成两个监听器会让这条顺序失效。
 //
 //  内置目录兜底（模型清单 / 生图尺寸规则）在 views/settingsCatalog.js ——
 //  本模块只 import 它导出的查询和「铺进界面」的动作。往「服务商表单」里写字的
@@ -40,6 +47,8 @@ import { showToast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { providers, providerById, isBridgeProvider } from '../data/providers.js';
 import { renderHeader } from './header.js';
+// 视图切换（单向：它只登记显隐/高亮，不认识本模块）
+import { showView, currentViewName } from './viewSwitch.js';
 import {
   catalogForBaseUrl,
   imageCatalogModels,
@@ -48,11 +57,17 @@ import {
   fillImageSizeOptions
 } from './settingsCatalog.js';
 
-/** 设置弹窗里当前正在编辑的服务商 */
+/** 设置页里当前正在编辑的服务商 */
 let editingProviderId = null;
 
 /** 默认人设弹窗里，字段中那份草稿属于哪个模型（换编辑对象时的脏检查要靠它） */
 let personaShownModel = '';
+
+/**
+ * 进设置页之前停在哪一屏。保存 / 返回 / Esc 都回到它 ——
+ * 这就是「弹窗时代关掉弹窗」的效果，别让它变成永远回聊天。
+ */
+let returnView = 'chat';
 
 // --- 入口层注入的重绘动作 ---
 // refreshModelSwitch()：右上角「当前模型」切换器（服务商 / 模型列表改了要重画）
@@ -68,7 +83,8 @@ export function initSettings(opts = {}) {
   if (typeof opts.afterSettingsSave === 'function') afterSettingsSave = opts.afterSettingsSave;
 
   el.btnSettings.addEventListener('click', openSettings);
-  el.btnCloseSettings.addEventListener('click', closeSettings);
+  // 「返回」= 不保存直接走（就是以前那颗 × 的位置）
+  el.btnBackSettings.addEventListener('click', leaveSettings);
   el.btnSaveSettings.addEventListener('click', () => saveSettings(false));
   el.btnTest.addEventListener('click', testConnection);
   el.btnFetchModels.addEventListener('click', fetchModels);
@@ -120,17 +136,14 @@ export function initSettings(opts = {}) {
     if (event.target === el.personaModal) closePersonaDialog();
   });
 
-  el.modal.addEventListener('click', (event) => {
-    // 点头部 = 展开 / 收起这一块。只有**点在头部里**才算 ——
-    // 卡片自身的 padding 不算（展开时那一圈就在输入框边上，
-    // 顺手点一下就收起会烦死人）。
+  // 折叠卡片：点头部就展开 / 收起。
+  // 监听挂在**设置这一屏**上（不是 document）—— 这一屏是页面，事件不会跑到别处去；
+  // 只有**点在头部里**才算，卡片自身的 padding 不算（展开时那一圈就在输入框边上，
+  // 顺手点一下就收起会烦死人）。
+  el.viewSettings.addEventListener('click', (event) => {
     const section = sectionOf(event.target);
-    if (section) {
-      setSectionOpen(section, !section.classList.contains('open'));
-      return;
-    }
-    // 点弹窗外面的遮罩 = 关上
-    if (event.target === el.modal) closeSettings();
+    if (!section) return;
+    setSectionOpen(section, !section.classList.contains('open'));
   });
 }
 
@@ -147,7 +160,7 @@ export function setEditingProvider(id) {
 //  是一张目录，想改什么点开哪张。
 //
 //  折叠状态**不落盘**：那只是「刚才翻到哪了」，不值得为它动 config.json。
-//  但同一次运行里关掉再打开会回到原样（openSections）。
+//  但同一次运行里离开再进来会回到原样（openSections）。
 // ---------------------------------------------------------------------------
 
 /** 这次运行里开着哪些区块（存 section 的 id） */
@@ -180,19 +193,19 @@ function setSectionOpen(section, open, remember = true) {
  * （renderer/js/main.js）触发，它拿不到这里的 openSections，只能反过来喊一声。
  */
 export function expandSettingsSection(id) {
-  const section = id ? el.modal.querySelector(`#${id}`) : null;
+  const section = id ? el.viewSettings.querySelector(`#${id}`) : null;
   if (section) setSectionOpen(section, true);
 }
 
 /**
- * 打开弹窗时铺一遍折叠状态。
+ * 切到设置页时铺一遍折叠状态。
  *
  * 还没手动点过（touchedFolds = false）就默认展开第一张「模型服务」——
  * 头一回配 Key / 换服务商的人基本都是冲它来的，全收起来会让人不知道从哪下手。
  * 点过之后一律按记下的来：没点开的就是收着的（「全关掉」也是他的选择，别自作主张）。
  */
 function syncSectionFolds() {
-  for (const section of el.modal.querySelectorAll('.panel-section.collapsible')) {
+  for (const section of el.viewSettings.querySelectorAll('.panel-section.collapsible')) {
     const open = touchedFolds ? openSections.has(section.id) : section.id === 'sec-models';
     setSectionOpen(section, open, false);
   }
@@ -793,6 +806,13 @@ function readSettingsForm() {
 }
 
 export function openSettings() {
+  // 已经在这一屏了（比如又点了一下侧栏那颗「设置」）：**别重灌表单** ——
+  // 那会把没保存的改动当场冲掉。什么都不做即可。
+  if (currentViewName() === 'settings') return;
+
+  // 记下来处：保存 / 返回 / Esc 都回到它（弹窗时代是「关掉弹窗」，语义没变）
+  returnView = currentViewName();
+
   if (!editingProviderId || !providerById(editingProviderId)) {
     editingProviderId = (state.settings || {}).activeProviderId || (providers()[0] || {}).id;
   }
@@ -804,28 +824,35 @@ export function openSettings() {
   el.providerPresets.classList.add('hidden');
   el.btnAddProvider.setAttribute('aria-expanded', 'false');
 
-  el.modal.classList.remove('hidden');
+  // 先把内容填好再切屏（反了的话，切过去那一瞬间显示的是上一次的旧值）
+  showView('settings');
 
-  // 折叠状态要在弹窗可见之后再铺：收起靠 CSS（display:none），
+  // 折叠状态要在这一屏可见之后再铺：收起靠 CSS（display:none），
   // 顺序反了会让「该展开的那个」先按旧状态闪一下。
   syncSectionFolds();
 
   // 桌宠区块要现拉一次状态（它改的是另一个窗口里的东西，不能拿旧快照画）。
-  // 不 await：设置弹窗不该等一个 IPC 往返才出现，区块自己会随后填上。
+  // 不 await：切屏不该等一个 IPC 往返才完成，区块自己会随后填上。
   openPetSection().catch((err) => console.error('桌宠区块加载失败', err));
 
-  // 焦点收到卡片自己身上（卡片带 tabindex="-1"）。
+  // 焦点落在页头那颗「返回」上：键盘（Esc / Tab）有个明确的落点。
   //
-  // 以前这里是「服务商填过 Key 就把光标放进温度框」—— 而 <input type="number">
-  // 一获得焦点就**整段选中**，于是每次打开设置，第一眼都是「温度 0.7」被高亮成
-  // 一块蓝，像是自己不小心改了什么；折叠之后那个框还可能是收着的，更不该往
-  // 里面丢焦点。要打字的话 Tab 一下就到，或者点开对应那几张卡。
-  const card = el.modal.querySelector('.modal-card');
-  if (card) card.focus();
+  // ⚠️ **不要**去聚焦任何输入框：以前这里是「服务商填过 Key 就把光标放进温度框」，
+  // 而 <input type="number"> 一获得焦点就**整段选中** —— 每次进设置，第一眼都是
+  // 「温度 0.7」被高亮成一块蓝，像是自己不小心改了什么；折叠之后那个框还可能是
+  // 收着的，更不该往里丢焦点。
+  if (el.btnBackSettings) el.btnBackSettings.focus();
 }
 
-export function closeSettings() {
-  el.modal.classList.add('hidden');
+/**
+ * 离开设置页：回到进来之前那一屏。
+ *
+ * 保存 / 返回 / Esc 三条路都走它 —— 在弹窗时代这三件事都是「关掉弹窗」。
+ * 只保证回到**视图**：进来之前要是正开着一个弹窗（比如从桌宠右键菜单跳进来时
+ * 旁边还开着记忆弹窗），那个不管，它自己那套 Esc / 关闭按钮照旧。
+ */
+export function leaveSettings() {
+  showView(returnView === 'settings' ? 'chat' : returnView);
 }
 
 async function saveSettings(silent) {
@@ -849,7 +876,7 @@ async function saveSettings(silent) {
 
   if (!silent) {
     showToast('设置已保存', 'ok');
-    closeSettings();
+    leaveSettings();
   }
 
   renderHeader();

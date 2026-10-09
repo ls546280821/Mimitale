@@ -10,9 +10,14 @@
 //    · showView(name)        切屏（侧边栏高亮 + 隐藏另外几屏 + 必要时补画一次）
 //    · refreshLibraryPage()  数据变了之后，若正停在那几个列表页就重画它
 //  两件事都要读「现在在哪一屏」，所以放在一起 —— 那个状态不export，
-//  外面只通过这两个函数跟它打交道。
+//  外面只通过这几个函数跟它打交道。
+//
+//  （2026-10-09 补了一个只读的 currentViewName()：设置从弹窗改成页面之后，
+//    views/settings.js 要「保存 / 返回时回到进来之前那一屏」，得先知道来处。）
 //
 //  它单向 import 那几个列表页（那些都不认识本模块），所以不构成循环。
+//  ⚠️ 设置页**不**在这里 import：它的显隐虽然也归这张表管，但「切过去要先刷新
+//     表单 / 记住来处」都在 views/settings.js 里，那边单向 import 本模块。
 // ============================================================================
 
 import { el } from '../core/dom.js';
@@ -23,7 +28,7 @@ import { renderPresetPage } from './presetList.js';
 /** 当前主区域显示的是哪个视图 */
 let currentView = 'chat';
 
-const VIEWS = ['chat', 'chars', 'worldbooks', 'presets', 'help'];
+const VIEWS = ['chat', 'chars', 'worldbooks', 'presets', 'help', 'settings'];
 
 /** 「哪一屏对应哪个容器、哪个侧栏按钮」—— 加视图只要往这张表里加一行 */
 const VIEW_PARTS = [
@@ -32,8 +37,16 @@ const VIEW_PARTS = [
   { name: 'worldbooks', view: 'viewWorldbooks', btn: 'btnWorldbooks' },
   { name: 'presets', view: 'viewPresets', btn: 'btnPresets' },
   // 帮助页是纯静态文本，没有 render 函数，只在这里登记显隐和高亮
-  { name: 'help', view: 'viewHelp', btn: 'btnHelp' }
+  { name: 'help', view: 'viewHelp', btn: 'btnHelp' },
+  // 设置页同理：内容是现成的，切过去之前**先由 views/settings.js 刷新**（它自己调
+  // showView），这里只管显隐 + 把侧边栏那颗「设置」点亮。
+  { name: 'settings', view: 'viewSettings', btn: 'btnSettings' }
 ];
+
+/** 现在停在哪一屏（只读）。给设置页算「来处」用，别拿它去改视图 */
+export function currentViewName() {
+  return currentView;
+}
 
 export function showView(name) {
   if (!VIEWS.includes(name)) return;

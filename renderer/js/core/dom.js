@@ -35,8 +35,9 @@ export const el = {
   btnHelp: $('btn-help'),
   // 主题配色 / 夜间模式原先在品牌区挂了两颗图标按钮（btnAccent / btnTheme），
   // 2026-10-08 挪进「外观」弹窗了，引用跟着搬到了下面 appearance 那一段。
-  modal: $('settings-modal'),
-  btnCloseSettings: $('btn-close-settings'),
+  // 设置页（2026-10-09 从弹窗改成视图六：内容和显隐都由 views/settings.js 管）
+  viewSettings: $('view-settings'),
+  btnBackSettings: $('btn-back-settings'),
   btnSaveSettings: $('btn-save-settings'),
   btnTest: $('btn-test'),
   btnFetchModels: $('btn-fetch-models'),
@@ -78,7 +79,6 @@ export const el = {
   // ⚠️ 不是把窗口切成系统全屏（那版做过、已撤掉，见 ui/modalMax.js 顶部注释）。
   btnFsChars: $('btn-fs-chars'),
   btnFsWorldbooks: $('btn-fs-worldbooks'),
-  btnFsSettings: $('btn-fs-settings'),
   btnFsPreset: $('btn-fs-preset'),
   // 视角设置
   btnPerspective: $('btn-perspective'),

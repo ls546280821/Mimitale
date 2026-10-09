@@ -19,7 +19,7 @@
 //            chatImages.js 图片消息、suggestionsUi.js 建议条 + 剧情选项、
 //            worldPlay.js 进入世界、player.js 玩家角色弹窗、
 //            memoryUi.js 记忆管理 + 存档点、panelUi.js 状态面板、
-//            perspectiveUi.js 视角设置、settings.js 设置弹窗、appearance.js 外观弹窗、
+//            perspectiveUi.js 视角设置、settings.js 设置页（视图六）、appearance.js 外观弹窗、
 //            viewSwitch.js 视图切换、characterList.js 角色列表页、
 //            charAttributes.js 角色属性编辑器、characterEditor.js 角色编辑器弹窗、
 //            characterImport.js 导入角色卡通道、
@@ -88,7 +88,7 @@ import {
   deletePresetById,
   closePresetEditor
 } from './views/preset.js';
-import { initSettings, setEditingProvider, openSettings, closeSettings, closePersonaDialog, expandSettingsSection } from './views/settings.js';
+import { initSettings, setEditingProvider, openSettings, leaveSettings, closePersonaDialog, expandSettingsSection } from './views/settings.js';
 import { initAppearance, applyChatAppearance, closeAppearanceModal } from './views/appearance.js';
 import { streamPainter, initStreamFollow } from './views/stream.js';
 import { initChatImages } from './views/chatImages.js';
@@ -135,7 +135,7 @@ import { summarizeNow } from './views/summarize.js';
 import { exportCharacter, exportConversation } from './views/chatExport.js';
 import { startPlayerFlow, chatWithCharacter } from './views/worldPlay.js';
 
-// 「设置弹窗里当前正在编辑的服务商」随设置弹窗一起搬到了 views/settings.js ——
+// 「设置页里当前正在编辑的服务商」随设置页一起搬到了 views/settings.js ——
 // 入口层只在启动时把当前服务商带过去（setEditingProvider）。
 // 「世界书弹窗里当前选中哪本书 / 哪条条目」随世界书编辑器一起搬到了
 // views/worldbook.js —— 那是编辑器自己的状态，别处不需要知道。
@@ -297,13 +297,13 @@ function bindEvents() {
     }
   });
 
-  // 四个编辑弹窗头上的「放大」：把**那个弹窗**铺满应用窗口，再点还原。
+  // 三个编辑弹窗头上的「放大」：把**那个弹窗**铺满应用窗口，再点还原。
   // 传的是按钮本身（模块靠 closest('.modal') 找到它所属的弹窗），所以各弹窗互不影响。
   // 逐个绑而不是循环数组 —— tools/audit-buttons.js 是按「el.xxx 后面同一行有没有
-  // addEventListener」查漏绑的，写成数组它会把这四个全报成没绑。
+  // addEventListener」查漏绑的，写成数组它会把这几个全报成没绑。
+  // （设置那颗 2026-10-09 撤了：它从弹窗改成**页面**，本来就占满整个窗口。）
   el.btnFsChars.addEventListener('click', () => toggleModalMax(el.btnFsChars));
   el.btnFsWorldbooks.addEventListener('click', () => toggleModalMax(el.btnFsWorldbooks));
-  el.btnFsSettings.addEventListener('click', () => toggleModalMax(el.btnFsSettings));
   el.btnFsPreset.addEventListener('click', () => toggleModalMax(el.btnFsPreset));
 
   el.input.addEventListener('input', autoGrowInput);
@@ -372,13 +372,15 @@ function bindEvents() {
       return;
     }
     // 人设弹窗是从设置里开的、压在设置之上，所以先关它 ——
-    // 不然按一下 Esc 会把底下的设置弹窗也一起关掉
+    // 不然按一下 Esc 会把底下的设置页也一起离开
     if (!el.personaModal.classList.contains('hidden')) {
       closePersonaDialog();
       return;
     }
-    if (!el.modal.classList.contains('hidden')) {
-      closeSettings();
+    // 设置 2026-10-09 起是**页面**（视图六）而不是弹窗：在它里面按 Esc = 返回上一屏，
+    // 和页头那颗「返回」同一个动作。
+    if (!el.viewSettings.classList.contains('hidden')) {
+      leaveSettings();
       return;
     }
     if (!el.appearanceModal.classList.contains('hidden')) {
@@ -612,7 +614,7 @@ async function init() {
     // 「AI 生成 NPC」：带上这本书的 id，生成时拿它的条目和副本名单当上下文
     aiDraftInBook: (bookId) => openAiGenModal({ scope: 'worldbook', bookId })
   });
-  // 设置弹窗同样只绑事件。它保存后要重绘「右上角切换器」和消息列表，
+  // 设置页同样只绑事件。它保存后要重绘「右上角切换器」和消息列表，
   // 那两样属于入口层（前者读会话状态、后者是聊天区），所以注入进去。
   initSettings({
     refreshModelSwitch: () => renderModelSwitch(),

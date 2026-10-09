@@ -1615,7 +1615,7 @@ body {
   color: var(--text-faint);
 }
 
-/* ------------------------------ 设置弹窗 ------------------------------ */
+/* ------------------------------ 弹窗外壳（通用） ------------------------------ */
 
 .modal {
   position: fixed;
@@ -1644,8 +1644,9 @@ body {
    弹窗就被角色编辑器整个盖住。 */
 #expr-modal { z-index: 65; }
 #confirm-modal { z-index: 70; }
-/* 人设弹窗是从设置里点「编辑…」打开的，得压在设置（50）之上；
-   确认框（70）仍然在它上面。缺了这条会退回 50、被设置弹窗整个盖住。 */
+/* 人设弹窗是从**设置页**里点「编辑…」打开的（设置 2026-10-09 起是视图、不再是弹窗，
+   所以这里不再有「谁盖谁」的问题）；留着 66 是为了跟其它弹窗的层级拉开，
+   确认框（70）仍然在它上面。 */
 #persona-modal { z-index: 66; }
 #persona-modal .modal-card { max-width: 620px; }
 
@@ -1703,11 +1704,6 @@ body {
      基线是 `width: min(720px, 94vw)`，只动 max-width 的话它不会变。 */
   transition: width 0.18s ease, max-width 0.18s ease, max-height 0.18s ease, border-radius 0.18s ease;
 }
-
-/* 设置弹窗打开时把焦点收到卡片自己身上（tabindex="-1" 那一下），
-   目的是**不**去自动聚焦某个输入框 —— 数字框一聚焦就整段选中。
-   焦点环在这儿没意义（整张卡就是焦点），画出来反而像选中了什么。 */
-.modal-card:focus { outline: none; }
 
 /* 头部：标题 + 关闭 */
 .modal-head {
@@ -2140,6 +2136,25 @@ body {
   overflow-y: auto;
   padding: 20px 24px 28px;
   min-height: 0;
+}
+
+/* ------------------------------ 设置页（视图六） ------------------------------ */
+
+/* 设置 2026-10-09 从弹窗搬成页面。它复用 .page-body 的「整块可滚 + 内边距」，
+   只改两处：
+     · 一列卡片（原来靠 .modal-body 的 flex + gap:14px 撑开的，那层现在没了）；
+     · 居中限宽 —— 不限的话输入框会横着拉满整个窗口，长文本行读起来很累
+       （弹窗时代天然只有 700px 宽）。 */
+.page-body.settings-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.page-body.settings-body > * {
+  width: 100%;
+  max-width: 860px;
 }
 
 .page-empty { padding: 60px 20px; text-align: center; }
