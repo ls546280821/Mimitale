@@ -1,0 +1,535 @@
+{
+ "units": {
+  "S": 0.19,
+  "X0": 650,
+  "FEET": 1363,
+  "DS": 0.6,
+  "featDS": 1
+ },
+ "pivots": {
+  "body": [
+   128.0,
+   256.0
+  ],
+  "waist": [
+   128.0,
+   188.93
+  ],
+  "neck": [
+   129.9,
+   154.73
+  ],
+  "armNear": [
+   113.18,
+   166.13
+  ],
+  "armFar": [
+   153.65,
+   168.98
+  ],
+  "legBack": [
+   112.42,
+   203.18
+  ],
+  "legFront": [
+   144.15,
+   203.18
+  ],
+  "tail": [
+   88.1,
+   206.03
+  ],
+  "finNear": [
+   80.88,
+   128.13
+  ],
+  "finFar": [
+   173.22,
+   126.23
+  ],
+  "ahoge": [
+   118.5,
+   54.03
+  ],
+  "head": [
+   137.5,
+   114.83
+  ],
+  "earNear": [
+   80.88,
+   128.13
+  ],
+  "earFar": [
+   173.22,
+   126.23
+  ]
+ },
+ "parts": [
+  {
+   "id": "hair_back",
+   "tex": "hair_back",
+   "z": 1,
+   "parent": "headBack",
+   "grid": [
+    8,
+    12
+   ],
+   "box": [
+    39.46,
+    48.33,
+    144.21,
+    173.66
+   ]
+  },
+  {
+   "id": "tail",
+   "tex": "tail",
+   "z": 1.5,
+   "parent": "tailBend",
+   "grid": [
+    10,
+    4
+   ],
+   "box": [
+    24.26,
+    172.21,
+    83.03,
+    40.47
+   ]
+  },
+  {
+   "id": "hair_back_curl",
+   "tex": "hair_back_curl",
+   "z": 1.75,
+   "parent": "headBack",
+   "grid": [
+    4,
+    8
+   ],
+   "box": [
+    74.23,
+    171.83,
+    41.23,
+    47.88
+   ]
+  },
+  {
+   "id": "arm_right",
+   "tex": "arm_far",
+   "z": 4.5,
+   "parent": "armFar",
+   "grid": [
+    3,
+    5
+   ],
+   "box": [
+    144.91,
+    163.28,
+    28.5,
+    39.71
+   ]
+  },
+  {
+   "id": "leg_left",
+   "tex": "leg_back",
+   "z": 4,
+   "parent": "legBack",
+   "grid": [
+    3,
+    10
+   ],
+   "box": [
+    96.08,
+    173.16,
+    40.28,
+    84.55
+   ]
+  },
+  {
+   "id": "leg_right",
+   "tex": "leg_front",
+   "z": 3,
+   "parent": "legFront",
+   "grid": [
+    3,
+    10
+   ],
+   "box": [
+    120.21,
+    168.79,
+    43.7,
+    86.83
+   ]
+  },
+  {
+   "id": "torso_up",
+   "tex": "torso_up",
+   "z": 5,
+   "parent": "body",
+   "grid": [
+    6,
+    6
+   ],
+   "box": [
+    106.15,
+    147.89,
+    48.83,
+    46.55
+   ]
+  },
+  {
+   "id": "hair_front_right",
+   "tex": "hair_front_right",
+   "z": 5.05,
+   "parent": "headBack",
+   "grid": [
+    4,
+    6
+   ],
+   "box": [
+    146.62,
+    148.27,
+    30.21,
+    42.75
+   ]
+  },
+  {
+   "id": "arm_far_end_front",
+   "tex": "arm_far_end_front",
+   "z": 5.1,
+   "parent": "armFar",
+   "grid": [
+    3,
+    3
+   ],
+   "box": [
+    156.88,
+    183.99,
+    16.53,
+    19.0
+   ]
+  },
+  {
+   "id": "skirt",
+   "tex": "skirt",
+   "z": 5.2,
+   "parent": "skirt",
+   "grid": [
+    8,
+    6
+   ],
+   "box": [
+    79.55,
+    168.41,
+    98.04,
+    61.18
+   ]
+  },
+  {
+   "id": "hair_front_left",
+   "tex": "hair_front_left",
+   "z": 5.4,
+   "parent": "headBack",
+   "grid": [
+    4,
+    8
+   ],
+   "box": [
+    60.93,
+    118.63,
+    44.84,
+    76.57
+   ]
+  },
+  {
+   "id": "waist_bow_front",
+   "tex": "waist_bow_front",
+   "z": 5.5,
+   "parent": "skirt",
+   "grid": [
+    4,
+    4
+   ],
+   "box": [
+    84.87,
+    168.41,
+    29.83,
+    33.06
+   ]
+  },
+  {
+   "id": "arm_left",
+   "tex": "arm_near",
+   "z": 6,
+   "parent": "armNear",
+   "grid": [
+    4,
+    6
+   ],
+   "box": [
+    93.8,
+    157.96,
+    28.69,
+    54.53
+   ]
+  },
+  {
+   "id": "fin_far",
+   "tex": "fin_far",
+   "z": 7,
+   "parent": "earFar",
+   "grid": [
+    4,
+    3
+   ],
+   "box": [
+    166.0,
+    103.62,
+    38.76,
+    39.14
+   ]
+  },
+  {
+   "id": "sidelocks",
+   "tex": "sidelocks",
+   "z": 7.5,
+   "parent": "bangsSway",
+   "grid": [
+    4,
+    8
+   ],
+   "box": [
+    87.72,
+    124.14,
+    98.23,
+    49.21
+   ]
+  },
+  {
+   "id": "face",
+   "tex": "face",
+   "z": 8,
+   "parent": "headMid",
+   "grid": [
+    6,
+    6
+   ],
+   "box": [
+    100.26,
+    73.98,
+    75.62,
+    82.08
+   ]
+  },
+  {
+   "id": "brows",
+   "tex": "brows",
+   "z": 8.6,
+   "parent": "headFeat",
+   "grid": [
+    12,
+    2
+   ],
+   "box": [
+    117.74,
+    97.35,
+    58.33,
+    9.12
+   ]
+  },
+  {
+   "id": "headdress",
+   "tex": "headdress",
+   "z": 12.5,
+   "parent": "headMid",
+   "grid": [
+    8,
+    4
+   ],
+   "box": [
+    72.71,
+    38.64,
+    114.76,
+    72.2
+   ]
+  },
+  {
+   "id": "fin_near",
+   "tex": "fin_near",
+   "z": 11,
+   "parent": "earNear",
+   "grid": [
+    5,
+    3
+   ],
+   "box": [
+    37.37,
+    100.39,
+    59.85,
+    42.75
+   ]
+  },
+  {
+   "id": "bow",
+   "tex": "bow",
+   "z": 13.8,
+   "parent": "headMid",
+   "grid": [
+    3,
+    3
+   ],
+   "box": [
+    66.06,
+    94.5,
+    28.88,
+    24.32
+   ]
+  },
+  {
+   "id": "bangs",
+   "tex": "bangs",
+   "z": 13,
+   "parent": "bangsSway",
+   "grid": [
+    8,
+    10
+   ],
+   "box": [
+    80.69,
+    51.75,
+    112.29,
+    99.75
+   ]
+  },
+  {
+   "id": "ahoge",
+   "tex": "ahoge",
+   "z": 14,
+   "parent": "ahoge",
+   "grid": [
+    5,
+    4
+   ],
+   "box": [
+    87.15,
+    20.4,
+    53.2,
+    36.29
+   ]
+  }
+ ],
+ "feat": {
+  "eye_open": {
+   "id": "eye_open",
+   "tex": "eye_open",
+   "z": 8.5,
+   "parent": "headFeat",
+   "grid": [
+    12,
+    12
+   ],
+   "box": [
+    108.81,
+    112.74,
+    68.78,
+    26.41
+   ]
+  },
+  "eye_closed": {
+   "id": "eye_closed",
+   "tex": "eye_closed",
+   "z": 8.5,
+   "parent": "headFeat",
+   "grid": [
+    12,
+    6
+   ],
+   "box": [
+    110.33,
+    124.71,
+    60.23,
+    10.26
+   ]
+  },
+  "mouth": {
+   "id": "mouth",
+   "tex": "mouth",
+   "z": 8.6,
+   "parent": "headFeat",
+   "grid": [
+    2,
+    2
+   ],
+   "box": [
+    148.52,
+    142.19,
+    2.85,
+    2.09
+   ]
+  }
+ },
+ "schemes": [
+  {
+   "id": "deepseek",
+   "brand": "DeepSeek",
+   "label": "原版",
+   "accent": "#4D6BFE",
+   "ready": true
+  },
+  {
+   "id": "harness",
+   "brand": "DeepSeek Harness",
+   "label": "纯黑",
+   "accent": "#555555",
+   "ready": true
+  },
+  {
+   "id": "chatgpt",
+   "brand": "ChatGPT",
+   "label": "银白",
+   "accent": "#303030",
+   "ready": true
+  },
+  {
+   "id": "claude",
+   "brand": "Claude",
+   "label": "赤陶",
+   "accent": "#D97757",
+   "ready": true
+  },
+  {
+   "id": "gemini",
+   "brand": "Gemini",
+   "label": "四色",
+   "accent": "#4285F4",
+   "ready": true
+  },
+  {
+   "id": "qwen",
+   "brand": "千问",
+   "label": "紫",
+   "accent": "#7F69F0",
+   "ready": true
+  },
+  {
+   "id": "kimi",
+   "brand": "Kimi",
+   "label": "黑蓝",
+   "accent": "#007CFF",
+   "ready": true
+  },
+  {
+   "id": "minimax",
+   "brand": "MiniMax",
+   "label": "玫红橙",
+   "accent": "#D92D7A",
+   "ready": true
+  }
+ ],
+ "view": [
+  -12,
+  -8,
+  268,
+  272
+ ]
+}

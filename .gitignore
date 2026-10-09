@@ -60,3 +60,10 @@ tools/check-imports.cmd
 # 桌宠窗口截图：tools/pet/capture-pet-window.js 跑一次就生成，
 # 需要时重跑即可，没必要进版本库。
 tools/pet/pet-window.png
+tools/pet/pet-window-*.png
+
+# 形象包出图管线的中间产物。**母图真源进仓库**（assets/pet/<skin>/source/），
+# 但抠底结果 / 分区图 / 拆出来的临时部件都是可重跑的，不进库
+# （2026-10-09：上一版管线整个在仓库外，换台机器就蒸发了，所以管线代码进仓库、
+#  母图也进仓库，只把可重跑的中间物留在 build/）。
+assets/pet/*/build/

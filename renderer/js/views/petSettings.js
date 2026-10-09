@@ -110,6 +110,54 @@ function renderModelSelect() {
   if (!select.value || select.selectedIndex < 0) select.selectedIndex = 0;
 }
 
+// 形象下拉里那些候选（assets/pet/<名字>/ + 用户导入的 skins/<名字>/）
+// 只在设置弹窗打开时拉一次就够，没必要每次重画都读盘
+let skinCache = null;
+
+/**
+ * 铺「形象」下拉。
+ *
+ * ⚠️ 这个下拉的 value 用 `source\0skin` 两段拼：`assets\0cat`、`user\0mygirl`。
+ *    只存 skin 名不够 —— assets 和 user 下可能重名，那样切了会切到另一张卡。
+ */
+async function renderSkinSelect(force) {
+  const select = el.pet.skin;
+  const pet = currentPet();
+  if (!select || !pet) return;
+
+  if (!skinCache || force) {
+    try {
+      skinCache = await api.petSkins();
+    } catch (err) {
+      skinCache = [];
+    }
+  }
+
+  const items = Array.isArray(skinCache) ? skinCache : [];
+  clear(select);
+  for (const item of items) {
+    const where = item.source === 'user' ? '（自己导入的）' : '';
+    select.appendChild(
+      h('option', { value: `${item.source}\u0000${item.id}`, text: `${item.label}${where}` })
+    );
+  }
+  if (!select.options.length) {
+    select.appendChild(h('option', { value: '', text: '（没找到任何形象）' }));
+  }
+
+  const look = pet.look || {};
+  select.value = `${look.source || 'assets'}\u0000${look.skin || 'cat'}`;
+  if (select.selectedIndex < 0) select.selectedIndex = 0;
+
+  // 提示里把「当前这张卡在哪」讲清楚 —— 用户要往里放自己的角色时最需要这句
+  if (el.pet.skinHint) {
+    const found = items.some((i) => i.id === look.skin && i.source === (look.source || 'assets'));
+    el.pet.skinHint.textContent = found
+      ? `当前形象：${look.skin}（${look.source === 'user' ? 'data/pet/skins' : 'assets/pet'}）—— 切换后桌宠窗口会立刻换`
+      : `形象「${look.skin}」没找到，桌宠会显示占位框。放好自己的角色后在 assets/pet/<名字>/ 里加 model.json 就能在这里选它`;
+  }
+}
+
 function renderMemory(items, digest) {
   const box = el.pet.memory;
   if (!box) return;
@@ -175,6 +223,7 @@ export function renderPetSettings() {
   el.pet.btnMute.textContent = remain > 0 ? `取消静音（剩 ${Math.ceil(remain / 60000)} 分）` : '静音 1 小时';
 
   renderModelSelect();
+  renderSkinSelect();
   renderStatusLine();
 }
 
@@ -281,6 +330,21 @@ export function initPetSettings(opts) {
   });
 
   el.pet.style.addEventListener('change', () => patchPet({ style: el.pet.style.value.trim() }));
+
+  // ---- 形象 ----
+  //
+  //  ⚠️ 下拉一换就要**重建整张卡**：主进程那边 rigSkinDir() 会因为 look.skin 变了
+  //     而指向新目录，推送的 rig key 也跟着变，宠物窗口才会真的重载贴图。
+  //     所以这里不用做「先看看目录有没有 model.json」的预检 —— 主进程读不到会
+  //     自己退回空包，宠物窗口显示占位框，比在这里静默拒绝更好排查。
+  if (el.pet.skin) {
+    el.pet.skin.addEventListener('change', () => {
+      const [source, skin] = String(el.pet.skin.value || '').split('\u0000');
+      if (!skin) return;
+      patchPet({ look: { kind: 'rig', source: source || 'assets', skin } });
+      showToast('形象已切换', 'ok');
+    });
+  }
 
   // ---- 模型 ----
 

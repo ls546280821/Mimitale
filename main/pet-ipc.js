@@ -41,6 +41,7 @@ const {
   readPersona,
   writePersona,
   resetPersona,
+  listRigSkins,
   petLog,
   MUTE_DURATION_MS,
   SPEAK_EVERY_MIN,
@@ -441,6 +442,12 @@ function registerPetIpc() {
   // ---- 来自主界面（设置页 / 触发） ----
 
   ipcMain.handle('pet:get', () => mainStatePayload());
+
+  /**
+   * 列出可用的形象包（换肤下拉用）。扫 assets/pet/ 与 data/pet/skins/ 下所有
+   * 带 model.json 的目录 —— 所以「把自己的角色放进去」就等于「多了个可选形象」。
+   */
+  ipcMain.handle('pet:skins', () => listRigSkins());
 
   /**
    * 改配置。两种调用方式：

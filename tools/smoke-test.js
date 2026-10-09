@@ -3463,9 +3463,9 @@ app.whenReady().then(async () => {
           document.querySelector('#btn-pet-memory-refresh')?.click();
           await new Promise(r => setTimeout(r, 500));
           const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
-          // 滚到「记忆」那一块：这样预览框、记忆列表能同框看见
-          //（区块的开关和数字在上面一屏，那张图用不到）
-          document.querySelector('#s-pet-memory')?.scrollIntoView({ block: 'center' });
+          // 滚到「形象」那一块：下拉要真的填进选项才有得看
+          //（只建空目录是认不到的，所以这里顺带确认下拉里不是「（没找到任何形象）」）
+          document.querySelector('#s-pet-skin')?.scrollIntoView({ block: 'center' });
           await new Promise(r => setTimeout(r, 300));`,
         // 外观弹窗：主题配色 + 明暗 + 聊天区那几样都在里面，
         // 布局（色点会不会换行、分段按钮会不会被 grid 拉满）得靠图看

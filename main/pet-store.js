@@ -362,9 +362,53 @@ function statKey(file) {
 
 let rigCache = { key: '', pack: null };
 
+/**
+ * 列出可用的 rig 形象包：扫 assets/pet/ 下所有带 model.json 的目录。
+ * 这就是「换肤」的发现机制 —— 自己的角色放好目录就出现在这里，不用改代码。
+ * 返回 [{ id, label, source, hasThumb }]，按 id 排序；失败返回 []。
+ */
+function listRigSkins() {
+  const out = [];
+  const push = (base, source) => {
+    let names = [];
+    try {
+      names = fs.readdirSync(base, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name);
+    } catch (err) {
+      return; // 目录不存在（比如用户还没导入过）—— 正常
+    }
+    for (const name of names) {
+      const dir = path.join(base, name);
+      try {
+        if (!fs.statSync(path.join(dir, 'model.json')).isFile()) continue;
+      } catch (err) {
+        continue;
+      }
+      let label = name;
+      try {
+        // 有 README 就拿第一行标题当显示名，没有就用目录名
+        const md = fs.readFileSync(path.join(dir, 'README.md'), 'utf8');
+        const m = md.match(/^#\s+(.+)$/m);
+        if (m) label = m[1].trim();
+      } catch (err) { /* 没有 README 很常见 */ }
+      out.push({
+        id: name.toLowerCase(),
+        label,
+        source,
+        hasThumb: ['thumb.png', 'preview.png', 'thumb.jpg']
+          .some((f) => { try { return fs.statSync(path.join(dir, f)).isFile(); } catch (e) { return false; } })
+      });
+    }
+  };
+  push(petAssetsDir(), 'assets');
+  push(petUserSkinDir(), 'user');
+  out.sort((a, b) => (a.source === b.source ? a.id.localeCompare(b.id) : (a.source === 'assets' ? -1 : 1)));
+  return out;
+}
+
 /** rig 皮肤目录；look 不是 rig 或目录不存在返回 '' */
-function rigSkinDir(look) {
-  const shape = normalizeLook(look);
+function rigSkinDir(look) {  const shape = normalizeLook(look);
   if (shape.kind !== 'rig') return '';
   const dir = shape.source === 'user'
     ? path.join(petUserSkinDir(), shape.skin)
@@ -684,6 +728,7 @@ module.exports = {
   // 形象（只有 rig）
   petRigPack,
   rigSkinDir,
+  listRigSkins,
   // 人格
   readPersona,
   writePersona,

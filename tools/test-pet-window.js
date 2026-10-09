@@ -109,14 +109,69 @@ function exportedNames(src) {
  *     那就分不清「语法坏了」和「这个环境跑不起来」，而只有前者是我们要抓的；
  *   · import() 对这几个文件还会吐 MODULE_TYPELESS_PACKAGE_JSON 警告刷屏；
  *   · --check 不执行任何一行，所以 pet.js 这种要 DOM 的也能照样查。
+ *
+ * ⚠️ **不能用 `process.execPath`**：这个测试经常是在 electron.exe 里跑的
+ *    （`env -u ELECTRON_RUN_AS_NODE electron.exe tools/test-pet-window.js`），
+ *    那时 execPath 是 electron.exe —— 它不认 `--check`，会把每个文件都判成解析失败
+ *    （2026-10-09 之前一直有 4 条这样的**假失败**）。
+ *    Electron 会把 `ELECTRON_RUN_AS_NODE` 的路径塞在 package.json 里，
+ *    但更稳的做法是直接找一个真的 node。
+ */
+function findNodeForCheck() {
+  // 1) 显式环境变量优先（CI / 沙箱 / 特殊环境可以指）
+  if (process.env.MIMITALE_NODE) return process.env.MIMITALE_NODE;
+
+  // 2) 自己的 execPath 就是 node（直接用 node 跑这个脚本时）
+  if (!/electron/i.test(path.basename(process.execPath))) return process.execPath;
+
+  // 3) electron 自带一个 node，但它埋在 dist 深处；不行就退到 PATH
+  const candidates = [
+    path.join(ROOT, 'node_modules', 'electron', 'dist', 'node.exe'),
+    process.env.NODE_EXE,
+    'node'
+  ].filter(Boolean);
+
+  for (const c of candidates) {
+    const probe = spawnSync(c, ['--version'], { encoding: 'utf8' });
+    // ⚠️ 注意 `probe.error`：**子进程根本没起来**时 status 是 null。
+    //    沙箱（或权限策略）会直接 EBUSY，这时换再多候选也是白搭 ——
+    //    立刻返回 null，别把「起不来」当成「这个候选不好用」一个个试下去，
+    //    更别顺手把它当成「文件有语法错」。
+    if (probe.error) return null;
+    if (probe.status === 0) return c;
+  }
+  return null;
+}
+
+const NODE_FOR_CHECK = findNodeForCheck();
+
+/**
+ * 让 node 解析（不执行）一个文件。
+ *
+ * 三种结果必须分清楚，混起来就是灾难：
+ *   ok:true                   → 解析过了
+ *   ok:false                  → **真的**有语法错（这是本函数存在的意义）
+ *   ok:true, skipped:true     → 查不了（子进程起不来 / 没有 node）
+ *
+ * ⚠️ skipped 的情况在结尾**单独吼一声**：它意味着这轮「语法检查」实际没生效，
+ *    别让一整屏 ✓ 把它盖过去。2026-10-09 我就在沙箱里被这个坑了一次 ——
+ *    沙箱禁 spawn，`probe` 全是 EBUSY，于是**注入语法错也照样 87/87 全绿**。
  */
 function syntaxCheck(file) {
-  const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
-  if (result.status === 0) return { ok: true, detail: '' };
+  if (!NODE_FOR_CHECK) return { ok: true, skipped: true, detail: '没找到可用的 node' };
+
+  const result = spawnSync(NODE_FOR_CHECK, ['--check', file], { encoding: 'utf8' });
+
+  if (result.error) {
+    // 探测阶段起得来、这里起不来 —— 极少见，但同样不是语法问题，不许赖文件
+    return { ok: true, skipped: true, detail: `子进程起不来（${result.error.code}）` };
+  }
+  if (result.status === 0) return { ok: true, skipped: false, detail: '' };
+
   const detail = String(result.stderr || '')
     .split('\n')
     .find((line) => /Error|error/.test(line)) || '解析失败';
-  return { ok: false, detail: detail.trim() };
+  return { ok: false, skipped: false, detail: detail.trim() };
 }
 
 const petIpcSrc = read('main/pet-ipc.js');
@@ -188,9 +243,22 @@ const petModules = fs
   .filter((f) => f.endsWith('.js'))
   .sort();
 ok(petModules.length > 0, 'renderer/pet 下有可检查的模块');
+
+let syntaxSkipped = 0;
 for (const file of petModules) {
   const result = syntaxCheck(path.join(PET_DIR, file));
   ok(result.ok, `${file} 能被解析${result.ok ? '' : `：${result.detail}`}`);
+  if (result.skipped) syntaxSkipped += 1;
+}
+
+// 一条都查不了 = 这一节其实**没生效**。它不是「失败」（环境的问题不是代码的问题），
+// 但绝不能安安静静地混在满屏 ✓ 里 —— 必须显眼到一眼看见。
+if (syntaxSkipped === petModules.length && petModules.length > 0) {
+  console.log(
+    `\n  ⚠️⚠️  ${petModules.length} 个模块**一个都没真正检查**（${syntaxCheck(petModules[0]).detail || '子进程起不来'}）` +
+      `\n  ⚠️⚠️  上面这一节的 ✓ 是没有意义的 —— 换一个能 spawn 子进程的终端重跑，` +
+      `或用 MIMITALE_NODE=<node 绝对路径> 指定。\n`
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +343,146 @@ ok(
   !/convo\.messages\s*\.\s*push/.test(petContextSrc),
   'petContext.js 不往 convo.messages 里塞东西（宠物的话绝不进会话历史）'
 );
+
+// ---------------------------------------------------------------------------
+section('「形象」下拉这条链路四层都接上了');
+
+// 加形象这条链是「主进程扫盘 → IPC → preload → 设置页 → patchPet」，
+// 任何一层漏了都是**静默失效**（下拉空白 / 切了没反应），所以四层各断言一次。
+{
+  const petStoreSrc = read('main/pet-store.js');
+
+  ok(/function listRigSkins\s*\(/.test(petStoreSrc), 'pet-store.js 有 listRigSkins()');
+  ok(/^\s*listRigSkins,?\s*$/m.test(petStoreSrc), 'pet-store.js 把它导出了');
+
+  // 只认「真有 model.json」的目录 —— 否则一个空目录也会出现在下拉里，
+  // 选中就变成占位框（2026-10-09 cat 被清空那次就是这样）
+  ok(
+    /statSync\s*\(\s*path\.join\(dir,\s*'model\.json'\)\s*\)/.test(petStoreSrc),
+    'listRigSkins 用 model.json 存在与否筛目录（空目录不进下拉）'
+  );
+
+  ok(/ipcMain\.handle\(\s*'pet:skins'/.test(petIpcSrc), "pet-ipc.js 注册了 'pet:skins'");
+  ok(
+    /petSkins:\s*\(\)\s*=>\s*ipcRenderer\.invoke\('pet:skins'\)/.test(preloadMainSrc),
+    'preload.js 暴露了 petSkins'
+  );
+}
+{
+  const domSrc = read('renderer/js/core/dom.js');
+  ok(/skin:\s*\$\('s-pet-skin'\)/.test(domSrc), 'core/dom.js 把 #s-pet-skin 收进了 el.pet');
+
+  const htmlSrc = read('renderer/index.html');
+  ok(htmlSrc.includes('id="s-pet-skin"'), 'index.html 里有 #s-pet-skin 下拉');
+
+  // value 必须带 source 前缀 —— assets 和 user 下可能重名，只存 skin 名会切错卡
+  ok(
+    /value=[`'"][^`'"]*\\u0000/.test(petSettingsSrc) || /source\}\s*\\u0000\s*\$\{/.test(petSettingsSrc),
+    '下拉 value 用 source\\0skin 两段拼（避免重名切错卡）'
+  );
+
+  // 切形象必须整块换 look，而不是只改 skin —— patchPet 是浅合并
+  ok(
+    /look:\s*\{\s*kind:\s*'rig'/.test(petSettingsSrc),
+    '切换时整块传 look（patchPet 是浅合并，只传 skin 会把 source 丢掉）'
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('形象包里「靠运行时 alpha 才不显示」的部件不许出现');
+
+// 2026-10-09 星宝报「deepseek 的形象不对 重叠了」—— 根因是 Coopanion 用 per-part
+// alpha 做「站/坐二选一」，而 Mimitale 没有坐姿状态，于是坐姿件常驻、和站姿件重叠。
+// 转换脚本必须把这类部件**删掉**（不是留着让 renderer 去关）。
+// 这里直接查成品 model.json：这些 id 出现一个就是回归。
+{
+  const converterSrc = read('tools/pet/pipeline/convert_whale.py');
+
+  // 转换脚本要真的列了这几个（删了才算处理过）
+  for (const id of ['skirt_sit', 'waist_bow_sit_front', 'eye_creases']) {
+    ok(converterSrc.includes(`"${id}"`), `convert_whale.py 把 ${id} 列进了删除表`);
+  }
+
+  // 幂等的前提：必须从 source/ 原始件读，不能从成品读
+  ok(
+    /SRC_MODEL|model-original\.json/.test(converterSrc) && /SRC\s*=\s*os\.path\.join\(DST,\s*"source"\)/.test(converterSrc),
+    'convert_whale.py 从 source/model-original.json 读输入（否则重跑会叠在成品上）'
+  );
+
+  // 真读 whale 的 model.json，确认这三个 id 确实不在里边
+  const whaleModelPath = path.join(ROOT, 'assets', 'pet', 'whale', 'model.json');
+  if (fs.existsSync(whaleModelPath)) {
+    let whale = null;
+    try {
+      whale = JSON.parse(fs.readFileSync(whaleModelPath, 'utf8'));
+    } catch (err) {
+      ok(false, `whale/model.json 能解析（${err.message}）`);
+    }
+    if (whale && Array.isArray(whale.parts)) {
+      const ids = whale.parts.map((p) => p.id);
+      for (const gone of ['skirt_sit', 'waist_bow_sit_front', 'eye_creases']) {
+        ok(!ids.includes(gone), `whale 成品里没有 ${gone}（有 = 会和正主重叠）`);
+      }
+      // 正主还得在（别删过头把站姿裙也删了）
+      for (const keep of ['skirt', 'waist_bow_front', 'brows', 'face']) {
+        ok(ids.includes(keep), `whale 成品里保留了 ${keep}`);
+      }
+
+      // ---- tex/ 里不许留「model 已不引用」的孤儿贴图 ----
+      //
+      // 删了部件但忘了删贴图 → 目录里躺着永远加载不到的文件（skirt_sit 一张 104 KB），
+      // 而且下次有人照着目录数部件会被误导。转换脚本现在会清，这里兜一道。
+      //
+      // ⚠️ 注意两张表：parts[].tex 在 **tex/**，feat[].tex 在 **feat/**（不是同一个目录）。
+      const texDir = path.join(ROOT, 'assets', 'pet', 'whale', 'tex');
+      const featDir = path.join(ROOT, 'assets', 'pet', 'whale', 'feat');
+      if (fs.existsSync(texDir) && fs.existsSync(featDir)) {
+        const partTex = new Set(whale.parts.map((p) => p.tex));
+        const featTex = new Set(Object.values(whale.feat || {}).map((f) => f.tex));
+
+        const orphans = fs.readdirSync(texDir)
+          .filter((f) => f.endsWith('.png'))
+          .map((f) => f.slice(0, -4))
+          .filter((stem) => !partTex.has(stem));
+        ok(orphans.length === 0, `whale/tex 没有孤儿贴图${orphans.length ? `（多余：${orphans.join(', ')}）` : ''}`);
+
+        // 反过来也要对：引用的每张贴图都得在**它该在的那个目录**里
+        const missingParts = [...partTex].filter((t) => !fs.existsSync(path.join(texDir, `${t}.png`)));
+        ok(missingParts.length === 0, `parts 引用的贴图都在 tex/${missingParts.length ? `（缺：${missingParts.join(', ')}）` : ''}`);
+        const missingFeat = [...featTex].filter((t) => !fs.existsSync(path.join(featDir, `${t}.png`)));
+        ok(missingFeat.length === 0, `feat 引用的贴图都在 feat/${missingFeat.length ? `（缺：${missingFeat.join(', ')}）` : ''}`);
+      }
+
+      // ---- 五官必须落在脸的竖直范围内 ----
+      //
+      // 2026-10-09 星宝报「眼睛位置不对」：feat 的 box y 取成了 V(底边)，
+      // 于是整组五官**向上偏移了整整一个自身高度**，眼睛飘到发际线上。
+      // 正确的口径是 V(顶边)（见 convert_whale.py 的 feat_entry + step3_pack.py:83）。
+      // 这里用几何关系兜底：五官的竖直范围必须**被脸包住**，且眼在上、嘴在下。
+      const face = whale.parts.find((p) => p.id === 'face');
+      if (face && face.box && whale.feat) {
+        const fLo = face.box[1];
+        const fHi = face.box[1] + face.box[3];
+        for (const key of Object.keys(whale.feat)) {
+          const b = whale.feat[key].box;
+          const lo = b[1];
+          const hi = b[1] + b[3];
+          ok(
+            lo >= fLo - 1 && hi <= fHi + 1,
+            `feat「${key}」落在脸的竖直范围内（${lo.toFixed(1)}~${hi.toFixed(1)} ⊂ ${fLo.toFixed(1)}~${fHi.toFixed(1)}）`
+          );
+        }
+        // 眼睛必须比嘴高 —— 注意 V() 是**向下增长**的（母图 y 越大 → V 越大 → 越靠下），
+        // 所以「更高」= **更小的 V**。写反了就是 y 轴取错边的典型症状。
+        if (whale.feat.eye_open && whale.feat.mouth) {
+          const eyeLo = whale.feat.eye_open.box[1];
+          const mouthLo = whale.feat.mouth.box[1];
+          ok(eyeLo < mouthLo, `眼睛在嘴上方（眼 V=${eyeLo.toFixed(1)} < 嘴 V=${mouthLo.toFixed(1)}，V 越小越靠上）`);
+        }
+      }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 console.log('');

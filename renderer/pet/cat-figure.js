@@ -105,8 +105,13 @@ export function createCatFigure(opts = {}) {
     skirt: { kind: 'warp', parent: 'body', rect: rectOf('skirt') },
     // 上身（衣身、领、双臂、头）鞠躬时绕腰转，裙和腿不动
     waist: { kind: 'rot', parent: 'body', pivot: PV.waist },
-    armNear: { kind: 'rot', parent: 'waist', pivot: PV.armNear },
-    armFar: { kind: 'rot', parent: 'waist', pivot: PV.armFar },
+    // 手臂用**绕肩铰链（warp + hinge）**，不能再用 rot：
+    // 袖子已经从「上衣层」切出来并进手臂（见 step2_import.py 的 cut_sleeves），
+    // 而袖子必须「上半截咬着肩膀、下半截跟着手动」。用 rot 的话整只袖子刚性甩出去，
+    // 会在肩窝撕开一个洞 —— 而原图从没画过肩窝，撕开就得补画。
+    // hinge 按 y 做衰减（肩点以上几乎不动），于是肩窝那块永远被袖子咬住。
+    armNear: { kind: 'warp', parent: 'waist', rect: rectOf('arm_left') },
+    armFar: { kind: 'warp', parent: 'waist', rect: rectOf('arm_right') },
     // 腿绕髋摆（hinge）：转动和抬脚只从髋往下生效，大腿根不跟着旋出裙腰
     legBack: { kind: 'warp', parent: 'body', rect: rectOf('leg_left') },
     legFront: { kind: 'warp', parent: 'body', rect: rectOf('leg_right') },
@@ -357,18 +362,24 @@ export function createCatFigure(opts = {}) {
         return [skirt * 4 * k + flare * (u - .45) * 9 * v + sitK * (u - .45) * 10 * v, -flare * k * 3 - sitK * k * 8];
       },
     };
-    st.armNear = { a: armN };
-    st.armFar = { a: armF };
+    st.armNear = { fn: hinge(PV.armNear, armN, 0, 16) };
+    st.armFar = { fn: hinge(PV.armFar, armF, 0, 16) };
     st.legBack = { fn: hinge(PV.legBack, lerp(legA[0], -55, sitK), -lift[0] * .9 * (1 - sitK)) };
     st.legFront = { fn: hinge(PV.legFront, lerp(legA[1], -60, sitK), -lift[1] * .9 * (1 - sitK)) };
     st.tail = { a: tail - 10 * sitK };
     st.tailBend = { fn: u => [0, -tail * .5 * u * u] };
     st.neck = { a: headA + clamp(bend * .8, -10, 12) - runK * 12, ty: (mode === 'sleep' ? 2.5 : 0) + breath * .35 };
+    // 头部视差值**必须几乎一致**：头部各层（后发 / 蓝内发 / 脸 / 五官 / 前发 / 双耳）
+    // 在原图里是紧挨着的，系数差多少就会横向错开多少。
+    // 早先用 4.2 / 2 / -1.4：angleX 上限 1.4 时前后层相对错位可达 ~7.9 个 rig 单位，
+    // 而头只有 60 单位宽 —— 视觉上就是「**头横向断开**」（星宝反馈）。
+    // 现在压到 1.8 / 1.5 / 1.1，最大相对错位 ≈ 1 单位（看不见），
+    // 但**转头本身不受影响** —— 那是 st.neck 的旋转在负责，视差只是锦上添花的景深。
     const parallax = (k, ky) => (u, v) => [angleX * k * bump(u) * (.4 + .6 * bump(v)), angleY * ky * bump(v) * (.4 + .6 * bump(u))];
-    st.headFront = { fn: parallax(4.2, 2.8) };
-    st.headFeat = { fn: parallax(2, 1.4) };
-    st.headMid = { fn: parallax(2, 1.4) };
-    st.headBack = { fn: parallax(-1.4, -1) };
+    st.headFront = { fn: parallax(1.8, 1.2) };
+    st.headFeat = { fn: parallax(1.5, 1.0) };
+    st.headMid = { fn: parallax(1.5, 1.0) };
+    st.headBack = { fn: parallax(1.1, 0.7) };
     st.bangsSway = { fn: (u, v) => [bangs * 3.2 * v * v + Math.sin(t * 1.9 + u * 2) * .5 * v * v, hairY * 3 * v * v] };
     st.ahoge = { a: ahoge * .5 + Math.sin(t * 2.1) * 2 };
     st.earNear = { a: ears + Math.sin(t * 1.4) * 1.5 };

@@ -104,6 +104,7 @@ contextBridge.exposeInMainWorld('mimitale', {
   // ⚠️ 注意宠物窗口用的是 preload-pet.js，那份**故意**比这份窄得多 ——
   //    宠物页面拿不到这里的 getSettings（里面是明文 API Key）。
   petGet: () => ipcRenderer.invoke('pet:get'),
+  petSkins: () => ipcRenderer.invoke('pet:skins'),
   petUpdate: (payload) => ipcRenderer.invoke('pet:update', payload),
   petSpeak: (payload) => ipcRenderer.invoke('pet:speak', payload),
   petSayNow: (payload) => ipcRenderer.invoke('pet:say-now', payload),
