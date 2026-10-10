@@ -101,7 +101,42 @@ eq(blank.pets[0].useMainModel, true, '默认跟随主模型');
 eq(blank.pets[0].temperature, null, '默认温度跟随全局');
 eq(blank.pets[0].mutedUntil, 0, '默认没有静音');
 eq(blank.pets[0].look.kind, 'rig', '默认形象是 rig 动态形象（第一版的 PNG 立绘已移除）');
-eq(blank.pets[0].look.skin, 'cat', '默认形象是蓝白猫');
+eq(blank.pets[0].look.skin, 'whale', '默认形象是大肥鱼（蓝白猫形象包已移出）');
+eq(
+  blank.pets[0].gestureEnabled,
+  ['nod', 'shake', 'wave'],
+  '默认三个空闲小动作全开'
+);
+
+// 2026-10-10 用户：「桌宠的动作也做到设置里」。做的是「空闲小动作」那三个勾 ——
+// ⚠️ 这里最重要的**不是**「能存下来」，而是**空数组不能被兜回默认**：
+//    三个勾全取消 = 「我要它安静待着」，这是个正当的选择。归一化时一旦写成
+//    `value.length ? value : 默认`，用户取消最后一个勾、存盘再读回来就又是全集，
+//    表现是「设置看着生效了、重启又回来了」。
+eq(
+  petStore.normalizePetConfig({ pets: [{ gestureEnabled: [] }] }).pets[0].gestureEnabled,
+  [],
+  '三个全不勾（空数组）原样保留，不兜回默认'
+);
+eq(
+  petStore.normalizePetConfig({ pets: [{ gestureEnabled: ['nod', 'wave'] }] }).pets[0].gestureEnabled,
+  ['nod', 'wave'],
+  '只勾了两个就存两个'
+);
+eq(
+  petStore.normalizePetConfig({ pets: [{ gestureEnabled: ['nod', 'bow', 'nod'] }] }).pets[0].gestureEnabled,
+  ['nod'],
+  '丢掉不认识的 id（含已删的 bow）并去重'
+);
+eq(
+  petStore.normalizePetConfig({ pets: [{}] }).pets[0].gestureEnabled,
+  ['nod', 'shake', 'wave'],
+  '老配置里没这个字段 → 补成默认全集（升级上来的不掉功能）'
+);
+ok(
+  Array.isArray(petStore.KNOWN_GESTURES) && petStore.KNOWN_GESTURES.length === 3,
+  'KNOWN_GESTURES 导出了（设置页和渲染层都照着它对齐）'
+);
 
 // 第一版的 png 立绘配置会被**迁移**成默认 rig —— 不能留一个指向不存在目录的 skin，
 // 那样宠物只会剩一个「形象没加载出来」占位框（老用户升级时会踩到）。
@@ -109,8 +144,26 @@ eq(
   petStore.normalizePetConfig({
     pets: [{ look: { kind: 'png', source: 'assets', skin: 'default', file: 'x.png' } }]
   }).pets[0].look,
-  { kind: 'rig', source: 'assets', skin: 'cat' },
-  '老配置里的 png 形象迁移成默认 rig 猫'
+  { kind: 'rig', source: 'assets', skin: 'whale' },
+  '老配置里的 png 形象迁移成默认 rig 大肥鱼'
+);
+
+// 2026-10-10 蓝白猫形象包从 assets/pet/ 移出：配置里还存着 'cat' 的老用户
+// 也必须被迁移，否则升级上来就是一个占位框（比 png 那条更容易踩到，因为它
+// 看起来是「合法」的 rig 配置）。
+eq(
+  petStore.normalizePetConfig({
+    pets: [{ look: { kind: 'rig', source: 'assets', skin: 'cat' } }]
+  }).pets[0].look,
+  { kind: 'rig', source: 'assets', skin: 'whale' },
+  'assets 下存的 cat 迁移成默认大肥鱼'
+);
+eq(
+  petStore.normalizePetConfig({
+    pets: [{ look: { kind: 'rig', source: 'user', skin: 'cat' } }]
+  }).pets[0].look.skin,
+  'cat',
+  '用户自己导入的 skins/cat 不迁移（那是他自己的形象，不是内置那只）'
 );
 
 const clamped = petStore.normalizePetConfig({
@@ -300,8 +353,8 @@ const PET = 'pet1';
   eq(skinOf({ kind: 'rig', skin: '蓝猫' }), '蓝猫', '中文目录名原样保留（不再被换成 pet1）');
   eq(skinOf({ kind: 'rig', skin: 'MyCat' }), 'MyCat', '大小写原样保留（区分大小写的文件系统才找得到）');
   eq(skinOf({ kind: 'rig', skin: '../../etc/passwd' }), '____etc_passwd', '路径分隔符和 .. 仍被清洗掉');
-  eq(skinOf({ kind: 'png', skin: 'default' }), 'cat', '老 png 形象照旧迁移成默认 rig 猫');
-  eq(skinOf({ kind: 'rig', skin: '' }), 'cat', '空名字退回默认 cat');
+  eq(skinOf({ kind: 'png', skin: 'default' }), 'whale', '老 png 形象照旧迁移成默认 rig 大肥鱼');
+  eq(skinOf({ kind: 'rig', skin: '' }), 'whale', '空名字退回默认 whale');
 
   // -------------------------------------------------------------------------
   section('人格文件');

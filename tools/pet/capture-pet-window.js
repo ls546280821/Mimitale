@@ -13,7 +13,8 @@
 //
 //  跑法：
 //    ./node_modules/electron/dist/electron.exe --no-sandbox tools/pet/capture-pet-window.js
-//    ./node_modules/electron/dist/electron.exe --no-sandbox tools/pet/capture-pet-window.js --skin=cat2
+//    ./node_modules/electron/dist/electron.exe --no-sandbox tools/pet/capture-pet-window.js --skin=whale
+//    ./node_modules/electron/dist/electron.exe --no-sandbox tools/pet/capture-pet-window.js --skin=whale --scale=1.6
 //  产物：
 //    tools/pet/pet-window.png            截图（**带 alpha 通道**，用能显示透明度的
 //                                        看图工具打开才看得出形状；Windows 照片查看器
@@ -26,7 +27,17 @@
 //  `--skin=<名字>` 会在那个临时数据目录里**预写一份 config**，把 look.skin 指到指定形象包。
 //  这是验证「新做的形象包」的唯一办法：走的是真 rig + 真 pet-store，model.json 里
 //  任何结构错误（box 朝向、parent 名字、view 越界）都会在这里变成空白或错位。
-//  不传就还是默认的 cat。
+//  不传就用工程默认的那个形象（当前是大肥鱼 whale）。
+//
+//  `--scale=<倍数>` 同上，用来验缩放：窗口尺寸 = 300×380 × 倍数。
+//  ⚠️ **气泡不跟缩放走**（2026-10-10 改）：宠物缩放只改窗口和宠物本体，
+//     气泡的字号/内边距/圆角/尾巴都是固定 px。所以别指望「放大截图里气泡也变大」，
+//     反过来这才是重点 —— 缩到 0.7× 时字必须还是画面上一样大、一样读得清。
+//     气泡只有左右边距造成的可用宽度会跟着窗口变窄。
+//
+//  `--lines=<句1|句2|句3>` 覆盖默认那三句示例话，用来验「长句在气泡里滚动」：
+//  固定字号之后，极小窗口更容易触发 max-height:30vh 的滚动分支，
+//  这是**取舍正确**的表现（滚动优于字小到看不清），得能亲眼看到它工作。
 
 const fs = require('node:fs');
 const os = require('node:os');
@@ -37,23 +48,28 @@ const ROOT = path.join(__dirname, '..', '..');
 const OUT = path.join(__dirname, 'pet-window.png');
 const skinArg = process.argv.find((a) => a.startsWith('--skin='));
 const SKIN = skinArg ? skinArg.slice('--skin='.length) : null;
+const scaleArg = process.argv.find((a) => a.startsWith('--scale='));
+const SCALE = scaleArg ? Math.max(0.4, Math.min(2, Number(scaleArg.slice('--scale='.length)) || 1)) : 1;
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mimitale-pet-window-'));
 process.env.MIMITALE_DATA_DIR = tmpRoot;
-if (SKIN) {
+// 传了 --skin 或 --scale 就要预写一份 config（两个都走这里，别分成两条路，
+// 否则「只想改 scale 又不想指定形象」时得先知道默认形象叫什么）
+if (SKIN || SCALE !== 1) {
   fs.mkdirSync(path.join(tmpRoot, 'pet'), { recursive: true });
-  fs.writeFileSync(path.join(tmpRoot, 'pet', 'config.json'), JSON.stringify({
+  const config = {
     version: 1, enabled: true, activeId: 'pet1',
     pets: [{
       id: 'pet1', name: '蓝自',
-      look: { kind: 'rig', source: 'assets', skin: SKIN },
-      visible: true, scale: 1, bounds: { x: 900, y: 500, displayId: 0 },
+      look: { kind: 'rig', source: 'assets', skin: SKIN || 'whale' },
+      visible: true, scale: SCALE, bounds: { x: 900, y: 500, displayId: 0 },
       walkEnabled: true, speakEnabled: true, speakEveryTurns: 3, speakLines: 1,
       mutedUntil: 0, useMainModel: true, providerId: '', model: '',
       temperature: 0, style: '', memoryMaxItems: 30, createdAt: Date.now(),
     }],
-  }, null, 1));
-  console.log('形象包指定为：%s（临时 config 写在 %s）', SKIN, tmpRoot);
+  };
+  fs.writeFileSync(path.join(tmpRoot, 'pet', 'config.json'), JSON.stringify(config, null, 1));
+  console.log('形象：%s  缩放：%s×（临时 config 写在 %s）', SKIN || '(默认 whale)', SCALE, tmpRoot);
 }
 
 const pageErrors = [];
@@ -83,9 +99,14 @@ app.whenReady().then(async () => {
   await new Promise((r) => setTimeout(r, 1500));
 
   // 推一句让它说 —— 顺便验证气泡那条链路（逐句冒字）
+  const LINES = (() => {
+    const a = process.argv.find((x) => x.startsWith('--lines='));
+    if (!a) return ['这也太甜了吧。', '*尾巴摇起来* 我磕了。', '你倒是主动点啊。'];
+    return a.slice('--lines='.length).split('|');
+  })();
   petWindow.sendToPet('pet:say', {
-    lines: ['这也太甜了吧。', '*尾巴摇起来* 我磕了。', '你倒是主动点啊。'],
-    text: '这也太甜了吧。\n*尾巴摇起来* 我磕了。\n你倒是主动点啊。',
+    lines: LINES,
+    text: LINES.join('\n'),
     reason: 'preview'
   });
   await new Promise((r) => setTimeout(r, 2000));
@@ -95,7 +116,7 @@ app.whenReady().then(async () => {
   // （走路摆臂、头部视差、耳朵转、尾巴摇）才会暴露「某个部件拖着不该拖的东西」
   // 或者「关节位置偏了」。间隔 1.2 秒，够它走几步。
   // `--idle`：长拍「空闲时偶发小手势」的极限姿势。
-  // 为什么需要：手势（点头/摇头/招手/鞠躬）是 idle 下**14~34 秒随机**来一次的，
+  // 为什么需要：手势（点头/摇头/招手）是 idle 下**14~34 秒随机**来一次的，
   // 而且鼠标 5 秒不动猫就睡了、睡了就不做手势。所以要**定时轻微晃动鼠标**把它弄醒，
   // 再长时间连拍，最后从所有帧里按「与中位帧的差异」挑出偏离最大的几张 ——
   // 那几张就是各手势的极限姿势，用来检查关节处会不会露出没画的地方。
@@ -125,6 +146,78 @@ app.whenReady().then(async () => {
     if (FRAMES <= 12 || (i + 1) % 10 === 0) console.log('  帧 %d/%d -> %s', i + 1, FRAMES, out);
   }
   if (idleTimer) clearInterval(idleTimer);
+
+  // `--probe-scroll`：把气泡滚动框的真实几何打出来。
+  // 为什么需要：气泡"切字/少显示一句"这类问题，**看截图只能猜是哪一行**，
+  // 而 scrollTop / clientHeight / 每行 offsetTop+offsetHeight 一摆出来，
+  // 「该不该滚、滚到哪、有没有半行」就是算术题了。
+  if (process.argv.includes('--probe-scroll')) {
+    const info = await win.webContents.executeJavaScript(`(() => {
+      const box = document.getElementById('bubble-lines');
+      const kids = [...box.children].map((el) => ({
+        t: el.offsetTop, h: el.offsetHeight, txt: el.textContent.slice(0, 14)
+      }));
+      return {
+        clientHeight: box.clientHeight,
+        scrollHeight: box.scrollHeight,
+        scrollTop: box.scrollTop,
+        maxScroll: box.scrollHeight - box.clientHeight,
+        lines: kids
+      };
+    })()`);
+    console.log('  气泡滚动框：clientHeight=%d scrollHeight=%d scrollTop=%d maxScroll=%d',
+      info.clientHeight, info.scrollHeight, info.scrollTop, info.maxScroll);
+    for (const l of info.lines) {
+      console.log('    行 @%d 高%d  %s', l.t, l.h, l.txt);
+    }
+  }
+
+  // `--probe-box`：把「气泡下沿 → 宠物实际站立位置」之间的空隙量出来。
+  // 为什么需要：窗口是透明的，「间隔」到底是气泡的 CSS 边距、还是 rig 画布的
+  // 空白留白，光看截图分不出来（两处都是透明像素）。这里把每个盒子的 rect 全打出来。
+  if (process.argv.includes('--probe-box')) {
+    const g = await win.webContents.executeJavaScript(`(() => {
+      const r = (id) => {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const b = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        return { id, x: +b.x.toFixed(1), y: +b.y.toFixed(1),
+                 w: +b.width.toFixed(1), h: +b.height.toFixed(1),
+                 bottom: +b.bottom.toFixed(1),
+                 mb: cs.marginBottom, pos: cs.position };
+      };
+      const sizer = document.querySelector('.rig-sizer');
+      const canvas = document.querySelector('.rig-canvas');
+      const s = sizer ? sizer.getBoundingClientRect() : null;
+      const c = canvas ? canvas.getBoundingClientRect() : null;
+      const tail = getComputedStyle(document.getElementById('bubble'), '::before');
+      return {
+        win: { w: innerWidth, h: innerHeight },
+        bubble: r('bubble'),
+        bubbleLines: r('bubble-lines'),
+        tail: tail ? { bottom: tail.bottom, borderTopWidth: tail.borderTopWidth } : null,
+        spriteWrap: r('sprite-wrap'),
+        sizer: s ? { y: +s.y.toFixed(1), h: +s.height.toFixed(1),
+                     bottom: +s.bottom.toFixed(1),
+                     w: +s.width.toFixed(1),
+                     marginBottom: getComputedStyle(sizer).marginBottom } : null,
+        canvas: c ? { y: +c.y.toFixed(1), h: +c.height.toFixed(1),
+                      bottom: +c.bottom.toFixed(1), w: +c.width.toFixed(1) } : null
+      };
+    })()`);
+    console.log('  窗口内容区: %dx%d', g.win.w, g.win.h);
+    console.log('  bubble        :', JSON.stringify(g.bubble));
+    console.log('  bubble-lines  :', JSON.stringify(g.bubbleLines));
+    console.log('  bubble::before:', JSON.stringify(g.tail));
+    console.log('  sprite-wrap   :', JSON.stringify(g.spriteWrap));
+    console.log('  rig-sizer     :', JSON.stringify(g.sizer));
+    console.log('  rig-canvas    :', JSON.stringify(g.canvas));
+    if (g.bubble && g.canvas) {
+      console.log('  → 气泡下沿 %s 与 canvas 顶 %s 之间：%s px',
+        g.bubble.bottom, g.canvas.y, (g.canvas.y - g.bubble.bottom).toFixed(1));
+    }
+  }
 
   const bounds = win.getBounds();
   console.log('窗口：%dx%d @ (%d,%d)  可见=%s  置顶=%s',

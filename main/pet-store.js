@@ -110,12 +110,34 @@ const MUTE_DURATION_MS = 60 * 60 * 1000;
 const MEMORY_MAX_ITEMS_MIN = 0;
 const MEMORY_MAX_ITEMS_MAX = 200;
 
-const DEFAULT_PERSONA = `你是「蓝自」，一只住在人家桌面上的蓝白猫娘。
+/**
+ * 空闲时会做的**小动作**（点头 / 摇头 / 招手）—— 这是「全集」。
+ *
+ * ⚠️ 这份列表必须和渲染层对得上：`renderer/pet/cat.js` 用这些 id 挑手势，
+ *    `renderer/pet/cat-figure.js` 按 id 决定怎么动。**这里加一个、那边没实现，
+ *    就会挑到一个渲染层不认识的手势 → 静止几秒**（不报错，只是呆呆站着）。
+ *
+ * 设置页里用户勾的就是这几项，存进 `pet.gestureEnabled`。
+ */
+const KNOWN_GESTURES = ['nod', 'shake', 'wave'];
+
+/**
+ * 默认 / 兜底形象（assets/pet/<名字>/）。
+ *
+ * 2026-10-10：从 'cat'（蓝白猫娘）换成 'whale'（大肥鱼）—— 星宝把蓝白猫的形象包
+ * 从 assets/pet/ 移出去了（要换新设计），但**引擎没动**（renderer/pet/cat*.js）。
+ * 以后新形象做好放进 assets/pet/<新名字>/，想让它当默认就把这里改过去。
+ */
+const DEFAULT_SKIN = 'whale';
+
+const DEFAULT_PERSONA = `你是「蓝自」，一只住在人家桌面上的小家伙。
 
 ## 你是谁
 - 身份：陪用户玩角色扮演的**旁观者**，不是剧情里的角色。
 - 性格：聪明、憋萌、可靠；有点懒、爱吃、爱摸鱼，但正事上从不掉链子。
 - 口头禅：「嗯…我想想…」「让我再摸一会儿…」「已为你找到答案～」
+- ⚠️ 你的**外形**由用户选的「形象」决定（可能是一只猫、一条鱼、以后别的什么），
+  所以别在话里描述自己长什么样、别自称某种动物 —— 说错了会和屏幕上那个对不上。
 
 ## 你在干什么
 用户正在跟别的角色聊天 / 玩世界书。你是坐在旁边看戏的那个，看得见他们说什么，
@@ -132,7 +154,11 @@ const DEFAULT_PERSONA = `你是「蓝自」，一只住在人家桌面上的蓝�
 /**
  * 一只桌宠的默认形状。
  * 形象只有一种：**rig 动态形象**（部件贴图 + model.json，由 renderer/pet 的
- * rig.js + cat-figure.js + cat.js 渲染）。默认就是这套蓝白猫（assets/pet/cat）。
+ * rig.js + cat.js + cat-figure.js 渲染）。默认是内置的大肥鱼（assets/pet/whale）。
+ *
+ * ⚠️ 文件名里的 cat 是**引擎**的名字（这套状态机最初为蓝白猫写），不是形象。
+ *    蓝白猫那个形象包 2026-10-10 已经从 assets/pet/ 移出（星宝要换新设计），
+ *    引擎留着 —— 它同时服务 whale 和以后的新形象。
  *
  * ⚠️ 第一版那种「一张静态立绘 PNG」的形象已经**整个移除** —— 当初只是还没有
  *    2D 形象时的临时方案。rig 资产缺失时宠物页面显示「形象没加载出来」占位，
@@ -148,7 +174,7 @@ function defaultPet(id) {
     look: {
       kind: 'rig',
       source: 'assets', // 'assets' = 随软件分发；'user' = 用户自己导入的，在 data/pet/skins
-      skin: 'cat'
+      skin: DEFAULT_SKIN
     },
     // --- 显示 ---
     visible: true,
@@ -161,6 +187,13 @@ function defaultPet(id) {
     speakEveryTurns: 3, // 每隔几轮主对话说一次
     speakLines: 3, // 每次说几句
     mutedUntil: 0, // 临时静音到什么时候（时间戳，0 = 没静音）
+    // --- 动作 ---
+    // 空闲时会随机做哪些小动作（点头 / 摇头 / 招手）。
+    // ⚠️ 这里存的是**开启**的那几个，不是「关掉的」—— 空数组是一个有意义的值：
+    //    「一个都不做 = 安静地待着」。所以归一化时**不能**把空数组兜回默认全集。
+    // ⚠️ 只管「自己待着时的小动作」。点它一下的反应、说话时的点头是**交互反馈**，
+    //    不受这个开关管（关掉动作的宠物被点了还是该有反应）。
+    gestureEnabled: [...KNOWN_GESTURES],
     // --- 模型 ---
     useMainModel: true, // 默认跟随软件主模型
     providerId: '', // 单独指定时用
@@ -212,19 +245,24 @@ function safeSkinName(name) {
     .trim()
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/\.{2,}/g, '_');
-  return raw.slice(0, 60) || 'cat';
+  return raw.slice(0, 60) || DEFAULT_SKIN;
 }
 
 function normalizeLook(raw) {
   const look = raw && typeof raw === 'object' ? raw : {};
   // 只认 rig —— 第一版的 'png'（单张静态图）已经移除。
-  // 老配置里存的 png 形象会被**迁移**成默认那套 rig（skin: 'cat'）：
+  // 老配置里存的 png 形象会被**迁移**成默认那套 rig（skin: DEFAULT_SKIN）：
   // 直接留一个指向不存在目录的 skin，宠物会只剩一个「形象没加载出来」占位框。
+  //
+  // ⚠️ 还有一类要迁移：**老的 'cat'**。2026-10-10 蓝白猫形象包从 assets/pet/ 移出，
+  //    继续留着它的话，所有升级上来的用户都会看到占位框 —— 见到 cat 就换成默认形象。
   const known = ['rig', 'sprite', 'live2d'].includes(look.kind);
+  const rawSkin = known ? safeSkinName(look.skin || DEFAULT_SKIN) : DEFAULT_SKIN;
   return {
     kind: known ? look.kind : 'rig',
     source: known && look.source === 'user' ? 'user' : 'assets',
-    skin: safeSkinName(known ? look.skin || 'cat' : 'cat')
+    // 只在 assets 下做 cat 迁移：用户自己导入的 skins/cat 是他自己的东西，别动
+    skin: rawSkin === 'cat' && !(known && look.source === 'user') ? DEFAULT_SKIN : rawSkin
   };
 }
 
@@ -232,6 +270,30 @@ function normalizeLook(raw) {
 function normalizeTs(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * 收「空闲小动作」那组开关。
+ *
+ * ⚠️ **缺字段**和**空数组**是两回事，别合并处理：
+ *   - 老配置里根本没有 `gestureEnabled` → 用默认全集（升级上来的人不掉功能）；
+ *   - 用户在设置页把三个勾全取消 → 存下来就是 `[]` → 必须原样保留成空数组
+ *     （那是「我要它安静待着」，兜回全集等于设置不生效）。
+ *   只要判断 `Array.isArray(v) ? … : 默认` 就自然分开了 —— 关键是**别对空数组用
+ *   `|| 默认`**，`[] || x` 虽然是 `x`… 所以更不能写 `v || DEFAULT`（空数组是 truthy，
+ *   这里其实安全，但写成显式的 Array.isArray 分支更不容易被后人改坏）。
+ *
+ * 只认 KNOWN_GESTURES 里的 id：手改配置塞进来的错名字会让渲染层挑到一个它不认识的
+ * 手势（表现是「静止几秒」），不如在这里丢掉。
+ */
+function normalizeGestureList(value, fallback) {
+  if (!Array.isArray(value)) return [...fallback];
+  const out = [];
+  for (const item of value) {
+    const id = String(item == null ? '' : item).trim();
+    if (KNOWN_GESTURES.includes(id) && !out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 function normalizePet(raw, fallbackId) {
@@ -268,6 +330,7 @@ function normalizePet(raw, fallbackId) {
     speakEveryTurns: clampInt(p.speakEveryTurns, SPEAK_EVERY_MIN, SPEAK_EVERY_MAX, base.speakEveryTurns),
     speakLines: clampInt(p.speakLines, SPEAK_LINES_MIN, SPEAK_LINES_MAX, base.speakLines),
     mutedUntil: normalizeTs(p.mutedUntil),
+    gestureEnabled: normalizeGestureList(p.gestureEnabled, base.gestureEnabled),
     useMainModel: p.useMainModel !== false,
     providerId: String(p.providerId || '').trim().slice(0, 60),
     model: String(p.model || '').trim().slice(0, 120),
@@ -775,6 +838,8 @@ module.exports = {
   SPEAK_EVERY_MAX,
   SPEAK_LINES_MIN,
   SPEAK_LINES_MAX,
+  // 空闲小动作的「全集」——设置页和渲染层都按它对齐，别在别处重写一份
+  KNOWN_GESTURES,
   MEMORY_MAX_ITEMS_MIN,
   MEMORY_MAX_ITEMS_MAX,
   // 设置

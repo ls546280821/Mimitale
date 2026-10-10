@@ -611,14 +611,104 @@
           </div>
         </header>
 
-        <div class="page-body settings-body">
-        <!-- 这一屏是「一列可折叠的卡片」：每个大版块一张卡，头部整块是一颗
-             <button class="section-head">，点一下展开 / 收起（逻辑在 views/settings.js，
-             样式在 style.css 的 .panel-section.collapsible 那一段）。
-             收起时只把非头部的孩子 display:none —— 所以下面这些内容保持原样，
+        <!-- 2026-10-10 从「一列可折叠卡片」改成「左侧导航 + 右侧内容」：
+             设置项越加越多，一列铺下来要滚很久，还容易找不到目标区块。
+             现在左边是一条固定的分组导航，右边只显示当前那一组，一屏装完。
+
+             接口没变：`id` 仍沿用旧的（sec-models / sec-params / sec-behavior /
+             sec-image / sec-rag / pet-section），expandSettingsSection(id) 照样能用
+             —— 它现在做的是「切到那一组」而不是「拆开那张卡」。
+             导航项的 data-target 指向这些 id；分组内容还是原来那些 .panel-section，
+             但**不再折叠**（.collapsible/.open 那套已摘掉，见 style.css）。 -->
+        <div class="settings-shell">
+          <nav class="settings-nav" aria-label="设置分组">
+            <button class="settings-nav-item active" type="button" data-target="sec-models">
+              <span class="settings-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
+                  <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+                </svg>
+              </span>
+              <span class="settings-nav-text">
+                <span class="settings-nav-title">模型服务</span>
+                <span class="settings-nav-desc">接口地址与 API Key</span>
+              </span>
+            </button>
+
+            <button class="settings-nav-item" type="button" data-target="sec-params">
+              <span class="settings-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
+                </svg>
+              </span>
+              <span class="settings-nav-text">
+                <span class="settings-nav-title">生成参数</span>
+                <span class="settings-nav-desc">随机程度与长度</span>
+              </span>
+            </button>
+
+            <button class="settings-nav-item" type="button" data-target="sec-behavior">
+              <span class="settings-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="1" y="6" width="22" height="12" rx="6" />
+                  <circle cx="16" cy="12" r="3" />
+                </svg>
+              </span>
+              <span class="settings-nav-text">
+                <span class="settings-nav-title">行为</span>
+                <span class="settings-nav-desc">键盘习惯与上下文</span>
+              </span>
+            </button>
+
+            <button class="settings-nav-item" type="button" data-target="sec-image">
+              <span class="settings-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <circle cx="9" cy="9" r="2" />
+                  <path d="m21 15-4.5-4.5L3 21" />
+                </svg>
+              </span>
+              <span class="settings-nav-text">
+                <span class="settings-nav-title">生图</span>
+                <span class="settings-nav-desc">给剧情配插画</span>
+              </span>
+            </button>
+
+            <button class="settings-nav-item" type="button" data-target="sec-rag">
+              <span class="settings-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+              </span>
+              <span class="settings-nav-text">
+                <span class="settings-nav-title">语义检索</span>
+                <span class="settings-nav-desc">按意思捞回旧内容</span>
+              </span>
+            </button>
+
+            <button class="settings-nav-item" type="button" data-target="pet-section">
+              <span class="settings-nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="7" cy="8" r="2.2" />
+                  <circle cx="12" cy="6" r="2.2" />
+                  <circle cx="17" cy="8" r="2.2" />
+                  <path d="M12 10c-3.2 0-5.5 2.4-5.5 4.6 0 1.6 1.3 2.4 2.7 2.4 1 0 1.9-.5 2.8-.5s1.8.5 2.8.5c1.4 0 2.7-.8 2.7-2.4C17.5 12.4 15.2 10 12 10Z" />
+                </svg>
+              </span>
+              <span class="settings-nav-text">
+                <span class="settings-nav-title">桌宠</span>
+                <span class="settings-nav-desc">桌面上的小家伙</span>
+              </span>
+            </button>
+          </nav>
+
+          <div class="settings-content page-body settings-body">
+        <!-- 每个大版块一张卡，一次只显示一张 —— 由左栏导航切换（逻辑在
+             views/settings.js 的 showSettingsSection）。下面这些内容保持原样，
              不用再包一层容器。 -->
-        <section class="panel-section collapsible" id="sec-models">
-          <button class="section-head" type="button" aria-expanded="false">
+        <section class="panel-section" id="sec-models">
+          <div class="section-head">
             <span class="section-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
@@ -629,10 +719,15 @@
               <span class="section-title">模型服务</span>
               <span class="section-desc">可以添加多个服务商，随时切换</span>
             </span>
-          </button>
+            <span class="section-stat" id="stat-models" aria-live="polite"></span>
+          </div>
 
-          <!-- 服务商切换标签 -->
-          <div id="provider-tabs" class="provider-tabs" role="tablist" aria-label="服务商"></div>
+          <!-- 服务商卡片（2026-10-10 从一排胶囊标签换成卡片，见 style.css 的
+               .provider-card）。id 仍叫 provider-tabs：settings.js 的 renderProviderTabs
+               按它取容器，改名得连逻辑一起动，不值得。
+               role 也不再是 tablist —— 卡片里带了状态文字和选中圈，
+               语义上更接近一组单选（radio），不是纯标签页。 -->
+          <div id="provider-tabs" class="provider-cards" role="radiogroup" aria-label="服务商"></div>
 
           <div class="provider-add">
             <button id="btn-add-provider" class="btn btn-ghost btn-sm" type="button" aria-expanded="false">＋ 添加服务商</button>
@@ -681,8 +776,8 @@
           </div>
         </section>
 
-        <section class="panel-section collapsible" id="sec-params">
-          <button class="section-head" type="button" aria-expanded="false">
+        <section class="panel-section" id="sec-params">
+          <div class="section-head">
             <span class="section-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
@@ -692,7 +787,7 @@
               <span class="section-title">生成参数</span>
               <span class="section-desc">控制回答的随机程度和长度</span>
             </span>
-          </button>
+          </div>
 
           <div class="field-grid">
             <label class="field">
@@ -708,8 +803,8 @@
           </div>
         </section>
 
-        <section class="panel-section collapsible" id="sec-behavior">
-          <button class="section-head" type="button" aria-expanded="false">
+        <section class="panel-section" id="sec-behavior">
+          <div class="section-head">
             <span class="section-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="1" y="6" width="22" height="12" rx="6" />
@@ -720,7 +815,8 @@
               <span class="section-title">行为</span>
               <span class="section-desc">键盘习惯与上下文补充</span>
             </span>
-          </button>
+            <span class="section-stat" id="stat-behavior" aria-live="polite"></span>
+          </div>
 
           <label class="check">
             <input id="s-sendonenter" type="checkbox" />
@@ -787,8 +883,8 @@
                 main/providers.js 的 commonAttributes 归一化、smoke 里的相关断言。 -->
 
         <!-- 生图：和聊天是两套配置，默认留空 = 不启用 -->
-        <section class="panel-section collapsible" id="sec-image">
-          <button class="section-head" type="button" aria-expanded="false">
+        <section class="panel-section" id="sec-image">
+          <div class="section-head">
             <span class="section-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="3" y="3" width="18" height="18" rx="2" />
@@ -800,7 +896,7 @@
               <span class="section-title">生图</span>
               <span class="section-desc">给剧情配插画。留空就是不启用</span>
             </span>
-          </button>
+          </div>
 
           <label class="field">
             <span class="field-label">生图服务商</span>
@@ -836,8 +932,8 @@
         </section>
 
         <!-- 语义检索：又是一组独立配置，走 /embeddings -->
-        <section class="panel-section collapsible" id="sec-rag">
-          <button class="section-head" type="button" aria-expanded="false">
+        <section class="panel-section" id="sec-rag">
+          <div class="section-head">
             <span class="section-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="11" cy="11" r="7" />
@@ -848,7 +944,8 @@
               <span class="section-title">语义检索</span>
               <span class="section-desc">按「意思」把相关的旧内容和设定捞回来，而不是靠关键词</span>
             </span>
-          </button>
+            <span class="section-stat" id="stat-rag" aria-live="polite"></span>
+          </div>
 
           <label class="check">
             <input id="s-rag-enabled" type="checkbox" />
@@ -888,8 +985,8 @@
              它是**另一扇窗口**，不是这里的预览 —— 这里的控件负责改它的设置、
              看它的记忆、试它的人格。改完即时生效（不用点保存），
              因为宠物活在另一个进程里，等「保存」再同步会让右键菜单和这边对不上。 -->
-        <section class="panel-section collapsible" id="pet-section">
-          <button class="section-head" type="button" aria-expanded="false">
+        <section class="panel-section" id="pet-section">
+          <div class="section-head">
             <span class="section-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="7" cy="8" r="2.2" />
@@ -904,7 +1001,8 @@
                 桌面上陪你聊天 / 玩世界书的小家伙。它有<b>自己的</b>发言、记忆和模型，不写进对话记录
               </span>
             </span>
-          </button>
+            <span class="section-stat" id="stat-pet" aria-live="polite"></span>
+          </div>
 
           <label class="check">
             <input id="s-pet-enabled" type="checkbox" />
@@ -929,6 +1027,35 @@
             <select id="s-pet-skin" aria-label="桌宠形象"></select>
             <span class="field-help" id="s-pet-skin-hint">切换后桌宠窗口会立刻换成这个形象。image 目录在 assets/pet/&lt;名字&gt;/，放好自己的角色后在这里选它即可</span>
           </label>
+
+          <label class="field" id="s-pet-scale-field">
+            <span class="field-label">
+              大小
+              <span class="field-badge" id="s-pet-scale-value">100%</span>
+            </span>
+            <input id="s-pet-scale" type="range" min="60" max="160" step="5" />
+            <span class="field-help">拖到合适的大小，桌宠窗口会跟着变（它右下角不动）。也可以在宠物上点右键 →「大小」快速换档</span>
+          </label>
+
+          <!-- 空闲小动作：它自己待着时会随机做的小手势。勾掉的那个就再也不出现 -->
+          <div class="field" id="s-pet-gestures-field">
+            <span class="field-label">空闲小动作</span>
+            <div class="pet-gesture-row">
+              <label class="check check-inline">
+                <input id="s-pet-gesture-nod" type="checkbox" />
+                <span class="check-text"><span class="check-title">点头</span></span>
+              </label>
+              <label class="check check-inline">
+                <input id="s-pet-gesture-shake" type="checkbox" />
+                <span class="check-text"><span class="check-title">摇头</span></span>
+              </label>
+              <label class="check check-inline">
+                <input id="s-pet-gesture-wave" type="checkbox" />
+                <span class="check-text"><span class="check-title">招手</span></span>
+              </label>
+            </div>
+            <span class="field-help" id="s-pet-gesture-hint">它自己待着时会随机做的小动作，取消勾选的那个就再也不出现。点它一下的反应不受这里影响</span>
+          </div>
 
           <div class="field-grid">
             <label class="field">
@@ -1030,6 +1157,7 @@
             <span class="field-help" id="s-pet-memory-hint">—</span>
           </div>
         </section>
+          </div>
         </div>
       </section>
     </main>

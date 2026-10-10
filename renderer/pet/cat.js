@@ -1,11 +1,15 @@
 'use strict';
 
 // ============================================================================
-//  renderer/pet/cat.js —— 蓝白猫驱动层（「迷你 kit」）
+//  renderer/pet/cat.js —— rig 形象驱动层（「迷你 kit」）
+//
+//  ⚠️ 文件名里的 cat 是**历史遗留**：这套状态机最初为内置的蓝白猫写，
+//     2026-10-10 蓝白猫形象包移出之后它照样服务大肥鱼（whale）和以后任何
+//     rig 形象包 —— 换形象的接口是 assets/pet/<名字>/，跟这个文件名无关。
 //
 //  figure（cat-figure.js）吃的是 Coopanion kit 的身体参数口径：
 //    o = { t, mode, face, facing, look, swing, sit, low, legs, gesture, modeT }
-//  但 Mimitale 没有「世界引擎」—— 没人告诉猫这一刻在走路还是被拎着。
+//  但 Mimitale 没有「世界引擎」—— 没人告诉它这一刻在走路还是被拎着。
 //  这个模块就是那个缺的引擎：
 //
 //    · 步态生成：两腿相位差 π 的正弦摆动 + 抬脚 → legs 线段数组
@@ -31,7 +35,25 @@ const SLEEP_AFTER_MS = 90000; // 闲置多久睡着
 const IDLE_TRICK_MS = [14000, 34000]; // 偶发小手势的间隔区间
 
 // 手势时长（秒）
-const GESTURE_DUR = { nod: .9, shake: .8, wave: 1.4, bow: 1.2 };
+// ⚠️ 删掉一个手势时**记得同步删掉这一项**：`gesture.k += dt / (GESTURE_DUR[kind] || 1)`
+//    里 `|| 1` 是兜底，漏删不会报错，只会让那个手势默默变成 1 秒。
+const GESTURE_DUR = { nod: .9, shake: .8, wave: 1.4 };
+
+// 空闲时会随机做的小手势 —— 这是**全集**，用户能在设置里关掉其中几个。
+// 真正挑的时候走 enabledGestures（下面那个），不要直接读这里。
+// 曾经有过 `bow`（鞠躬/磕头），2026-10-10 去掉了：那不是这只宠物的性格，
+// 而且它一低头整只都塌下去，在小窗口里看着像"卡住了"。
+const IDLE_GESTURES = ['nod', 'shake', 'wave'];
+
+/**
+ * 当前允许出现的空闲手势 = IDLE_GESTURES ∩ 用户在设置里勾上的那几个。
+ *
+ * ⚠️ 空数组是**合法且有意义的**：用户在设置里把三个勾全取消 = 「让它安静待着」。
+ *    挑手势的地方必须能处理「集合为空」—— 处理方式是**根本不挑**，而不是随便挑一个。
+ *    （如果在这里写成 `enabledGestures = list.length ? list : IDLE_GESTURES`，
+ *     用户取消全部勾选之后会发现它照样在动，等于设置没生效。）
+ */
+let enabledGestures = [...IDLE_GESTURES];
 
 // ---------------------------------------------------------------------------
 //  状态
@@ -148,7 +170,17 @@ function startLoop() {
       const due = lerp(IDLE_TRICK_MS[0], IDLE_TRICK_MS[1], Math.random());
       if (since > due) {
         lastTrickAt = Date.now();
-        gesture = { kind: ['nod', 'shake', 'wave', 'bow'][Math.floor(Math.random() * 4)], k: 0 };
+        // 从**允许的**手势里随机挑一个（用户在设置里关掉的就不出现）。
+        // ⚠️ 一个都没开（用户在设置里全取消）时 `enabledGestures` 是空数组 ——
+        //    这时**什么都不做**。别写 `[...][0]` 之类的兜底：那会给空集合塞回
+        //    一个手势，用户取消全部勾选就白取消了。
+        // ⚠️ 也**别在这里写死数组** —— 手势列表只在 IDLE_GESTURES 一处维护。
+        if (enabledGestures.length) {
+          gesture = {
+            kind: enabledGestures[Math.floor(Math.random() * enabledGestures.length)],
+            k: 0,
+          };
+        }
       }
     }
 
@@ -249,8 +281,20 @@ function chunk() {
 /** 被点了一下（poke 应答之后） */
 function poked() {
   wake(Math.random() < 0.5 ? 'surprised' : 'shy');
+  // ⚠️ 这里**不看** enabledGestures：点它一下是**交互反馈**，不是「自己待着时的小动作」。
+  //    用户在设置里关掉「点头/摇头」的意思是"我希望它安静待着"，不是"我点它它也该没反应"。
   gesture = { kind: Math.random() < 0.5 ? 'nod' : 'shake', k: 0 };
   setTimeout(() => { if (face === 'surprised' || face === 'shy') face = 'neutral'; }, 2200);
+}
+
+/**
+ * 接收「允许哪些空闲手势」（设置页那三个勾）。
+ * 只在 IDLE_GESTURES 的范围里收 —— 主进程那份数据里要是混进了渲染层不认识的名字，
+ * 挑到它就会是个静止的手势（不报错，只是呆呆站着几秒）。
+ */
+function setGestures(list) {
+  if (!Array.isArray(list)) return; // 字段缺失：保持当前值，别把它清空
+  enabledGestures = IDLE_GESTURES.filter((k) => list.includes(k));
 }
 
 /** 被拎起来了 / 放下 */
@@ -299,6 +343,7 @@ export const catRig = {
   applyState,
 
   setBusy, said, chunk, poked,
+  setGestures,
   dragBegin, dragEnd,
   walk: walkEvent,
   mouseMove,

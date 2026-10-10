@@ -49,6 +49,9 @@ let previewText = '';
 let numberTimer = null;
 const pendingNumbers = new Map();
 
+/** 「大小」滑块的落盘防抖（拖动中只本地预览，停手才写盘） */
+let scaleTimer = null;
+
 /** 取出并清空待提交的数字字段；没有待提交的返回 null */
 function flushPendingNumbers() {
   clearTimeout(numberTimer);
@@ -148,7 +151,7 @@ let skinCache = null;
 /**
  * 铺「形象」下拉。
  *
- * ⚠️ 这个下拉的 value 用 `source\0skin` 两段拼：`assets\0cat`、`user\0mygirl`。
+ * ⚠️ 这个下拉的 value 用 `source\0skin` 两段拼：`assets\0whale`、`user\0mygirl`。
  *    只存 skin 名不够 —— assets 和 user 下可能重名，那样切了会切到另一张卡。
  */
 async function renderSkinSelect(force) {
@@ -177,7 +180,7 @@ async function renderSkinSelect(force) {
   }
 
   const look = pet.look || {};
-  select.value = `${look.source || 'assets'}\u0000${look.skin || 'cat'}`;
+  select.value = `${look.source || 'assets'}\u0000${look.skin || 'whale'}`;
   if (select.selectedIndex < 0) select.selectedIndex = 0;
 
   // 提示里把「当前这张卡在哪」讲清楚 —— 用户要往里放自己的角色时最需要这句
@@ -221,7 +224,60 @@ function renderMemory(items, digest) {
   }
 }
 
-/** 把主进程那份状态铺进表单。设置弹窗每次打开、以及收到 pet:changed 时都会调。 */
+/**
+ * 铺「大小」滑块。
+ *
+ * 滑块不是 0~100 的百分比，而是直接绑 `scale * 100`（60~160，step 5）——
+ * 这样范围正好落在「看得见但不离谱」那段：再小到 40% 猫就一个点、再大到 200%
+ * 窗口铺满半屏。极端值仍可以从右键菜单的「大小」选到（那里有 200%）。
+ *
+ * --range-fill 是滑块轨道的填充比例（样式在 style.css 的 `.field input[type=range]`），
+ * 不给它的话轨道会永远是半黑半主题色，跟当前值对不上。
+ */
+function renderScale() {
+  const pet = currentPet();
+  const input = el.pet.scale;
+  const badge = el.pet.scaleValue;
+  if (!input || !pet) return;
+
+  const pct = Math.round(Math.max(0.6, Math.min(1.6, Number(pet.scale) || 1)) * 100);
+  // 拖动中不回填 value —— 否则鼠标还按着的时候会被缓存值拽回去
+  if (document.activeElement !== input) input.value = String(pct);
+  input.style.setProperty('--range-fill', `${((pct - 60) / (160 - 60)) * 100}%`);
+  if (badge) badge.textContent = `${Math.round((Number(pet.scale) || 1) * 100)}%`;
+}
+
+/**
+ * 铺「空闲小动作」那三个勾。
+ *
+ * ⚠️ 这里和「大小」滑块有个共同的坑：用户正在操作时不能回填。
+ *    勾选是即时生效的（点一下 → patchPet → 重画），重画时如果无条件把
+ *    `checked` 按缓存值重写，用户快速连点两下就会被中间那次重画冲掉一次。
+ *    所以只跳过「当前正在编辑的那一个」。
+ *
+ * ⚠️ 「三个全不勾」是**合法状态**（= 让它安静待着），不要在这里做
+ *    「至少留一个」的兜底 —— 那会让用户取消最后一个勾时看着没反应。
+ */
+const GESTURE_FIELDS = [
+  ['nod', 'gestureNod'],
+  ['shake', 'gestureShake'],
+  ['wave', 'gestureWave']
+];
+
+function renderGestures() {
+  const pet = currentPet();
+  if (!pet || !el.pet.gestureField) return;
+  // 字段缺失（老配置还没写过）时按「全开」显示 —— 和主进程 defaultPet 一个口径
+  const enabled = Array.isArray(pet.gestureEnabled) ? pet.gestureEnabled : GESTURE_FIELDS.map((g) => g[0]);
+  for (const [kind, key] of GESTURE_FIELDS) {
+    const input = el.pet[key];
+    if (!input) continue;
+    if (document.activeElement === input) continue;
+    input.checked = enabled.includes(kind);
+  }
+}
+
+
 export function renderPetSettings() {
   const config = currentConfig();
   const pet = currentPet();
@@ -262,6 +318,8 @@ export function renderPetSettings() {
 
   renderModelSelect();
   renderSkinSelect();
+  renderScale();
+  renderGestures();
   renderStatusLine();
 }
 
@@ -385,6 +443,42 @@ export function initPetSettings(opts) {
       patchPet({ look: { kind: 'rig', source: source || 'assets', skin } });
       showToast('形象已切换', 'ok');
     });
+  }
+
+  // ---- 大小 ----
+
+  // 拖动中即时更新标签和轨道填充（本地、不发 IPC），停手 250ms 才落盘。
+  // 不防抖的话一次拖动会发几十条 pet:update，每条都让窗口 setContentBounds 一次 ——
+  // 窗口会一顿一顿地跳。
+  if (el.pet.scale) {
+    el.pet.scale.addEventListener('input', () => {
+      const pct = Number(el.pet.scale.value) || 100;
+      el.pet.scale.style.setProperty('--range-fill', `${((pct - 60) / (160 - 60)) * 100}%`);
+      if (el.pet.scaleValue) el.pet.scaleValue.textContent = `${pct}%`;
+      clearTimeout(scaleTimer);
+      scaleTimer = setTimeout(() => patchPet({ scale: pct / 100 }), 250);
+    });
+    // 松手（或键盘调完）立刻补一次，免得最后那一下还在防抖里就被别的重画冲掉
+    el.pet.scale.addEventListener('change', () => {
+      clearTimeout(scaleTimer);
+      scaleTimer = null;
+      patchPet({ scale: (Number(el.pet.scale.value) || 100) / 100 });
+    });
+  }
+
+  // ---- 空闲小动作 ----
+  //
+  //  三个勾共用一段逻辑：每次都把「当前三个框的勾选状态」整理成数组整个写回去。
+  //  好处是不需要区分「刚勾上的是哪一个」—— 状态以 DOM 为准，写完就是完整的真相，
+  //  不会出现「A 勾了、B 忘了同步」这种半截状态。
+  const onGestureToggle = () => {
+    const enabled = GESTURE_FIELDS
+      .filter(([, key]) => el.pet[key] && el.pet[key].checked)
+      .map(([kind]) => kind);
+    patchPet({ gestureEnabled: enabled });
+  };
+  for (const [, key] of GESTURE_FIELDS) {
+    if (el.pet[key]) el.pet[key].addEventListener('change', onGestureToggle);
   }
 
   // ---- 模型 ----

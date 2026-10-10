@@ -10,10 +10,16 @@
       布局一挤，宠物和气泡就会互相顶 —— 气泡盖在宠物头上是可以接受的，
       宠物被气泡挤小是不能接受的（看着像坏了）。
 
-   **气泡里**的尺寸基本都乘了 --scale：缩放调大时窗口跟着变大，字和气泡也得跟着大，
-   否则放大之后就是「一只大宠物配一行小字」。
-   ⚠️ 不是所有值都乘：投影（box-shadow 的模糊/偏移）和光标图标的偏移这类
-      与字号无关的量保持固定，乘上去只会让投影糊成一团。
+   ⚠️ **气泡的尺寸不跟宠物一起缩放**（2026-10-10 改）。
+   曾经气泡里每个值都乘 --scale，理由是「放大之后一只大宠物配一行小字」——
+   但那个理由只在放大时才成立，缩小时反噬得很厉害：宠物调到 70%，字就剩
+   8.75px，根本看不清 —— 而气泡存在的全部意义就是让人看清它说了什么。
+   **宠物是可调的外形，字是必须始终可读的内容**，这两件事的解耦比"比例协调"重要。
+   所以现在：气泡字号/内边距/圆角/尾巴全用固定 px，只有 --bubble-w 跟着窗口走。
+
+   --scale 仍然给**宠物自己**用（占位框那几处、窗口尺寸由主进程按它算）。
+   ⚠️ 投影（box-shadow 的模糊/偏移）这类与字号无关的量保持固定，
+      乘上去只会让投影糊成一团。
    ============================================================================ */
 
 :root {
@@ -23,7 +29,22 @@
   --bubble-bg: rgba(255, 255, 255, 0.94);
   --bubble-fg: #33313a;
   --bubble-line: rgba(60, 55, 80, 0.14);
+  /* 圆角比正文色更亮一点的描边：单色描边是「系统提示框」，换成带一点主题色的
+     淡蓝天蓝才像「角色在说话」。 */
+  --bubble-edge: rgba(126, 160, 226, 0.42);
+  /* 气泡底色的渐变两端（上浅下深一点点，给个体积感，不是纯平涂） */
+  --bubble-bg-top: rgba(255, 255, 255, 0.97);
+  --bubble-bg-bottom: rgba(238, 244, 255, 0.95);
   --accent: #3f6fd8;
+  /* 气泡固定基准字号。刻意用整数：早先这里是 12.5px —— 那个 .5 没有任何
+     排版依据（不是 2x 屏取整，也不是行高整数比，本项目行高是无单位倍数），
+     纯属早期调参残留，别的地方也没跟它对齐。 */
+  --bubble-font: 13px;
+  /* 气泡的字体：优先圆体（"可爱"往往九成靠字体）。
+     圆体不是 Windows 自带的，装了就用、没装就退回雅黑 —— 不硬塞、不报错。
+     列表里都是**真实存在**的圆体名字，别往里写不存在的字重/别名。 */
+  --bubble-font-family: "寒蝉圆黑体", "悠哉圆体", "ZCOOL KuaiLe", "站酷快乐体",
+    "汉仪润圆", "Yu Gothic UI", "Microsoft YaHei", "微软雅黑", system-ui, sans-serif;
 }
 
 html,
@@ -79,6 +100,11 @@ body {
   cursor: grabbing;
 }
 
+/* 占位框（形象没加载出来时露出的那个框）。
+   ⚠️ 它的**文字**和气泡同理，不跟宠物缩放：缩到 70% 时字号会掉到 7.7px，
+      而框里那句「去设置里换一个形象」正是用户此刻唯一能看到的指引。
+      尺寸（内边距/圆角/间距）也一并固定 —— 它是「坏了的提示」，
+      跟宠物本身长多大没关系。 */
 .sprite-empty {
   position: absolute;
   inset: 0;
@@ -86,22 +112,22 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: calc(6px * var(--scale));
-  margin: calc(10px * var(--scale));
-  border-radius: calc(14px * var(--scale));
+  gap: 6px;
+  margin: 10px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.9);
   border: 1px dashed rgba(90, 90, 120, 0.45);
   text-align: center;
-  padding: calc(10px * var(--scale));
+  padding: 10px;
 }
 
 .sprite-empty-title {
-  font-size: calc(13px * var(--scale));
+  font-size: 13px;
   font-weight: 500;
 }
 
 .sprite-empty-hint {
-  font-size: calc(11px * var(--scale));
+  font-size: 11px;
   color: rgba(60, 55, 80, 0.7);
   line-height: 1.6;
 }
@@ -110,54 +136,148 @@ body {
    气泡
    --------------------------------------------------------------------------- */
 
+/* 气泡左右各留 10px 边距（固定，不随宠物缩放）。宠物缩小时窗口变窄，
+   气泡跟着窄一点 —— 这是**唯一**会随缩放变的气泡尺寸，因为窗口就那么大。
+   字本身不缩，所以窄一点也照样读得清，最多多折两行。
+
+   ⚠️ 气泡是**底边锚定**的（`bottom: var(--bubble-bottom)`），不是钉在窗口顶部。
+   为什么：窗口 300×380，而 rig 画布只有 300×300 一块方图（见 cat-figure.js 的
+   fitCanvas），**画布上方那 80px 是空的**；气泡要是钉在顶部，它的下沿就会和宠物
+   之间留一条「不知道哪来的」间隔，而且说几句长短不同的话、间隔还会跟着变。
+   --bubble-bottom 由 pet.js 按**实测头顶**（掩码扫出来的第一行实心像素）设，
+   所以不管换形象、缩放还是它点头，气泡都贴着它的头。
+   --bubble-bottom 没设时（掩码读不出）退回一个保守的默认值：
+   窗口高的 ~31%（1x 下 380×0.31 ≈ 118px 的头顶位置），用 % 而不是 px ——
+   窗口高度随宠物缩放变，写死 px 在小档会把气泡顶出窗外。 */
 .bubble {
   position: absolute;
-  left: calc(6px * var(--scale));
-  right: calc(6px * var(--scale));
-  top: calc(4px * var(--scale));
+  left: 10px;
+  right: 10px;
+  bottom: var(--bubble-bottom, 68%);
   z-index: 2;
   pointer-events: auto;
-  background: var(--bubble-bg);
-  border: 1px solid var(--bubble-line);
-  border-radius: calc(12px * var(--scale));
-  padding: calc(8px * var(--scale)) calc(10px * var(--scale));
-  box-shadow: 0 6px 18px rgba(40, 35, 60, 0.16);
-  animation: bubble-in 140ms ease-out;
+  /* 上浅下深的极淡渐变 —— 纯平涂像系统提示框，给一点体积感才像「一张贴纸」 */
+  background: linear-gradient(180deg, var(--bubble-bg-top), var(--bubble-bg-bottom));
+  /* 描边带一点主题蓝 */
+  border: 1.5px solid var(--bubble-edge);
+  /* 圆角给足：小圆角是「对话框」，大圆角才「软」。
+     13px → 18px 是这一版"可爱"里最能一眼看出来的改动。 */
+  border-radius: 18px;
+  padding: 9px 13px;
+  box-shadow:
+    0 5px 16px rgba(80, 105, 165, 0.15),
+    0 1px 3px rgba(80, 105, 165, 0.08);
+  /* 尾巴（.bubble::before）绝对定位在框外，不能裁掉 */
+  overflow: visible;
+  animation: bubble-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* 冒出来的时候带一点点**回弹**（cubic-bezier 的 1.56 是过冲）——
+   从下面弹上来、稍微超过目标高度再落回去，是"活泼"最省事的做法。 */
 @keyframes bubble-in {
-  from { opacity: 0; transform: translateY(calc(4px * var(--scale))); }
-  to { opacity: 1; transform: translateY(0); }
+  0% { opacity: 0; transform: translateY(7px) scale(0.96); }
+  60% { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* 指向宠物的小尖角。窗口里宠物是贴底居中站的，所以尾巴放在**底部中间**、
+   朝下 —— 气泡看起来像「从它那冒出来的一句话」，而不是浮在头顶的一张卡片。
+   用两层三角（外描边色 + 内底色）做出和边框连贯的效果。
+   2026-10-10：尾巴稍微加大了一点（7.5/6 → 9/7），和更大的圆角配着更圆润；
+   再给它一点左右不对称 —— 正中间的三角像「对话框」，偏一点才像手绘的。 */
+.bubble::before,
+.bubble::after {
+  content: "";
+  position: absolute;
+  left: 46%;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+.bubble::before {
+  bottom: -9px;
+  transform: translateX(-50%);
+  border-width: 9px 8px 0;
+  border-color: var(--bubble-edge) transparent transparent;
+}
+
+.bubble::after {
+  bottom: -7px;
+  transform: translateX(-50%);
+  border-width: 7px 6px 0;
+  border-color: var(--bubble-bg-bottom) transparent transparent;
+}
+
+/* 尾巴下面曾经在 2026-10-10 加过「三个飘下去的小圆点」做装饰，后来撤掉了：
+   尾巴往下伸的那一截正好压在宠物头发（ahoge）上，蓝点 + 白圈在头发里显得很乱，
+   像另一个零件而不是气泡的一部分。可爱度靠大圆角和蓝描边已经够了，
+   **装饰要挂在「不跟宠物抢地方」的位置**，不然再好看也是负分。
+   （pet.js 的 overhangBelowBubble() 会量尾巴探出的高度，这里改了尾巴尺寸
+     那边会自动跟上，不用同步改常量。） */
+/* 气泡长高之后会一路顶到宠物脸上 —— 给个上限，超出在气泡里滚动。
+   ⚠️ 这里**不能**写死像素：窗口高度 = 380 × 宠物缩放，宠物调到 70% 时窗口
+      只有 266px 高，气泡要是还按 1 倍算高度（114px + 内边距）就占掉半屏、
+      把宠物挤没了。用 vh 让上限自然跟着窗口走。
+   ⚠️ 也别压得太狠：固定字号之后，同样一段话在小窗口里会折更多行。
+      0.7× 时 30vh 只有 80px ≈ 3.8 行 —— 「说三句」随便折一下就装不下，
+      最后一句会被切掉（2026-10-10 实测）。38vh 给到 ~101px（≈4.8 行），
+      三句话带折行正好装得下，同时宠物还剩 ~165px 站得下。
+      宁可让气泡偶尔多占一点，也别让用户看不全它说的话。 */
 .bubble-lines {
   margin: 0;
+  max-height: 38vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 细滚动条，别让它在这么小的气泡里显得很笨重 */
+  scrollbar-width: thin;
 }
 
 .bubble-line {
   margin: 0;
-  font-size: calc(12.5px * var(--scale));
-  line-height: 1.65;
+  /* 固定字号 —— 气泡是"要说给人看的话"，不跟宠物一起缩 */
+  font-size: var(--bubble-font);
+  font-family: var(--bubble-font-family);
+  /* 1.6 → 1.7：圆体字形偏矮胖，行距松一点才不挤 */
+  line-height: 1.7;
+  letter-spacing: 0.02em;
   word-break: break-word;
+  /* 逐句冒出来时淡入 + 轻微上移（节奏由 pet.js 的 lineTimer 控制） */
+  animation: line-in 260ms cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
-/* 逐句冒出来的分隔：给第二句起加一条虚线，读起来像一句一句说的。
-   （这里**没有**动画 —— 真正「一句一句出现」的节奏由 pet.js 的 lineTimer
-   控制节点什么时候被 append，这里只管长得像分隔开的几句。） */
+@keyframes line-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 逐句冒出来的分隔：给第二句起加一条分隔线，读起来像一句一句说的。
+   2026-10-10：从 `dashed` 虚线改成**淡渐变线** —— 虚线是典型的系统 UI 语言，
+   跟"可爱"正好相反；一条两端淡出、中间最深的细线安静得多。 */
 .bubble-line + .bubble-line {
-  margin-top: calc(3px * var(--scale));
-  padding-top: calc(3px * var(--scale));
-  border-top: 1px dashed var(--bubble-line);
+  margin-top: 5px;
+  padding-top: 5px;
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    var(--bubble-edge) 18%,
+    var(--bubble-edge) 82%,
+    transparent
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+  background-position: 0 0;
 }
 
 .bubble-line.typing::after {
   content: "";
   display: inline-block;
-  width: calc(6px * var(--scale));
-  height: calc(12px * var(--scale));
+  width: 6px;
+  height: 12px;
   margin-left: 3px;
   vertical-align: -1px;
   background: var(--accent);
+  border-radius: 3px;
   opacity: 0.65;
   animation: caret 900ms steps(1) infinite;
 }
@@ -167,8 +287,11 @@ body {
   50%, 100% { opacity: 0; }
 }
 
-/* 代码里的 *动作* 用斜体弱化一下，读起来更像「它在做动作」 */
+/* 代码里的 *动作* 用*动作色*弱化一下，读起来更像「它在做动作」。
+   2026-10-10：从灰色斜体改成**主题蓝斜体** —— 灰色在宠物身上常常糊成一片，
+   而这一版气泡底色偏蓝白，用 accent 反而更清楚、也更像"角色在比划"。 */
 .bubble-line em {
   font-style: italic;
-  color: rgba(60, 55, 80, 0.66);
+  color: var(--accent);
+  opacity: 0.85;
 }

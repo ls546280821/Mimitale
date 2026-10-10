@@ -30,8 +30,9 @@ const spriteEmpty = document.getElementById('sprite-empty');
 const bubble = document.getElementById('bubble');
 const bubbleLines = document.getElementById('bubble-lines');
 
-// 蓝白猫动态形象（rig 部件贴图渲染）。形象只有这一种 —— 第一版那张静态立绘
-// 的 <img> 渲染路径已经移除。
+// rig 动态形象（部件贴图渲染）。形象只有这一种 —— 第一版那张静态立绘
+// 的 <img> 渲染路径已经移除。引擎在 cat.js / cat-figure.js（名字是历史遗留，
+// 它最初为蓝白猫写，现在服务所有 rig 形象包，包括默认的大肥鱼）。
 import { catRig } from './cat.js';
 
 // alpha 低于这个值就当「这里是透明的」，鼠标穿过去。
@@ -47,6 +48,13 @@ let clickThroughApplied = null;
 
 /** 形象的不透明掩码：{ w, h, alpha }。取不到（读像素被拒 / 图还没加载）时为 null */
 let mask = null;
+
+/**
+ * 宠物**头顶**在 sprite-wrap 坐标系里的 y（px）。
+ * 由掩码扫出来（见 rebuildMask），用来把气泡贴着它放 ——
+ * 画布比宠物大，光看窗口尺寸摆不准。读不到时为 null，此时气泡退回 CSS 默认位置。
+ */
+let spriteTopInWrap = null;
 
 /** 气泡自动收起 / 逐句冒字用的定时器 */
 let bubbleTimer = null;
@@ -65,6 +73,11 @@ function applyState(payload) {
   const pet = payload.pet || {};
   const scale = Math.max(0.4, Math.min(2, Number(pet.scale) || 1));
   document.documentElement.style.setProperty('--scale', String(scale));
+
+  // 「允许哪些空闲手势」（设置页那三个勾）。**必须放在下面几个提前 return 之前** ——
+  // 形象没加载出来（rig 为 null）时这里会 return，但用户关掉动作的意图跟
+  // 有没有形象无关；放在后面的话，一旦 rig 缺失这个设置就永远传不到渲染层。
+  catRig.setGestures(pet.gestureEnabled);
 
   // 形象只有 rig 一种：模型 + 贴图都由主进程转成 dataUrl 推来（CSP 拦 fetch），
   // 渲染交给 cat.js。资产缺失时 rig 为 null → 露出「形象没加载出来」占位。
@@ -116,9 +129,13 @@ function maskSource() {
  * 用 data: URL 的图片不会污染 canvas，getImageData 拿得到像素；
  * 万一环境变了读不出来（画布被污染），就退化成 null ——
  * 那时候按「整个矩形都算宠物」处理（保守：宁可多咬住一点，也别让宠物点不动）。
+ *
+ * 掩码除了给点选判断用，还顺手算出**宠物头顶的 y**（见 `spriteTopInWrap`）——
+ * 气泡要贴着它放，别飘在画布上方那片空白里。
  */
 function rebuildMask() {
   mask = null;
+  spriteTopInWrap = null;
   const src = maskSource();
   if (!src) return;
 
@@ -139,13 +156,95 @@ function rebuildMask() {
     const alpha = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i += 1) alpha[i] = pixels[i * 4 + 3];
     mask = { w, h, alpha };
+
+    // 头顶：第一个「这一行有足够多不透明像素」的行。
+    // ⚠️ 不能只判 alpha > 0 —— 半透明的发梢 / 抗锯齿边缘会零星落在很上面，
+    //    按它对齐会让气泡和头之间又冒出一条缝。要求一行里至少 2% 宽度的实心像素，
+    //    才算「头顶真的到这儿了」。
+    const need = Math.max(2, Math.round(w * 0.02));
+    for (let y = 0; y < h; y += 1) {
+      let n = 0;
+      const base = y * w;
+      for (let x = 0; x < w; x += 1) {
+        if (alpha[base + x] > 128) {
+          n += 1;
+          if (n >= need) break;
+        }
+      }
+      if (n >= need) {
+        // canvas 顶 → wrap 顶的偏移，再加回这一行
+        spriteTopInWrap = rect.top - spriteWrap.getBoundingClientRect().top + y;
+        break;
+      }
+    }
   } catch (err) {
     console.warn('[pet] 算不出不透明掩码，退化成整块矩形:', err && err.message);
     mask = null;
+    spriteTopInWrap = null;
   }
+  syncBubbleAnchor();
+}
+
+/**
+ * 把气泡下沿锚到宠物头顶上方一点。
+ *
+ * 为什么需要：窗口是 300×380，但 rig 画布只有 300×300 一块方图（`fitCanvas` 按宽度
+ * 贴合、等比收高），**剩下 80px 是画布上方的空白**，而且 view 盒子本身在角色头顶
+ * 还留了动画余量。气泡是绝对定位、钉在窗口顶部的，于是它的下沿和宠物之间就出现
+ * 一条「说不清是哪来的」间隔 —— 而且说几句话都会让气泡高度变、间隔跟着变。
+ * 用实测到的头顶位置去摆，间隔就恒定且贴合了。
+ *
+ * 拿不到头顶（掩码读不出 / rig 没起来）就不设，退回 CSS 的默认位置。
+ */
+function syncBubbleAnchor() {
+  const wrap = spriteWrap.getBoundingClientRect();
+  if (!wrap.height) return;
+  if (spriteTopInWrap == null) {
+    bubble.style.removeProperty('--bubble-bottom');
+    return;
+  }
+
+  // ⚠️ 气泡**框**的下沿不是视觉下沿：尾巴（::before/::after）和那三个装饰点
+  //    都挂在框外、往下伸。按 CSS 的 `bottom` 摆的是**框**，所以要把这截
+  //    「外挂高度」补进气口里，否则尾巴会压在宠物头上（2026-08-10 实测到过）。
+  //    这里不改 CSS 常量，而是量真实值：读尾巴伪元素的 bottom 偏移。
+  const tailDrop = overhangBelowBubble();
+  const gap = 8;
+  let fromBottom = wrap.height - (spriteTopInWrap - gap - tailDrop);
+
+  // 别把气泡顶出窗口上沿：锚点太靠上（宠物很高 / 窗口很矮）时，气泡得整体下移。
+  // ⚠️ 预留量要按**气泡自己的高度**算，不能写死一个小数字 ——
+  //    0.7× 时窗口只有 266px 高，而气泡（固定字号）有 ~98px，
+  //    写死 46px 会让气泡顶边跑到 -19px（整个上半截在窗口外，什么都看不见）。
+  const reserve = bubble.offsetHeight + tailDrop + 6;
+  const maxFromBottom = Math.max(0, wrap.height - reserve);
+  fromBottom = Math.min(fromBottom, maxFromBottom);
+  bubble.style.setProperty('--bubble-bottom', `${fromBottom.toFixed(1)}px`);
+}
+
+/**
+ * 气泡**框外**往下伸的那一截有多高（目前就是尾巴）。
+ *
+ * 为什么要量而不是写死：尾巴尺寸在 CSS 里，改了 CSS 这里忘了跟就会压头发
+ * （2026-10-10 把尾巴从 7.5px 加到 9px 时，气泡就压到 ahoge 上了）。
+ * 取 ::before（尾巴外沿）的 `bottom` 偏移 —— 它是负数，绝对值就是探出的高度。
+ */
+function overhangBelowBubble() {
+  const cs = getComputedStyle(bubble, '::before');
+  if (cs && cs.content && cs.content !== 'none') {
+    const off = parseFloat(cs.bottom);
+    if (Number.isFinite(off) && off < 0) return Math.abs(off);
+    const bw = parseFloat(cs.borderTopWidth);
+    if (Number.isFinite(bw)) return bw;
+  }
+  return 0;
 }
 
 window.addEventListener('resize', () => requestAnimationFrame(rebuildMask));
+// 气泡内容一变高，下沿就该重新对一次头顶（气泡是「底边锚定」的）
+if (window.ResizeObserver) {
+  new ResizeObserver(() => requestAnimationFrame(syncBubbleAnchor)).observe(bubble);
+}
 
 // ---------------------------------------------------------------------------
 //  命中判断 + 穿透
@@ -164,7 +263,7 @@ function inSprite(x, y) {
     // rig 起不来时露出的是**实心**占位框，它必须照常接鼠标。
     // 早先这里直接 return false，结果是：形象一坏整块就穿透，
     // 用户连右键菜单都调不出来，只能回主界面设置 —— 而占位框上明明写着
-    // 「检查 assets/pet/cat」这类提示，却点不动，很像 bug。
+    // 「形象没加载出来」这类提示，却点不动，很像 bug。
     if (spriteEmpty.hidden) return false;
     const r = spriteEmpty.getBoundingClientRect();
     return r.width > 0 && r.height > 0
@@ -237,11 +336,55 @@ function hideDelayFor(text) {
   return Math.min(20000, Math.max(4000, 1800 + len * 130));
 }
 
+/** 两句之间的停顿（ms）。有点节奏但别拖 —— 5 句也才 2 秒内说完 */
+const LINE_GAP_MS = 460;
+
+/**
+ * 把气泡正文滚到「最后一句尽量完整可见」的位置。
+ *
+ * 背景：`scrollTop = scrollHeight` 会滚到最底，而最上面那句常常被切掉半行
+ * （行高 21px，可视高度不一定是行高的整数倍），露出半截字形，很难看。
+ *
+ * ⚠️ 但"对齐到行边界"不能无脑做 —— 如果最后一行比可视区还高（固定字号 +
+ *    窄窗口时很常见），把它对到顶边就会让**底部**超出可视区，
+ *    也就是"最新那句话没读完"，比顶部切半行严重得多。
+ *
+ * 所以规则是：
+ *   1. 先滚到底（保证最新内容一定在视野里），拿到 maxScroll；
+ *   2. 找**包含内容末尾**的那一行；
+ *   3. 只有当这一行的**顶边 >= maxScroll**（即单独把它对上顶边也不会超出）
+ *      时才吸附，否则保持滚到底。
+ * 一句话：能整齐就整齐，整齐不了就保证"最后一句读全"。
+ */
+function scrollToLastLine() {
+  const view = bubbleLines.clientHeight;
+  if (!view) return;
+
+  bubbleLines.scrollTop = bubbleLines.scrollHeight;
+  const max = bubbleLines.scrollTop;
+  if (max <= 0) return; // 没超出，不用滚
+
+  const kids = bubbleLines.children;
+  const last = kids[kids.length - 1];
+  if (!last) return;
+
+  // 最后一行整体（含它上面的分隔间距）的高度
+  const lastTop = last.offsetTop;
+  const lastBottom = lastTop + last.offsetHeight;
+  // 吸附后可视区 = [lastTop, lastTop + view)，要能装下整行才吸
+  if (lastBottom <= lastTop + view && lastTop <= max) {
+    bubbleLines.scrollTop = lastTop;
+  }
+}
+
 /**
  * 一句句往外冒（「每次说 3 句」就是三次）。
  *
  * 收起的时机按**最后一句**算：每加一句就把定时器往后推，
  * 否则「说到第二句的时候气泡自己收了」。
+ *
+ * 气泡现在有 max-height（见 pet.css 的 .bubble-lines），冒到超出的句子要跟着
+ * 往下滚一点点，否则用户只能看见前两句、以为它就说这么多。
  */
 function showLines(lines) {
   clearBubbleTimers();
@@ -263,7 +406,9 @@ function showLines(lines) {
     }
     bubbleLines.appendChild(renderLine(list[index]));
     index += 1;
-    lineTimer = setTimeout(next, 520);
+    // 新句子进到视野里（气泡还矮的时候不产生滚动，这行是空操作）
+    scrollToLastLine();
+    lineTimer = setTimeout(next, LINE_GAP_MS);
   };
   next();
 }
@@ -339,6 +484,12 @@ window.petBridge.onChunk((text) => {
   if (node) {
     node.textContent = streamBuffer;
     node.classList.add('typing');
+    // 流式的句子会一直变长 —— 跟着滚到底，否则超过气泡上限之后
+    // 用户看到的是「它说了半句就卡住了」。
+    // ⚠️ 这里**故意**用最底而不是 scrollToLastLine()：整段话就是一个在不断变长的
+    //    段落，正在写的字永远在末尾，切掉末尾等于切掉"它刚说的话"；
+    //    顶边被切掉的半行是已经读过一次的旧内容，两害相权取轻。
+    bubbleLines.scrollTop = bubbleLines.scrollHeight;
   }
 });
 

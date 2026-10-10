@@ -723,7 +723,7 @@ function registerStubs() {
       {
         id: 'pet1',
         name: '蓝自',
-        look: { kind: 'rig', source: 'assets', skin: 'cat' },
+        look: { kind: 'rig', source: 'assets', skin: 'whale' },
         visible: true,
         scale: 1,
         bounds: null,
@@ -743,7 +743,7 @@ function registerStubs() {
   };
   const petMemory = [];
   const petSpeaks = [];
-  let petPersona = '你是「蓝自」，一只住在人家桌面上的蓝白猫娘。';
+  let petPersona = '你是「蓝自」，一只住在人家桌面上的小家伙。';
 
   const petPayload = () => ({
     config: { enabled: petStore.enabled, activeId: petStore.activeId },
@@ -3458,29 +3458,42 @@ app.whenReady().then(async () => {
       }
       // 每个场景 = 打开哪个界面。只点真实按钮，不调内部函数。
       const DRIVERS = {
-        // 设置页（视图六，2026-10-09 从弹窗改的）：一列折叠卡片的整体排版
-        //（页头那颗「返回/保存」、卡片间距、限宽居中）只靠 DOM 断言看不出来。
+        // 设置页（视图六，2026-10-09 从弹窗改的、2026-10-10 改成左导航 + 右内容）：
+        // 左栏导航 + 右栏限宽居中的整体排版（页头那颗「返回/保存」、卡片间距）
+        // 只靠 DOM 断言看不出来。
         settings: `
           document.querySelector('#btn-settings')?.click();
           await new Promise(r => setTimeout(r, 700));`,
+        // 行为开关分组：主要验证「开关行卡片 + 开关靠右 + 头部统计」。
+        settingsBehavior: `
+          document.querySelector('#btn-settings')?.click();
+          await new Promise(r => setTimeout(r, 700));
+          document.querySelector('.settings-nav-item[data-target="sec-behavior"]')?.click();
+          await new Promise(r => setTimeout(r, 250));`,
+        // 语义检索分组：验证开关行卡片的另一种长说明形态。
+        settingsRag: `
+          document.querySelector('#btn-settings')?.click();
+          await new Promise(r => setTimeout(r, 700));
+          document.querySelector('.settings-nav-item[data-target="sec-rag"]')?.click();
+          await new Promise(r => setTimeout(r, 250));`,
         // 桌宠区块（设置页最下面那一段）：预览框、人格、记忆列表 ——
         // 全是排版密集的地方，「挤成一行」「按钮换行」这类问题 DOM 断言看不出来，
         // 只能靠图。顺手点一次「生成一句」，让预览框里真的有内容（空框看不出高矮）。
         petSettings: `
           document.querySelector('#btn-settings')?.click();
           await new Promise(r => setTimeout(r, 900));
-          // 设置页的区块 2026-10-09 起是折叠卡片，桌宠那块默认是收着的 ——
-          // 不先点开，截出来的就只有一张合着的卡（图就白截了）。
-          document.querySelector('#pet-section .section-head')?.click();
+          // 2026-10-10 起设置分成「左导航 + 右内容」，桌宠是最后一组 ——
+          // 不先切到它，右栏显示的还是「模型服务」（图就白截了）。
+          document.querySelector('.settings-nav-item[data-target="pet-section"]')?.click();
           await new Promise(r => setTimeout(r, 250));
           document.querySelector('#btn-pet-preview')?.click();
           await new Promise(r => setTimeout(r, 1000));
           document.querySelector('#btn-pet-memory-refresh')?.click();
           await new Promise(r => setTimeout(r, 500));
           const t = document.querySelector('#toast'); if (t) { t.classList.add('hidden'); t.textContent = ''; }
-          // 滚到「形象」那一块：下拉要真的填进选项才有得看
+          // 滚到「大小」那一块：滑块 + 紧跟其后的「空闲小动作」三个勾要一起入镜
           //（只建空目录是认不到的，所以这里顺带确认下拉里不是「（没找到任何形象）」）
-          document.querySelector('#s-pet-skin')?.scrollIntoView({ block: 'center' });
+          document.querySelector('#s-pet-scale-field')?.scrollIntoView({ block: 'start' });
           await new Promise(r => setTimeout(r, 300));`,
         // 外观弹窗：主题配色 + 明暗 + 聊天区那几样都在里面，
         // 布局（色点会不会换行、分段按钮会不会被 grid 拉满）得靠图看

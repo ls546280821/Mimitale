@@ -296,6 +296,45 @@ function everyTurnsSubmenu(pet) {
   }));
 }
 
+/**
+ * 「大小」子菜单。五档等比递增（0.7 → 2 倍），其中「标准」= 1。
+ *
+ * 用**离散档位**而不是「放大 / 缩小」两个按钮：菜单是一次性弹层，点一下就关了，
+ * 用户看不到「又变大了一点」的反馈，只能反复右键 —— 不如直接给几档让他看见目标。
+ * 想连续微调的走设置页的滑块（那条路能拖、能实时看效果）。
+ * 勾选态按 pet.scale 判，容差 0.01 —— 滑块调出 1.02 这种值时不至于一档都不高亮。
+ */
+const SCALE_STEPS = [
+  { scale: 0.7, label: '小' },
+  { scale: 1, label: '标准' },
+  { scale: 1.3, label: '大' },
+  { scale: 1.6, label: '更大' },
+  { scale: 2, label: '巨大' }
+];
+
+function scaleSubmenu(pet) {
+  const current = Number(pet.scale) || 1;
+  return SCALE_STEPS.map((step) => ({
+    label: `${step.label}（${Math.round(step.scale * 100)}%）`,
+    type: 'radio',
+    checked: Math.abs(current - step.scale) < 0.01,
+    click: () => setPetScale(step.scale)
+  }));
+}
+
+/** 改缩放：既走 patchPet（落盘），也让当前窗口立刻跟上，最后广播一次 */
+function setPetScale(scale) {
+  const config = loadPetConfig();
+  const pet = findPet(config, config.activeId);
+  if (!pet) return Promise.resolve();
+  const value = Math.max(0.4, Math.min(2, Number(scale) || 1));
+  return patchPet(pet.id, { scale: value }).then(() => {
+    // patchPet 拿到的是队列里写完的那份，再读一次确保是最终值
+    applyScale(findPet(loadPetConfig(), pet.id));
+    broadcastState();
+  });
+}
+
 function linesSubmenu(pet) {
   const options = [];
   for (let n = SPEAK_LINES_MIN; n <= SPEAK_LINES_MAX; n += 1) options.push(n);
@@ -404,6 +443,7 @@ function popupPetMenu() {
       ]
     },
     { label: '切换模型', submenu: modelSubmenu(pet, settings) },
+    { label: '大小', submenu: scaleSubmenu(pet) },
     { type: 'separator' },
     { label: '桌宠设置…', click: () => openSettingsInMain('') },
     { label: '记忆', submenu: memorySubmenu(pet) },

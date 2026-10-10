@@ -499,16 +499,13 @@ await scenario('设置页', async () => {
   check('设置是一个视图、不是弹窗', !!$('#view-settings') && !$('#settings-modal'));
   check('设置页有页头和「返回 / 保存」两颗按钮', !!$('#view-settings .page-head') && !!byId('btn-back-settings') && !!byId('btn-save-settings'));
 
-  // 大版块是**折叠卡片**（2026-10-09）。这里是整套冒烟里第一次打开设置，
-  // 所以正好验默认那一条：还没手动点过 = 只展开第一张「模型服务」。
+  // 大版块是**左导航 + 右内容**（2026-10-10）。这里是整套冒烟里第一次打开设置，
+  // 所以正好验默认那一条：默认选中第一组「模型服务」、其余组收着。
   const visible = (node) => !!node && node.offsetParent !== null;
-  check('第一张卡默认展开', byId('sec-models').classList.contains('open'));
-  check('其余卡片默认收着', !byId('sec-behavior').classList.contains('open'));
-  check(
-    '收起的卡片内容是真看不见（不是只加了个类）',
-    visible(byId('p-baseurl')) && !visible(byId('s-max-turns')),
-    `baseurl=${visible(byId('p-baseurl'))} maxturns=${visible(byId('s-max-turns'))}`
-  );
+  check('左栏有一条分组导航', !!$('#view-settings .settings-nav'));
+  check('默认选中第一组「模型服务」', byId('sec-models').classList.contains('active') || !!$('.settings-nav-item[data-target="sec-models"].active'));
+  check('第一组的内容显示着', visible(byId('sec-models')) && visible(byId('p-baseurl')));
+  check('其余组默认不显示', !visible(byId('sec-behavior')));
 
   // 打开设置**不再**把光标塞进输入框。以前服务商填过 Key 就 el.s.temp.focus()，
   // 而 <input type="number"> 一获得焦点就整段选中 —— 第一眼看到「温度 0.7」
@@ -546,57 +543,51 @@ await scenario('设置页', async () => {
 });
 
 // ---------------------------------------------------------------------------
-//  场景 3.5：设置的大版块是折叠卡片
+//  场景 3.5：设置的大版块是「左导航 + 右内容」
 //
-//  设置项越加越多，一屏铺不完。改成「一列卡片 + 点头部展开」之后要守住三件事：
-//   ① 点头部能开、也能关（且收起的卡片里内容是真不显示）；
-//   ② 折叠**不能让表单失效** —— 收着的卡片里的值照样读得到、存得住；
-//   ③ 关掉再打开，回到刚才翻到的那一页（本次运行内记住，但不写进 config.json）。
+//  设置项越加越多，一列铺下来要滚很久。改成「左栏切组、右栏只显示一组」之后
+//  要守住四件事：
+//   ① 点左栏能切组（一次只显示一组，别的组是真看不见）；
+//   ② 换组**不能让表单失效** —— 没显示的那一组里的值照样读得到、存得住；
+//   ③ 关掉再打开，回到刚才翻到的那一组（本次运行内记住，但不写进 config.json）；
+//   ④ 分组名 old 接口 expandSettingsSection(id) 仍能指定切到某一组。
 // ---------------------------------------------------------------------------
-await scenario('设置：大版块是折叠卡片', async () => {
+await scenario('设置：左导航切组', async () => {
   const visible = (node) => !!node && node.offsetParent !== null;
   const beforeTokens = String(((await window.mimitale.getSettings()).settings || {}).maxTokens ?? 8192);
 
   click('#btn-settings');
   await waitFor('设置页打开', () => shown('#view-settings'));
 
-  const modelsHead = byId('sec-models').querySelector('.section-head');
-  const paramsHead = byId('sec-params').querySelector('.section-head');
-  check('头部是一颗真按钮（键盘也点得动）', modelsHead.tagName === 'BUTTON', modelsHead.tagName);
-  check(
-    '从「头部」到底下的卡片：一条 closest 链',
-    modelsHead.closest('.panel-section.collapsible') === byId('sec-models')
-  );
+  const paramsNav = $('.settings-nav-item[data-target="sec-params"]');
+  const modelsNav = $('.settings-nav-item[data-target="sec-models"]');
+  check('左栏有「生成参数」这一项', !!paramsNav);
 
-  // 展开第二张
-  click(paramsHead);
-  check('点头部就展开', byId('sec-params').classList.contains('open') && visible(byId('s-temp')));
-  check('aria-expanded 跟着走', paramsHead.getAttribute('aria-expanded') === 'true', paramsHead.getAttribute('aria-expanded'));
+  // 切到「生成参数」
+  click(paramsNav);
+  check('点左栏就切组', byId('sec-params').classList.contains('active') || paramsNav.classList.contains('active'));
+  check('切到的这一组内容显示', visible(byId('sec-params')) && visible(byId('s-temp')));
+  check('原来那一组（模型服务）收起来', !visible(byId('p-baseurl')));
 
-  // 收起第一张
-  click(modelsHead);
-  check('再点一下收起', !byId('sec-models').classList.contains('open'));
-  check('收起的卡片里内容看不见', !visible(byId('p-baseurl')));
-
-  // 收着的卡片里的值照样存得住（折叠只是 display:none，不该让表单失效）
+  // 没显示的那一组里的值照样存得住（切组只是 display:none，不该让表单失效）
   setValue('#s-maxtokens', '2048');
   click('#btn-save-settings');
   await waitFor('设置已保存', () => !shown('#view-settings'));
   await sleep(150);
   const saved = ((await window.mimitale.getSettings()).settings || {});
-  check('收起的卡片里的值照样落盘', Number(saved.maxTokens) === 2048, String(saved.maxTokens));
+  check('没显示的那一组里的值照样落盘', Number(saved.maxTokens) === 2048, String(saved.maxTokens));
 
-  // 关掉再打开：回到刚才翻到的那一页
+  // 关掉再打开：回到刚才那一组
   click('#btn-settings');
   await waitFor('设置页再开', () => shown('#view-settings'));
   check(
-    '重开回到刚才翻到的那一页（参数开着、模型收着）',
-    byId('sec-params').classList.contains('open') && !byId('sec-models').classList.contains('open'),
-    `params=${byId('sec-params').classList.contains('open')} models=${byId('sec-models').classList.contains('open')}`
+    '重开回到刚才那一组（参数显示着、模型收着）',
+    visible(byId('sec-params')) && !visible(byId('sec-models')),
+    `params=${visible(byId('sec-params'))} models=${visible(byId('sec-models'))}`
   );
 
   // 收尾：把回复上限放回去（这个场景用了一个和初值不同的数字来证明「真存住了」）
-  if (!byId('sec-params').classList.contains('open')) click(paramsHead);
+  if (!visible(byId('sec-params'))) click(paramsNav);
   setValue('#s-maxtokens', beforeTokens);
   click('#btn-save-settings');
   await waitFor('回复上限已还原', () => !shown('#view-settings'));

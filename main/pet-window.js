@@ -52,8 +52,11 @@ let dragTimer = null;
 let dragOffset = null;
 let dragStartBounds = null;
 let moveSaveTimer = null;
-// 当前窗口尺寸对应的缩放，避免每次都重建窗口
+// 当前窗口**内容区**尺寸对应的缩放。所有尺寸判断都以它为准 ——
+// 注意它不是从 getBounds 反推的，而是我们自己维护的「应该多大」
 let currentScale = 1;
+// 拖动期间收到的新缩放，拖完再应用（拖动中改尺寸会让锚点错位）
+let pendingScale = null;
 
 function petPagePath() {
   return path.join(__dirname, '..', 'renderer', 'pet', 'pet.html');
@@ -84,6 +87,32 @@ function sizeFor(scale) {
     width: Math.round(BASE_WIDTH * s),
     height: Math.round(BASE_HEIGHT * s)
   };
+}
+
+/**
+ * 窗口**内容区**的矩形（含校验后的 x / y）。
+ *
+ * ⚠️ 一律走 getContentBounds / setContentBounds，**别用 getBounds / setBounds**。
+ *    这个窗口是 useContentSize: true，而 Windows 上「含边框尺寸 ↔ 内容尺寸」的
+ *    换算是按 **DPI 比例**做的、且会四舍五入。跨屏拖动（两块不同 DPI 的显示器）
+ *    时，一次 getBounds → setBounds 往返就可能把内容区悄悄改掉几像素；
+ *    反复往返就会**越变越大** —— 这正是「在别的电脑上按住宠物会慢慢变大」的形态。
+ *    getContentBounds 直接返回内容区尺寸，不参与那套边框换算，往返恒等。
+ */
+function contentBoundsOf(win) {
+  try {
+    return win.getContentBounds();
+  } catch (err) {
+    // 极老的 Electron 才没有这个 API；退化成 getBounds（本项目 electron ^44，正常走不到）
+    return win.getBounds();
+  }
+}
+
+/** 内容区尺寸是否是当前缩放该有的样子（允许 1px 的取整误差） */
+function sizeMatchesScale(win, scale) {
+  const want = sizeFor(scale);
+  const now = contentBoundsOf(win);
+  return Math.abs(now.width - want.width) <= 1 && Math.abs(now.height - want.height) <= 1;
 }
 
 /**
@@ -127,12 +156,53 @@ function applyScale(pet) {
   const next = Math.max(0.4, Math.min(2, Number(pet && pet.scale) || 1));
   if (Math.abs(next - currentScale) < 0.001) return;
 
-  const before = win.getBounds();
+  // 拖动 / 散步期间改尺寸会让「窗口跟着光标跑」的锚点错位（宠物会在手底下跳一下），
+  // 所以拖完再应用 —— 记下待应用的缩放，stopDrag 收尾时补上。
+  if (dragTimer) {
+    pendingScale = next;
+    return;
+  }
+  commitScale(win, next);
+}
+
+/** 真正把缩放落到窗口上（applyScale 与 stopDrag 共用） */
+function commitScale(win, next) {
+  if (!win || win.isDestroyed()) return;
+  const before = contentBoundsOf(win);
   const { width, height } = sizeFor(next);
+  // 保持右下角不动：左上角跟着尺寸差平移
   const x = before.x + (before.width - width);
   const y = before.y + (before.height - height);
   currentScale = next;
-  win.setBounds({ x, y, width, height });
+  win.setContentBounds({ x, y, width, height });
+}
+
+/**
+ * 尺寸自愈：内容区如果**不是**当前缩放该有的尺寸，就纠回来。
+ *
+ * 为什么要这一步 —— 「按住宠物会慢慢变大」「散步时越来越大」这两条，代码里
+ * 没有任何一处会去放大窗口（全仓只有 applyScale 这一个 setContentBounds）。
+ * 会变的只有**系统那边**：transparent + useContentSize 的窗口被拖动 / 跨 DPI 移动
+ * 时，Chromium 会重算一次 content 尺寸，而重算用的基准可能与我们的不一致，
+ * 于是每次移动都长一点 —— 表现正好是「慢慢变大」。
+ * 与其去猜系统那套换算，不如**每次移动后校验并纠偏**：不管它怎么改，
+ * 都按 sizeFor(currentScale) 拉回原样。这样「变大」在下一帧就被抹掉。
+ *
+ * 只在窗口可见时纠（隐藏时改了没意义，还可能和 show 时的摆位打架）。
+ */
+function ensureSize() {
+  const win = getPetWindow();
+  if (!win || !win.isVisible()) return;
+  if (sizeMatchesScale(win, currentScale)) return;
+  const now = contentBoundsOf(win);
+  const { width, height } = sizeFor(currentScale);
+  // 只纠尺寸，位置保持右下角不动（和 applyScale 一致），避免拖拽中被拽回去
+  win.setContentBounds({
+    x: now.x + (now.width - width),
+    y: now.y + (now.height - height),
+    width,
+    height
+  });
 }
 
 /** 记下当前位置（防抖）—— 拖动时 moved 会连发几十次，不能每次都写盘 */
@@ -141,7 +211,7 @@ function scheduleSaveBounds() {
   moveSaveTimer = setTimeout(() => {
     const win = getPetWindow();
     if (!win) return;
-    const bounds = win.getBounds();
+    const bounds = contentBoundsOf(win);
     const display = screen.getDisplayMatching(bounds);
     // 位置只有主进程知道，所以这里直接写配置（渲染层那份是同一份文件的读者）
     require('./pet-ipc.js').rememberBounds({
@@ -168,7 +238,7 @@ function startDrag() {
   const win = getPetWindow();
   if (!win || dragTimer) return;
 
-  const winBounds = win.getBounds();
+  const winBounds = contentBoundsOf(win);
   const cursor = screen.getCursorScreenPoint();
   dragOffset = { x: cursor.x - winBounds.x, y: cursor.y - winBounds.y };
   dragStartBounds = winBounds;
@@ -197,12 +267,21 @@ function stopDrag() {
   const win = getPetWindow();
   let moved = false;
   if (win && dragStartBounds) {
-    const now = win.getBounds();
+    const now = contentBoundsOf(win);
     moved =
       Math.abs(now.x - dragStartBounds.x) > 3 || Math.abs(now.y - dragStartBounds.y) > 3;
   }
   dragStartBounds = null;
-  if (win) scheduleSaveBounds();
+  if (win) {
+    // 拖完先纠一次尺寸（拖动期间系统可能把它改过），再应用拖动中攒下的缩放
+    ensureSize();
+    if (pendingScale !== null) {
+      const next = pendingScale;
+      pendingScale = null;
+      commitScale(win, next);
+    }
+    scheduleSaveBounds();
+  }
   return moved;
 }
 
@@ -290,7 +369,14 @@ function createPetWindow() {
     return { action: 'deny' };
   });
 
-  petWindow.on('moved', scheduleSaveBounds);
+  // 移动之后同时做两件事：
+  //   ① 防抖记位置（拖动 / 散步结束才落盘一次）
+  //   ② **纠尺寸** —— 透明窗口移动时系统可能悄悄改了内容区尺寸，
+  //      不纠的话就是「拖着拖着 / 溜达着溜达着越来越大」（见 ensureSize 注释）
+  petWindow.on('moved', () => {
+    scheduleSaveBounds();
+    ensureSize();
+  });
   petWindow.on('closed', () => {
     stopDrag();
     clearTimeout(moveSaveTimer);
@@ -304,6 +390,7 @@ function createPetWindow() {
 function destroyPetWindow() {
   stopDrag();
   clearTimeout(moveSaveTimer);
+  pendingScale = null;
   const win = getPetWindow();
   petWindow = null;
   if (win) win.destroy();
@@ -318,6 +405,9 @@ function setPetVisible(visible) {
   }
   const win = createPetWindow();
   win.showInactive(); // 别抢焦点：宠物冒出来不该打断正在打字的手
+  // 隐藏期间配置可能被改过（缩放 / 换形象），显示后按当前缩放纠一次尺寸，
+  // 否则会以「上次显示时的旧尺寸」露出来
+  ensureSize();
   return true;
 }
 
@@ -360,6 +450,10 @@ module.exports = {
   //    （只剩 pet:ready 的推送那条路，拉取那条是哑的）。
   buildPetStatePayload,
   applyScale,
+  // 让散步循环在每趟走完时也纠一次尺寸（它 setPosition 会触发 moved，但
+  // 有些平台 moved 不送，兜底手动调一次更稳）
+  ensureSize,
+  sizeFor,
   startDrag,
   stopDrag,
   scheduleSaveBounds

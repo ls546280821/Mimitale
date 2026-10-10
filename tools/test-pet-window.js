@@ -56,6 +56,23 @@ function read(rel) {
   return fs.readFileSync(path.join(ROOT, rel), 'utf8');
 }
 
+/**
+ * 去掉注释后的源码 —— 断言「代码里没有 X」时必须用它。
+ *
+ * ⚠️ 直接对着带注释的源码断言会踩两个坑，我都踩过：
+ *   1. 我说「这里**不看** enabledGestures」这句注释，本身含有 `enabledGestures`，
+ *      于是「poked 不看 enabledGestures」这条断言必然失败；
+ *   2. 我写「别做『至少留一个』的兜底」这句注释，含有「至少…一个」，
+ *      于是「没有至少留一个的兜底」这条也必然失败。
+ *   也就是说：**注释在解释「我们没做某件事」，而断言在找「有没有出现这个词」**，
+ *   两者天然打架。凡是要断言「不该出现」的，一律先剥注释。
+ */
+function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')  // 块注释
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1 '); // 行注释（避开 http:// 之类）
+}
+
 // ---------------------------------------------------------------------------
 //  小工具：从源码里静态抠东西（不执行任何模块）
 // ---------------------------------------------------------------------------
@@ -345,6 +362,165 @@ ok(
 );
 
 // ---------------------------------------------------------------------------
+section('气泡：有尾巴、长句不撑破、逐句淡入');
+
+{
+  const cssSrc = read('renderer/pet/pet.css');
+
+  // 尾巴（::before/::after 两个三角）—— 没有它气泡就是浮在头上的一张卡片，
+  // 跟宠物是「两张贴纸」，不像它在说话
+  ok(/\.bubble::before/.test(cssSrc) && /\.bubble::after/.test(cssSrc), '气泡有指向宠物的小尾巴');
+  // 尾巴画在框外，父容器一裁就没了
+  ok(/\.bubble\s*\{[^}]*overflow:\s*visible/.test(cssSrc), '气泡不裁剪（否则尾巴被切掉）');
+
+  // ---- 「可爱」这一版的具体做法（2026-10-10）----
+  // 都是**观感**上的取舍，容易被后来的人当成"随便调的"改回去，所以钉住：
+  // 圆角给足（小圆角 = 系统对话框，大圆角才软）
+  {
+    const m = cssSrc.match(/\.bubble\s*\{[^}]*border-radius:\s*(\d+)px/);
+    ok(m && Number(m[1]) >= 16, '气泡圆角 >= 16px（软，不是对话框那种小圆角）');
+  }
+  // 描边带主题蓝，不是灰的
+  ok(/--bubble-edge/.test(cssSrc), '气泡描边用带主题色的 --bubble-edge（不是纯灰）');
+  // 渐变填充，不是平涂
+  ok(
+    /\.bubble\s*\{[^}]*background:\s*linear-gradient/.test(cssSrc),
+    '气泡用上浅下深的渐变（纯平涂像系统提示框）'
+  );
+  // 冒出来有回弹（过冲的 cubic-bezier），不是直上直下
+  ok(
+    /\.bubble\s*\{[^}]*animation:\s*bubble-in[^;]*cubic-bezier\(\s*0\.34\s*,\s*1\.5/,
+    '气泡进场带回弹（cubic-bezier 过冲）'
+  );
+  // 分隔线从 dashed 改成淡渐变线 —— dashed 是系统 UI 语言，跟"可爱"相反
+  ok(
+    !/\.bubble-line\s*\+\s*\.bubble-line\s*\{[^}]*border-top:\s*1px\s+dashed/.test(cssSrc),
+    '句间分隔不再是 dashed 虚线'
+  );
+  // 动作字用主题色，别用灰（灰在宠物身上常糊成一片）
+  ok(
+    /\.bubble-line em\s*\{[^}]*color:\s*var\(--accent\)/.test(cssSrc),
+    '动作（em）用主题色，不是灰'
+  );
+  // 字体优先圆体、且必须有兜底（圆体不是 Windows 自带，没装不能变成方块/报错）
+  ok(
+    /--bubble-font-family/.test(cssSrc) && /YaHei|微软雅黑/.test(cssSrc),
+    '气泡字体优先圆体、但兜底里有雅黑（没装圆体也不能坏）'
+  );
+
+  // 长句不能把气泡撑满整个窗口、把宠物脸盖住
+  ok(
+    /\.bubble-lines\s*\{[^}]*max-height/.test(cssSrc),
+    '气泡正文有 max-height（长句在气泡里滚，不撑破）'
+  );
+  ok(
+    /\.bubble-lines\s*\{[^}]*overflow-y:\s*auto/.test(cssSrc),
+    '气泡正文能滚（有 max-height 就必须配 overflow-y）'
+  );
+
+  ok(/@keyframes line-in/.test(cssSrc), '逐句冒出来有淡入动画');
+  ok(
+    /\.bubble-line\s*\{[^}]*animation:\s*line-in/.test(cssSrc),
+    '.bubble-line 用上了 line-in'
+  );
+
+  // 冒到超出可视区时要跟着滚，否则用户以为它只说了一两句
+  ok(/bubbleLines\.scrollTop\s*=\s*bubbleLines\.scrollHeight/.test(petJs), '逐句冒出来时跟着滚到底');
+
+  // 气泡的尺寸**不跟宠物缩放**（用户 2026-10-10 提的：缩放一调小，字就小到看不见了）。
+  // 这四条是防止有人"为了比例协调"又把 --scale 乘回去 —— 乘上去在缩小档会真的把话读没。
+  ok(
+    /\.bubble-line\s*\{[^}]*font-size:\s*var\(--bubble-font\)/.test(cssSrc),
+    '气泡字号走 --bubble-font（固定基准，不乘 --scale）'
+  );
+  ok(
+    !/\.bubble-line\s*\{[^}]*font-size:[^;}]*var\(--scale\)/.test(cssSrc),
+    '气泡字号没有乘 --scale（缩到 70% 时字还得能看清）'
+  );
+  ok(
+    /\.bubble-lines\s*\{[^}]*max-height:\s*\d+vh/.test(cssSrc),
+    '气泡高度上限用 vh（跟着窗口走，不是写死像素）'
+  );
+  // 高度上限别压得太狠：0.7× 时 30vh 只有 80px≈3.8 行，"说三句"折一下就被切掉
+  // （2026-10-10 实测）。这里钉住下限，防止有人"为了不挡脸"把它调更小。
+  {
+    const m = cssSrc.match(/\.bubble-lines\s*\{[^}]*max-height:\s*(\d+)vh/);
+    ok(m && Number(m[1]) >= 35, '气泡高度上限 >= 35vh（太小会把最后一句切掉）');
+  }
+  ok(
+    !/\.bubble\s*\{[^}]*padding:[^;}]*var\(--scale\)/.test(cssSrc),
+    '气泡内边距不乘 --scale'
+  );
+  // 滚动吸附：`scrollTop = scrollHeight` 会让最上面那句切半行；但无脑吸附到
+  // 最后一行顶边，又会让**新说的那句**底部出界。两者都要防。
+  ok(/function scrollToLastLine\s*\(/.test(petJs), '有 scrollToLastLine() 处理行边界');
+  ok(
+    /scrollToLastLine\(\)/.test(petJs),
+    'showLines 走 scrollToLastLine（不是裸的 scrollTop = scrollHeight）'
+  );
+  ok(
+    /lastTop\s*<=\s*max/.test(petJs),
+    '吸附前校验「最后一行对上顶边不会超出」（否则保持滚到底）'
+  );
+  // 流式那条**故意**滚到底 —— 正在写的字在末尾，切末尾比切开头严重
+  ok(
+    /onChunk[\s\S]*?bubbleLines\.scrollTop\s*=\s*bubbleLines\.scrollHeight/.test(petJs),
+    '流式增量仍然滚到底（正在写的字不能被切）'
+  );
+
+  // 气泡**底边锚定**在宠物头顶：rig 画布是方的（fitCanvas 按宽度收高），
+  // 画布上方那片空白不属于宠物；气泡要是钉在窗口顶部，就会和它之间留一条
+  // 「不知道哪来的」间隔，而且说的话一长一短间隔还跟着变。
+  ok(
+    /\.bubble\s*\{[^}]*bottom:\s*var\(--bubble-bottom/.test(cssSrc),
+    '气泡是底边锚定（bottom: var(--bubble-bottom)）'
+  );
+  ok(
+    !/\.bubble\s*\{[^}]*top:\s*4px/.test(cssSrc),
+    '气泡不再钉死在窗口顶部'
+  );
+  ok(
+    /--bubble-bottom/.test(cssSrc) && /\.bubble\s*\{[^}]*bottom:\s*var\(--bubble-bottom,\s*\d+%/.test(cssSrc),
+    '--bubble-bottom 有 % 兜底（掩码读不出时也别跑到窗外）'
+  );
+  ok(/function syncBubbleAnchor\s*\(/.test(petJs), '有 syncBubbleAnchor() 摆气泡');
+  // ⚠️ 气泡**框**的下沿 ≠ 视觉下沿：尾巴挂在框外往下伸，
+  //    摆位置时要把这截补上，否则尾巴压在宠物头发上（2026-10-10 踩过）。
+  ok(
+    /function overhangBelowBubble\s*\(/.test(petJs),
+    '有 overhangBelowBubble() 量尾巴探出的高度'
+  );
+  ok(
+    /spriteTopInWrap\s*-\s*gap\s*-\s*tailDrop/.test(petJs),
+    '摆气泡时把尾巴的外挂高度算进气口（不然尾巴压头发）'
+  );
+  // 尾巴高度是从 CSS 量出来的，不是写死的常量 —— 改 CSS 尺寸这边自动跟上
+  ok(
+    /getComputedStyle\(bubble,\s*'::before'\)/.test(petJs),
+    '尾巴外挂高度实测（不是写死常量）'
+  );
+  // 头顶从掩码扫出来，不是写死一个数字 —— 换形象 / 缩放 / 点头都要跟上
+  ok(
+    /spriteTopInWrap/.test(petJs) && /alpha\[base \+ x\]\s*>\s*128/.test(petJs),
+    '头顶由掩码实测（实心像素行），不是写死的常数'
+  );
+  ok(
+    /spriteTopInWrap\s*==\s*null/.test(petJs) || /spriteTopInWrap\s*===?\s*null/.test(petJs),
+    '读不到头顶时退回 CSS 默认位置（不硬摆）'
+  );
+  // ⚠️ 预留量必须按气泡自身高度算：0.7× 时窗口 266px 高、气泡 ~98px，
+  //    写死一个小数字会让气泡顶边跑到窗户外面（实测到过 -19px）。
+  ok(
+    /bubble\.offsetHeight/.test(petJs),
+    '防出界按气泡自身高度预留（不是写死的常数）'
+  );
+  ok(
+    /ResizeObserver/.test(petJs),
+    '气泡变高后重新对一次头顶（ResizeObserver）'
+  );
+}
+
+// ---------------------------------------------------------------------------
 section('「形象」下拉这条链路四层都接上了');
 
 // 加形象这条链是「主进程扫盘 → IPC → preload → 设置页 → patchPet」，
@@ -385,6 +561,51 @@ section('「形象」下拉这条链路四层都接上了');
   ok(
     /look:\s*\{\s*kind:\s*'rig'/.test(petSettingsSrc),
     '切换时整块传 look（patchPet 是浅合并，只传 skin 会把 source 丢掉）'
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('缩放入口：设置页滑块 + 右键菜单「大小」');
+
+// 缩放有三处要接上：右键菜单（主进程）、设置页滑块（渲染层）、落盘（pet-store）。
+// 任何一层漏了都是「点了没反应」，所以分开断言。
+{
+  ok(/function scaleSubmenu\s*\(/.test(petIpcSrc), 'pet-ipc.js 有 scaleSubmenu()');
+  ok(/label:\s*'大小'/.test(petIpcSrc), '右键菜单里有「大小」这一项');
+  // 必须真的走 patchPet 落盘，不能只改内存里的窗口尺寸
+  ok(/patchPet\([^)]*\{\s*scale:/.test(petIpcSrc), '改缩放会 patchPet({ scale })（不然重启就丢）');
+  ok(/applyScale\(/.test(petIpcSrc), '改完立刻 applyScale，窗口当场跟着变');
+}
+{
+  const domSrc = read('renderer/js/core/dom.js');
+  ok(/scale:\s*\$\('s-pet-scale'\)/.test(domSrc), 'core/dom.js 把 #s-pet-scale 收进了 el.pet');
+
+  const htmlSrc = read('renderer/index.html');
+  ok(htmlSrc.includes('id="s-pet-scale"'), 'index.html 里有 #s-pet-scale 滑块');
+  ok(/id="s-pet-scale"[^>]*type="range"/.test(htmlSrc), '#s-pet-scale 是 range 输入');
+
+  // 拖动中只本地预览、停手才落盘 —— 不防抖的话一次拖动会发几十条 IPC
+  ok(/scaleTimer/.test(petSettingsSrc), '滑块改动有防抖（拖动中不逐条发 IPC）');
+  ok(/addEventListener\('input'/.test(petSettingsSrc), '滑块绑的是 input（拖动中就有反馈）');
+}
+
+// ---------------------------------------------------------------------------
+section('默认形象是大肥鱼，且老的 cat 配置会被迁移');
+
+// 2026-10-10 蓝白猫形象包从 assets/pet/ 移出 —— 这两条要一起成立，
+// 否则升级上来的老用户（配置里存着 'cat'）会看到一个占位框。
+{
+  const petStoreSrc = read('main/pet-store.js');
+  ok(/const DEFAULT_SKIN\s*=\s*'whale'/.test(petStoreSrc), '默认形象常量是 whale');
+  ok(/skin:\s*DEFAULT_SKIN/.test(petStoreSrc), 'defaultPet 的 look.skin 用 DEFAULT_SKIN（不是写死的名字）');
+  ok(/rawSkin === 'cat'/.test(petStoreSrc), 'normalizeLook 会把老的 cat 迁移掉');
+  ok(
+    !fs.existsSync(path.join(ROOT, 'assets', 'pet', 'cat')),
+    'assets/pet/cat 已经不在了（蓝白猫形象包已移出）'
+  );
+  ok(
+    fs.existsSync(path.join(ROOT, 'assets', 'pet', 'whale', 'model.json')),
+    'assets/pet/whale 还在（默认形象得有真资产）'
   );
 }
 
@@ -482,6 +703,170 @@ section('形象包里「靠运行时 alpha 才不显示」的部件不许出现'
       }
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+section('空闲手势：只有点头/摇头/招手，没有遗留的「鞠躬」');
+
+// 2026-10-10 用户：「好像有一个遗留的磕头动作，如果有的话就把它去掉吧」—— 确实有。
+// `bow`（鞠躬/磕头）是 idle 下四个随机手势之一，一低头整只都塌下去，
+// 在小窗口里看着像卡住，也不是这只宠物的性格。
+//
+// 这个手势散在**三处**，删干净必须三处都动（漏一处就是"代码里没了、还能做出来"）：
+//   1. cat.js 挑手势的数组    2. cat.js 的 GESTURE_DUR    3. cat-figure.js 的渲染
+{
+  const catJs = read('renderer/pet/cat.js');
+  const figJs = read('renderer/pet/cat-figure.js');
+
+  ok(!/['"]bow['"]/.test(catJs), 'cat.js 里没有 bow 这个手势了');
+  ok(!/['"]bow['"]/.test(figJs), 'cat-figure.js 里没有 bow 这个手势了');
+  // 时长表也要跟着删：漏删不报错（有 `|| 1` 兜底），只会让手势默默变成 1 秒
+  ok(
+    !/GESTURE_DUR\s*=\s*\{[^}]*\bbow\b/.test(catJs),
+    'GESTURE_DUR 里也删掉了 bow（漏删会被 `|| 1` 悄悄兜住，不报错）'
+  );
+  // 挑手势的地方不该再写死数组 —— 手势列表只在一处维护，否则两边会不同步。
+  // 2026-10-10 起挑的是 enabledGestures（= IDLE_GESTURES ∩ 用户在设置里勾的），
+  // 但「不许就地写死数组」这条口径不变：挑的那行仍然只引用一个变量。
+  ok(
+    /(IDLE_GESTURES|enabledGestures)\[Math\.floor\(Math\.random\(\)\s*\*\s*(IDLE_GESTURES|enabledGestures)\.length\)\]/.test(catJs),
+    '挑手势读的是变量（IDLE_GESTURES / enabledGestures），不是就地写死的数组'
+  );
+  ok(/const IDLE_GESTURES\s*=\s*\[/.test(catJs), 'cat.js 有 IDLE_GESTURES 常量（全集）');
+  // 剩下三个都得在，别删过头
+  {
+    const m = catJs.match(/const IDLE_GESTURES\s*=\s*\[([^\]]*)\]/);
+    const list = m ? m[1].split(',').map((s) => s.trim().replace(/['"]/g, '')).filter(Boolean) : [];
+    ok(list.length === 3, `IDLE_GESTURES 有 3 个手势（实际 ${list.length}）`);
+    for (const k of ['nod', 'shake', 'wave']) {
+      ok(list.includes(k), `IDLE_GESTURES 保留了 ${k}`);
+    }
+  }
+  // 每个手势都得有时长，否则播放速度会掉进 `|| 1` 兜底
+  {
+    const dur = catJs.match(/const GESTURE_DUR\s*=\s*\{([^}]*)\}/);
+    const keys = dur ? [...dur[1].matchAll(/(\w+)\s*:/g)].map((x) => x[1]) : [];
+    ok(keys.length === 3, `GESTURE_DUR 正好 3 项（实际 ${keys.join('/')}）`);
+  }
+  // `bowing` 那个表情是鞠躬手势的残留（全仓没人把 face 设成它），一并清掉
+  ok(!/bowing/.test(figJs), '没有 bowing 这个没人用的遗留表情');
+  // waist 这个 deformer **必须留着**（部件靠它挂在骨架上），只是不再给它状态
+  ok(
+    /waist:\s*\{\s*kind:\s*'rot'/.test(figJs),
+    'waist deformer 保留（删了部件会散架）'
+  );
+  ok(
+    !/st\.waist\s*=/.test(figJs),
+    '不再给 waist 写状态（没有状态 = 恒等变换，rig.js 的 applyChain 会跳过）'
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('「空闲小动作」开关：设置页 → 主进程 → 宠物窗口这条链路接上了');
+
+// 2026-10-10 用户：「桌宠的动作也做到设置里」。做的是「空闲小动作」三个勾
+// （点头/摇头/招手）—— 关掉的那个就再也不出现。
+//
+// 这条链路的特别之处：**手势是宠物窗口自己挑的**，配置却在主进程和设置页。
+// 所以数据要跨两个边界走一遍：
+//   设置页勾 → pet:update → pet-store 落盘 → pet:state 推给宠物窗口 → cat.js 挑手势时读
+// 任何一层断了都表现为「勾了没反应」，而且不报错。逐层断言。
+{
+  // ---- 第一层：pet-store 有字段、且缺字段 / 空数组两种情形分开处理 ----
+  const storeSrc = read('main/pet-store.js');
+  ok(/const KNOWN_GESTURES\s*=\s*\[/.test(storeSrc), 'pet-store 有 KNOWN_GESTURES 常量（全集）');
+  ok(/gestureEnabled:\s*\[\.\.\.KNOWN_GESTURES\]/.test(storeSrc), 'defaultPet 里 gestureEnabled 默认全集');
+  ok(/gestureEnabled:\s*normalizeGestureList\(/.test(storeSrc), 'normalizePet 会收 gestureEnabled');
+  ok(/function normalizeGestureList\s*\(/.test(storeSrc), '有 normalizeGestureList 归一化函数');
+  // ⚠️ 这条是整节里最要紧的：**空数组必须原样保留**。
+  //    写成 `value || [...fallback]` 或 `value.length ? value : fallback` 都会让
+  //    「三个勾全取消」在存盘/读盘时被兜回全集 —— 用户会发现设置没生效。
+  {
+    const fnSrc = storeSrc.match(/function normalizeGestureList[\s\S]*?\n\}/);
+    ok(!!fnSrc, '能抠出 normalizeGestureList 的实现');
+    if (fnSrc) {
+      const KNOWN_GESTURES = ['nod', 'shake', 'wave'];
+      const fn = new Function('KNOWN_GESTURES', fnSrc[0] + '; return normalizeGestureList;')(KNOWN_GESTURES);
+      const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      ok(eq(fn(undefined, KNOWN_GESTURES), KNOWN_GESTURES), '缺字段 → 用默认全集（升级上来的不掉功能）');
+      ok(eq(fn([], KNOWN_GESTURES), []), '空数组 → 保留成空数组（三个全取消 = 我要它安静待着）');
+      ok(eq(fn(['nod', 'wave'], KNOWN_GESTURES), ['nod', 'wave']), '正常勾选原样保留');
+      ok(eq(fn(['nod', 'bow'], KNOWN_GESTURES), ['nod']), '丢掉不认识的 id（含已删的 bow）');
+      ok(eq(fn(['nod', 'nod'], KNOWN_GESTURES), ['nod']), '去重');
+      ok(eq(fn('nod', KNOWN_GESTURES), KNOWN_GESTURES), '不是数组 → 用默认全集');
+      // 别把调用方传进来的默认值数组改掉（返回的是新数组）
+      const def = ['nod'];
+      fn(['wave'], def);
+      ok(eq(def, ['nod']), '不修改调用方传入的默认数组（返回新数组）');
+    }
+  }
+
+  // ---- 第二层：宠物页面把它转给 cat.js；cat.js 按它挑手势 ----
+  const petJs = read('renderer/pet/pet.js');
+  ok(/catRig\.setGestures\(pet\.gestureEnabled\)/.test(petJs), 'pet.js 把 pet.gestureEnabled 转给 catRig');
+  // ⚠️ 这行必须在「rig 缺失就 return」之前 —— 放后面的话，形象没加载出来时
+  //    这个设置就永远传不到渲染层（用户改了什么都没反应，而且没人会想到是这个原因）
+  {
+    const gestureLine = petJs.indexOf('catRig.setGestures');
+    const rigReturn = petJs.indexOf('if (!rigData || !rigData.model)');
+    ok(
+      gestureLine > 0 && rigReturn > 0 && gestureLine < rigReturn,
+      'setGestures 在「rig 缺失就 return」之前（否则形象缺失时设置传不下去）'
+    );
+  }
+
+  const catJs = read('renderer/pet/cat.js');
+  ok(/function setGestures\s*\(/.test(catJs), 'cat.js 有 setGestures()');
+  ok(/setGestures\s*,/.test(catJs), 'setGestures 挂进了 catRig 的导出');
+  ok(/let enabledGestures\s*=\s*\[\.\.\.IDLE_GESTURES\]/.test(catJs), 'enabledGestures 默认全集（字段缺失时不缩水）');
+  // ⚠️ 断言要落在**真的把它当条件用**上，不能只找 `enabledGestures.length` 这个词 ——
+  //    我注释里写过「空数组是合法的」这类话，光搜词的话把 `if (enabledGestures.length)`
+  //    改成 `if (true)` 都照样通过（实测过）。所以剥掉注释、要求它出现在 if 条件里。
+  {
+    const code = stripComments(catJs);
+    ok(
+      /if\s*\(\s*enabledGestures\.length\s*\)/.test(code),
+      '挑手势前先判集合非空（空集合 = 不挑，别给它兜一个回去）'
+    );
+    ok(
+      /enabledGestures\[Math\.floor\(Math\.random\(\)/.test(code),
+      '挑手势从 enabledGestures 里挑（不是直接从 IDLE_GESTURES）'
+    );
+    ok(
+      /enabledGestures\s*=\s*IDLE_GESTURES\.filter\(/.test(code),
+      'setGestures 用 IDLE_GESTURES ∩ 传入列表（不认识的名字进不来）'
+    );
+  }
+  // 点它的反应 / 说话时的点头**不受这个开关管** —— 那是交互反馈，不是空闲小动作
+  // （先剥注释：实现里那句「这里不看 enabledGestures」的说明本身含有这个词）
+  {
+    const code = stripComments(catJs);
+    const poked = code.match(/function poked\s*\(\)\s*\{[\s\S]*?\n\}/);
+    ok(!!poked, '能抠出 poked() 的实现');
+    ok(
+      poked && !/enabledGestures/.test(poked[0]),
+      'poked() 不看 enabledGestures（关掉动作 ≠ 点它也没反应）'
+    );
+  }
+
+  // ---- 第三层：设置页那三个勾存在、且改了就落盘 ----
+  const htmlSrc = read('renderer/index.html');
+  for (const id of ['s-pet-gesture-nod', 's-pet-gesture-shake', 's-pet-gesture-wave']) {
+    ok(htmlSrc.includes(`id="${id}"`), `index.html 有 #${id}`);
+  }
+  ok(/id="s-pet-gestures-field"/.test(htmlSrc), 'index.html 有 #s-pet-gestures-field 这一组');
+  const domSrc = read('renderer/js/core/dom.js');
+  for (const key of ['gestureNod', 'gestureShake', 'gestureWave']) {
+    ok(new RegExp(`${key}:\\s*\\$\\(`).test(domSrc), `core/dom.js 把 ${key} 收进了 el.pet`);
+  }
+  ok(/gestureEnabled:\s*enabled/.test(petSettingsSrc), 'petSettings.js 改动会 patchPet({ gestureEnabled })');
+  ok(/renderGestures\(\)/.test(petSettingsSrc), 'renderPetSettings 里调了 renderGestures（否则重画时勾会丢）');
+  // ⚠️ 三个勾全不勾是合法状态，别在 UI 层做「至少留一个」的兜底
+  // （剥注释再查：我写的那句「别做『至少留一个』的兜底」本身就含这个词）
+  ok(
+    !/至少[^。\n]{0,6}一个[^。\n]{0,6}(勾|选)/.test(stripComments(petSettingsSrc)),
+    '设置页没有「至少留一个」的兜底（那会让用户取消最后一个勾时看着没反应）'
+  );
 }
 
 // ---------------------------------------------------------------------------

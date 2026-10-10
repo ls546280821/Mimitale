@@ -24,7 +24,7 @@
 const { screen } = require('electron');
 
 const { loadPetConfig, findPet } = require('./pet-store.js');
-const { getPetWindow, sendToPet } = require('./pet-window.js');
+const { getPetWindow, sendToPet, ensureSize } = require('./pet-window.js');
 
 /** 等待间隔（秒）：两次散步之间 */
 const WAIT_MIN = 90;
@@ -140,6 +140,10 @@ function stopTrip(notify) {
   walkTimer = null;
   target = null;
   walkPosition = null;
+  // 一趟走完纠一次尺寸：透明窗口被连续 setPosition 之后，某些平台上系统会把
+  // 内容区尺寸算歪一点，几次下来就是用户说的「散步的时候越来越大」。
+  // moved 事件按理也会触发纠正，但那个事件不保证每次都送，这里兜一道。
+  ensureSize();
   if (notify) sendToPet('pet:walk', { walking: false });
   if (!planTimer && !paused && walkAllowed()) scheduleNextTrip();
 }

@@ -45,6 +45,12 @@ export const el = {
   btnDelProvider: $('btn-del-provider'),
   providerTabs: $('provider-tabs'),
   providerPresets: $('provider-presets'),
+  // 分组头部那颗统计小胶囊（「4 家服务商」「已开 3 / 8 项」）；
+  // 只给数得出来的几组填，空着时 CSS 的 :empty 会自己隐藏
+  statModels: $('stat-models'),
+  statBehavior: $('stat-behavior'),
+  statRag: $('stat-rag'),
+  statPet: $('stat-pet'),
   // 顶栏切换模型：按钮 + 它下面的弹层（自绘的，不是原生 select —— 见 ui/modelMenu.js）
   modelSwitch: $('model-switch'),
   modelSwitchLabel: $('model-switch-label'),
@@ -364,6 +370,14 @@ export const el = {
     skinField: $('s-pet-skin-field'),
     skin: $('s-pet-skin'),
     skinHint: $('s-pet-skin-hint'),
+    scaleField: $('s-pet-scale-field'),
+    scale: $('s-pet-scale'),
+    scaleValue: $('s-pet-scale-value'),
+    gestureField: $('s-pet-gestures-field'),
+    gestureNod: $('s-pet-gesture-nod'),
+    gestureShake: $('s-pet-gesture-shake'),
+    gestureWave: $('s-pet-gesture-wave'),
+    gestureHint: $('s-pet-gesture-hint'),
     persona: $('s-pet-persona'),
     btnPersonaReset: $('btn-pet-persona-reset'),
     preview: $('s-pet-preview'),

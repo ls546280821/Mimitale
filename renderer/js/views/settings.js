@@ -23,10 +23,12 @@
 //     那一条留在入口层，拆成两个监听器会让顺序失效。
 //
 //   · expandSettingsSection 也要导出：桌宠右键菜单的「查看记忆」是入口层接的
-//     （renderer/js/main.js），它得先把「桌宠」那张折叠卡拆开再滚过去。
+//     （renderer/js/main.js），它得先把「桌宠」那一组**切到前台**再滚过去。
 //
-//  大版块是**折叠卡片**：头部整块是一颗按钮，点一下展开 / 收起。逻辑在本文件
-//  下半段（折叠区块那一段），样式在 style.css 的 .panel-section.collapsible。
+//  2026-10-10：大版块从「一列折叠卡片」改成**左侧导航 + 右侧内容**。
+//  逻辑在本文件下半段（分组导航那一段），样式在 style.css 的 .settings-nav /
+//  .settings-shell。对外接口没变：id 还是那六个，expandSettingsSection 照用
+//  —— 只是它现在的语义从「拆开那张卡」变成了「切到那一组」。
 //
 //  内容只在「进这一屏」时刷新，不参与整体重绘，所以不向刷新总线登记
 //  （和 views/perspectiveUi.js 一样，只做事件绑定）。
@@ -136,14 +138,21 @@ export function initSettings(opts = {}) {
     if (event.target === el.personaModal) closePersonaDialog();
   });
 
-  // 折叠卡片：点头部就展开 / 收起。
-  // 监听挂在**设置这一屏**上（不是 document）—— 这一屏是页面，事件不会跑到别处去；
-  // 只有**点在头部里**才算，卡片自身的 padding 不算（展开时那一圈就在输入框边上，
-  // 顺手点一下就收起会烦死人）。
+  // 分组导航：点左栏就切到那一组。
+  // 监听挂在**设置这一屏**上（不是 document）—— 这一屏是页面，事件不会跑到别处去。
   el.viewSettings.addEventListener('click', (event) => {
-    const section = sectionOf(event.target);
-    if (!section) return;
-    setSectionOpen(section, !section.classList.contains('open'));
+    const nav = event.target.closest ? event.target.closest('.settings-nav-item') : null;
+    if (!nav) return;
+    const target = nav.getAttribute('data-target');
+    if (target) showSettingsSection(target);
+  });
+
+  // 勾选框一动就重算头部那颗统计（「已开 3 / 8 项」）。
+  // 挂 change 而不是 click —— 用键盘空格切换同样要跟着更新。
+  // 只认设置这一屏里的勾选框，别去关心别处的。
+  el.viewSettings.addEventListener('change', (event) => {
+    const target = event.target;
+    if (target && target.matches && target.matches('input[type="checkbox"]')) renderSectionStats();
   });
 }
 
@@ -153,62 +162,67 @@ export function setEditingProvider(id) {
 }
 
 // ---------------------------------------------------------------------------
-//  折叠区块：大版块 = 一张卡片，点头部展开 / 收起
+//  分组导航：大版块 = 一个分组，点左栏切到哪一组就只显示哪一组
 //
 //  为什么要有它：设置项越加越多（模型服务 / 生成参数 / 行为 / 生图 / 语义检索 /
-//  桌宠），一屏铺不完，找一项要滚半天。改成「一列卡片」之后，打开设置先看到的
-//  是一张目录，想改什么点开哪张。
+//  桌宠），一列铺下来要滚很久，还容易一扫而过找不到目标区块。改成「左导航 +
+//  右内容」之后，打开设置先看到的是一条目录，一屏就装完，跳转不用滚。
 //
-//  折叠状态**不落盘**：那只是「刚才翻到哪了」，不值得为它动 config.json。
-//  但同一次运行里离开再进来会回到原样（openSections）。
+//  当前选中的是哪一组**不落盘**：那只是「刚才翻到哪了」，不值得为它动 config.json。
+//  但同一次运行里离开再进来会回到原样（currentSectionId）。
 // ---------------------------------------------------------------------------
 
-/** 这次运行里开着哪些区块（存 section 的 id） */
-const openSections = new Set();
-/** 用户手动点过头部了吗 —— 点过之后完全按 openSections 来（包括「全关掉」） */
-let touchedFolds = false;
+/** 这次运行里选中哪一组（存 section 的 id）。默认第一组「模型服务」 */
+let currentSectionId = 'sec-models';
 
-/** 事件目标 → 它所属的可折叠区块（点的不在头部里就返回 null） */
-function sectionOf(target) {
-  const head = target && target.closest ? target.closest('.section-head') : null;
-  return head ? head.closest('.panel-section.collapsible') : null;
-}
-
-/** 展开 / 收起一个区块。remember=false 用于打开弹窗时的批量回填 */
-function setSectionOpen(section, open, remember = true) {
-  if (!section) return;
-  section.classList.toggle('open', open);
-  const head = section.querySelector(':scope > .section-head');
-  if (head) head.setAttribute('aria-expanded', open ? 'true' : 'false');
-  if (!remember || !section.id) return;
-  touchedFolds = true;
-  if (open) openSections.add(section.id);
-  else openSections.delete(section.id);
+/** 左栏导航里某个 data-target 对应的按钮 */
+function navItemFor(id) {
+  return el.viewSettings.querySelector(`.settings-nav-item[data-target="${id}"]`);
 }
 
 /**
- * 按 id 展开某个区块。
+ * 切到某一组：左栏高亮那个按钮，右栏只显示对应的那张卡，其余隐藏，内容滚回顶部。
  *
  * 给「在桌宠右键菜单里点『查看记忆』→ 直接跳进设置页」用：那条路在入口层
- * （renderer/js/main.js）触发，它拿不到这里的 openSections，只能反过来喊一声。
+ * （renderer/js/main.js）触发，它拿不到这里的 currentSectionId，只能反过来喊一声。
+ * id 不认识（null / 拼错）就什么都不做，别把界面切到「一组都不显示」。
  */
-export function expandSettingsSection(id) {
-  const section = id ? el.viewSettings.querySelector(`#${id}`) : null;
-  if (section) setSectionOpen(section, true);
+export function showSettingsSection(id) {
+  if (!id) return;
+  const section = el.viewSettings.querySelector(`#${id}`);
+  if (!section) return;
+
+  currentSectionId = id;
+
+  for (const item of el.viewSettings.querySelectorAll('.settings-nav-item')) {
+    const on = item.getAttribute('data-target') === id;
+    item.classList.toggle('active', on);
+    // aria-current 的合法值里没有「false」—— 不选中就是**没有**这个状态，
+    // 写 false 等于把无效值喂给读屏器。选中 = 'true'，未选中 = 移除。
+    if (on) item.setAttribute('aria-current', 'true');
+    else item.removeAttribute('aria-current');
+  }
+
+  for (const box of el.viewSettings.querySelectorAll('.settings-content > .panel-section')) {
+    box.classList.toggle('hidden', box.id !== id);
+  }
+
+  // 换了一组 = 换了一页内容，滚动条回到顶部（否则会保留上一组的滚动位置）
+  const content = el.viewSettings.querySelector('.settings-content');
+  if (content) content.scrollTop = 0;
 }
 
-/**
- * 切到设置页时铺一遍折叠状态。
- *
- * 还没手动点过（touchedFolds = false）就默认展开第一张「模型服务」——
- * 头一回配 Key / 换服务商的人基本都是冲它来的，全收起来会让人不知道从哪下手。
- * 点过之后一律按记下的来：没点开的就是收着的（「全关掉」也是他的选择，别自作主张）。
- */
-function syncSectionFolds() {
-  for (const section of el.viewSettings.querySelectorAll('.panel-section.collapsible')) {
-    const open = touchedFolds ? openSections.has(section.id) : section.id === 'sec-models';
-    setSectionOpen(section, open, false);
-  }
+/** 旧名保留：外部（入口层）一直按这个名字喊，语义已从「展开折叠卡」变成「切到那一组」 */
+export function expandSettingsSection(id) {
+  showSettingsSection(id);
+}
+
+/** 切到设置页时按记下的那一组铺一遍（内容是进屏时刷的，这里只管选中态 / 显隐） */
+function syncSettingsSection() {
+  showSettingsSection(currentSectionId || 'sec-models');
+  // 头部统计也一起算：这几个数字读的是**刚填好的**表单 / 服务商列表，
+  // 所以必须排在 fillSettingsForm 之后、切屏之后（见 openSettings 里的顺序）。
+  renderSectionStats();
 }
 
 // ---------------------------------------------------------------------------
@@ -604,23 +618,68 @@ function fillProviderForm() {
   el.btnDelProvider.disabled = providers().length <= 1;
 }
 
+/**
+ * 一个服务商在卡片里显示的那行状态。
+ *
+ * 挑服务商时真正要判断的就是这三件事，所以直接写进卡片，
+ * 别再塞进 title 里（触屏和键盘都读不到）。
+ */
+function providerMeta(p) {
+  if (isBridgeProvider(p)) return '本地桥接 · 免 Key';
+  const models = Array.isArray(p.models) ? p.models.filter(Boolean) : [];
+  const first = models[0] ? models[0] : '';
+  if (!p.apiKey) return first ? `${first} · 还没有填 Key` : '还没有填 API Key';
+  return first ? `${first} · 已连接` : '已连接';
+}
+
+/** 徽标里放一个字：优先取名字首字母，中文名就取第一个字 */
+function providerBadgeText(p) {
+  const name = String(p.name || '').trim();
+  if (!name) return '＋';
+  const first = name[0];
+  return /[a-zA-Z0-9]/.test(first) ? first.toUpperCase() : first;
+}
+
 function renderProviderTabs() {
   el.providerTabs.innerHTML = '';
 
   for (const p of providers()) {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = `provider-tab${p.id === editingProviderId ? ' active' : ''}`;
-    btn.textContent = p.name || '未命名';
-    btn.title = isBridgeProvider(p)
-      ? `${p.name}（本地桥接，免 Key）`
-      : p.apiKey
-        ? `${p.name}（已填 Key）`
-        : `${p.name}（还没有填 API Key）`;
-    btn.setAttribute('role', 'tab');
-    btn.setAttribute('aria-selected', p.id === editingProviderId ? 'true' : 'false');
+    const active = p.id === editingProviderId;
 
-    btn.addEventListener('click', () => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = `provider-card${active ? ' active' : ''}`;
+    card.setAttribute('role', 'radio');
+    card.setAttribute('aria-checked', active ? 'true' : 'false');
+
+    const badge = document.createElement('span');
+    badge.className = 'provider-card-badge';
+    badge.setAttribute('aria-hidden', 'true');
+    badge.textContent = providerBadgeText(p);
+
+    const body = document.createElement('span');
+    body.className = 'provider-card-body';
+
+    const name = document.createElement('span');
+    name.className = 'provider-card-name';
+    name.textContent = p.name || '未命名';
+
+    const meta = document.createElement('span');
+    meta.className = 'provider-card-meta';
+    meta.textContent = providerMeta(p);
+
+    body.appendChild(name);
+    body.appendChild(meta);
+
+    const radio = document.createElement('span');
+    radio.className = 'provider-card-radio';
+    radio.setAttribute('aria-hidden', 'true');
+
+    card.appendChild(badge);
+    card.appendChild(body);
+    card.appendChild(radio);
+
+    card.addEventListener('click', () => {
       if (p.id === editingProviderId) return;
       stashProviderForm();
       editingProviderId = p.id;
@@ -628,8 +687,37 @@ function renderProviderTabs() {
       fillProviderForm();
     });
 
-    el.providerTabs.appendChild(btn);
+    el.providerTabs.appendChild(card);
   }
+
+  renderSectionStats();
+}
+
+/**
+ * 分组头部那颗统计小胶囊。
+ *
+ * 只给「一眼能数出来」的几组填，填不出确切数字的就留空
+ * （.section-stat:empty 会自己隐藏，不会留一道空缝）。
+ * 数字的准头以「用户自己勾了几个 / 加了几家」为准，不做额外推断。
+ */
+function renderSectionStats() {
+  const set = (node, text) => {
+    if (!node) return;
+    node.textContent = text || '';
+  };
+
+  const list = providers();
+  set(el.statModels, `${list.length} 家服务商`);
+
+  const behavior = el.viewSettings.querySelectorAll('#sec-behavior input[type="checkbox"]:checked');
+  const behaviorTotal = el.viewSettings.querySelectorAll('#sec-behavior input[type="checkbox"]');
+  set(el.statBehavior, `已开 ${behavior.length} / ${behaviorTotal.length} 项`);
+
+  const ragOn = el.viewSettings.querySelector('#s-rag-enabled');
+  set(el.statRag, ragOn && ragOn.checked ? '已启用' : '未启用');
+
+  const petOn = el.viewSettings.querySelector('#s-pet-enabled');
+  set(el.statPet, petOn && petOn.checked ? '已开启' : '已关闭');
 }
 
 function renderPresets() {
@@ -827,9 +915,9 @@ export function openSettings() {
   // 先把内容填好再切屏（反了的话，切过去那一瞬间显示的是上一次的旧值）
   showView('settings');
 
-  // 折叠状态要在这一屏可见之后再铺：收起靠 CSS（display:none），
-  // 顺序反了会让「该展开的那个」先按旧状态闪一下。
-  syncSectionFolds();
+  // 分组选中态要在这一屏可见之后再铺：非当前的组靠 CSS（display:none）收起来，
+  // 顺序反了会让「该显示的那一组」先按旧状态闪一下。
+  syncSettingsSection();
 
   // 桌宠区块要现拉一次状态（它改的是另一个窗口里的东西，不能拿旧快照画）。
   // 不 await：切屏不该等一个 IPC 往返才完成，区块自己会随后填上。
@@ -839,8 +927,8 @@ export function openSettings() {
   //
   // ⚠️ **不要**去聚焦任何输入框：以前这里是「服务商填过 Key 就把光标放进温度框」，
   // 而 <input type="number"> 一获得焦点就**整段选中** —— 每次进设置，第一眼都是
-  // 「温度 0.7」被高亮成一块蓝，像是自己不小心改了什么；折叠之后那个框还可能是
-  // 收着的，更不该往里丢焦点。
+  // 「温度 0.7」被高亮成一块蓝，像是自己不小心改了什么；分组之后那个框还可能在
+  // 没选中那一组里（display:none），更不该往里丢焦点。
   if (el.btnBackSettings) el.btnBackSettings.focus();
 }
 

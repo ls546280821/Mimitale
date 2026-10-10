@@ -26,11 +26,12 @@
     <!-- 没有 title 属性：这个 div 铺满整个窗口，挂 title 会让提示在
          「宠物旁边的透明区域」也弹出来，看起来像 bug。 -->
     <div id="sprite-wrap" class="sprite-wrap">
-      <!-- rig 形象（蓝白猫）的 canvas 由 cat.js 动态挂进来；这个占位框只在
-           rig 资产缺失 / WebGL 起不来时露出来。 -->
+      <!-- rig 形象的 canvas 由 cat.js 动态挂进来；这个占位框只在
+           rig 资产缺失 / WebGL 起不来时露出来。文案里**不写具体目录** ——
+           形象是可换的（默认是 assets/pet/whale），写死一个名字会在换形象后变成假提示。 -->
       <div id="sprite-empty" class="sprite-empty" hidden>
         <div class="sprite-empty-title">形象没加载出来</div>
-        <div class="sprite-empty-hint">检查 assets/pet/cat 里的 model.json 和贴图</div>
+        <div class="sprite-empty-hint">去设置 → 桌宠 → 形象里换一个，或检查那个形象目录里的 model.json 和贴图</div>
       </div>
     </div>
   </div>

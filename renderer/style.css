@@ -1039,12 +1039,12 @@ body {
    想换别的颜色就在「外观」里自己填（填了就覆盖，不再跟随配色）。
    二档高亮：真正不能错过的（危险、转折、重要线索），加粗 + 主题色 + 一点底色。 */
 .bubble strong {
-  font-weight: 700;
+  font-weight: 500;
   color: var(--chat-bold-color, var(--accent));
 }
 
 .bubble .msg-em {
-  font-weight: 700;
+  font-weight: 500;
   color: var(--accent);
   background: var(--accent-soft);
   padding: 0 3px;
@@ -1869,55 +1869,13 @@ body {
   margin-top: 1px;
 }
 
-/* --- 可折叠的区块（设置弹窗那一列卡片） ---
-   头部整块是一颗 <button class="section-head">，点一下展开 / 收起（逻辑在
-   views/settings.js）。收起时把「除头部以外的直接孩子」隐藏 —— 内容在 HTML 里
-   保持原缩进，不用再包一层容器（见 index.html「一列可折叠的卡片」那段注释）。
-
-   只有设置弹窗里的区块带 .collapsible：「记忆 → 存档点」那种静态区块保持原样，
-   展开时这里的长相和改动前**一模一样**（同 padding、同 margin-bottom）。 */
-.panel-section.collapsible > .section-head {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-/* 收起时头部就是整张卡片：把那 14px 的下留白收掉，否则卡片底部空一块 */
-.panel-section.collapsible:not(.open) > .section-head { margin-bottom: 0; }
-
-/* 收起 = 只留头部。用「排除头部」而不是挨个点名，以后往区块里加东西不用改这里 */
-.panel-section.collapsible:not(.open) > *:not(.section-head) { display: none; }
-
-.panel-section.collapsible > .section-head:hover { background: var(--bg-side); }
-.panel-section.collapsible > .section-head:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-
-/* 标题那两行原来在 <div> 里，搬进 <button> 之后必须写明块级，否则会挤成一行 */
+/* --- 区块头部（图标 + 标题 + 一句话说明）---
+   2026-10-10：设置页改成「左导航 + 右内容」之后，头部不再是可点的折叠按钮，
+   只是一行静态说明（点它不再收起 —— 切组走左栏）。.section-title / .section-desc
+   仍要保持块级：它们原来在 <button> 里，现在回到普通容器，不写就会挤成一行。 */
 .section-heading { flex: 1 1 auto; min-width: 0; display: block; }
 .section-head .section-title,
 .section-head .section-desc { display: block; }
-
-/* 展开/收起的箭头：沿用 select 那支（--select-arrow 跟着配色走），展开时翻过来 */
-.panel-section.collapsible > .section-head::after {
-  content: '';
-  flex: 0 0 14px;
-  width: 14px;
-  height: 14px;
-  opacity: 0.65;
-  background-image: var(--select-arrow);
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 14px 14px;
-  transition: transform 0.18s;
-}
-
-.panel-section.collapsible.open > .section-head::after { transform: rotate(180deg); }
 
 /* ------------------------------ 多服务商 ------------------------------ */
 
@@ -2140,21 +2098,349 @@ body {
 
 /* ------------------------------ 设置页（视图六） ------------------------------ */
 
-/* 设置 2026-10-09 从弹窗搬成页面。它复用 .page-body 的「整块可滚 + 内边距」，
-   只改两处：
-     · 一列卡片（原来靠 .modal-body 的 flex + gap:14px 撑开的，那层现在没了）；
-     · 居中限宽 —— 不限的话输入框会横着拉满整个窗口，长文本行读起来很累
-       （弹窗时代天然只有 700px 宽）。 */
-.page-body.settings-body {
+/* 设置 2026-10-09 从弹窗搬成页面、2026-10-10 改成「左导航 + 右内容」。
+   两栏都撑满这一屏的高度：左栏是固定的一条导航（自己不滚），右栏单独滚。 */
+.settings-shell {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* 左栏：分组导航。底色比主区再深一点（--bg-side），和右栏的白卡片拉开层次；
+   右缘一条分隔线，等于把「目录」和「正文」两件事界开。 */
+.settings-nav {
   display: flex;
   flex-direction: column;
+  gap: 4px;
+  padding: 16px 12px;
+  overflow-y: auto;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-side);
+}
+
+.settings-nav-item {
+  display: flex;
   align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 0;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-nav-item:hover { background: var(--accent-wash); color: var(--text); }
+
+.settings-nav-item.active {
+  background: var(--bg-card);
+  color: var(--accent);
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-nav-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* 图标块：跟卡片的 .section-icon 同一套形状（方角 + 主色淡底），
+   只是选中时反过来（实心底 + 白图标），一眼看出当前在哪一组。 */
+.settings-nav-icon {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-nav-icon svg { width: 15px; height: 15px; }
+
+.settings-nav-item.active .settings-nav-icon {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.settings-nav-text { display: flex; flex-direction: column; min-width: 0; }
+
+.settings-nav-title { font-size: 13px; font-weight: 600; line-height: 1.4; }
+
+.settings-nav-desc {
+  font-size: 11px;
+  color: var(--text-faint);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 右栏：当前那一组的内容。复用 .page-body 的「整块可滚 + 内边距」。
+   2026-10-10：**不再居中限宽**。760px 那条是从弹窗时代带过来的（弹窗本来就窄），
+   现在右栏本身就是一页内容、卡也摘了，再缩在中间只会左边空一截。
+   内容铺满右栏，靠右栏自己的宽度兜住行长。 */
+.settings-content.page-body {
+  overflow-y: auto;
+  padding: 22px 30px 32px;
+}
+
+.settings-content.settings-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 14px;
 }
 
-.page-body.settings-body > * {
+/* 右栏里的控件卡片串成一列：卡片之间统一 10px 的竖距。
+   原来是 .check 各自带 margin-bottom: 9px + .field 各自 20px，两套间距混在一起，
+   同一屏里就会出现「有的挨得近、有的离得远」。统一交给这一段管。 */
+.settings-content > .panel-section > .check,
+.settings-content > .panel-section > .field,
+.settings-content > .panel-section > .field-grid,
+.settings-content > .panel-section > .field-stack,
+.settings-content > .panel-section > .persona-row,
+.settings-content > .panel-section > .provider-row {
+  margin-bottom: 10px;
+}
+.settings-content > .panel-section > .check:last-child,
+.settings-content > .panel-section > .field:last-child,
+.settings-content > .panel-section > .field-grid:last-child,
+.settings-content > .panel-section > .field-stack:last-child,
+.settings-content > .panel-section > .persona-row:last-child,
+.settings-content > .panel-section > .provider-row:last-child {
+  margin-bottom: 0;
+}
+
+.settings-content > .panel-section {
   width: 100%;
-  max-width: 860px;
+}
+
+/* 2026-10-10：这里**不再套卡片**（去掉 .panel-section 自带的白底 + 边框 + 圆角）。
+   一次只显示一组，右栏整块本来就是「当前这一页内容」，
+   再包一层卡片等于多套一个壳：外层卡片边界 + 内层头部两重框，看着啰嗦。
+   只留分组头部（图标 + 标题 + 一句话），其余交给留白。
+   ⚠️ 只改这一屏里的（.settings-content >），基础 .panel-section 别动 ——
+      「记忆 → 存档点」那种静态区块还在用它。 */
+.settings-content > .panel-section {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* 没有卡片壳之后，分组头部就代表「右边这一页」——把它做成一条页内标题：
+   稍大一档的字 + 底下一道通栏分隔线，和下面内容拉开。
+   （只在设置这一屏生效，基础 .section-head 不动。） */
+.settings-content > .panel-section > .section-head {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-content > .panel-section > .section-head .section-title { font-size: 15px; }
+.settings-content > .panel-section > .section-head .section-desc { font-size: 12px; }
+
+/* 一次只显示当前那一组（切换逻辑在 views/settings.js 的 showSettingsSection） */
+.settings-content > .panel-section.hidden { display: none; }
+
+/* 数字框**不要铺满**：温度 / 轮数 / 递归深度这类只装两三位数的输入框，
+   在铺满右栏之后会被拉到 700+px 宽，看着头轻脚重还占地方。
+   收到一个固定小宽（220px 够输五位数），说明文字照旧占满整行 ——
+   视觉上「框跟着内容走、说明跟着版心走」，正是设置面板该有的样子。
+   ⚠️ 只限设置这一屏：别的界面（角色属性的范围 min/max）有自己的一套。 */
+.settings-content input[type="number"] { max-width: 220px; }
+
+/* ------------------------------ 设置页 · 卡片化控件 ------------------------------ */
+
+/* 2026-10-10 按设计稿把右栏的**控件**做成卡片（左栏和分组头部保持不变）。
+   口径和设计稿一致：一张卡片 = 一个可操作的单位，卡片之间留 10px。
+   为什么是「控件卡片化」而不是「整组套一张大卡」——
+   后者会让一屏里出现「大卡套小卡」的两层壳，反而不如让每个可点 /
+   可填的东西自己是一张卡来得清楚（这也是设计稿里选这条路的原因）。 */
+
+/* 表单字段卡片：标签 + 控件 + 说明三行，白底、圆角 12。
+   .field 原本是 152px 标签列的网格（那是「表单」的排法，适合密集录入），
+   这里改成「标签在上、控件铺满」——铺满右栏之后，152px 的标签列
+   会把输入框挤到右边一大半，而卡片本身已经把它框住了，不需要再靠列对齐。 */
+.settings-content > .panel-section > .field,
+.settings-content > .panel-section > .field-grid > .field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+/* 卡片里的标签不用再顶那 11px 的留白（不同输入框对齐用的） */
+.settings-content > .panel-section > .field > .field-label,
+.settings-content > .panel-section > .field-grid > .field > .field-label {
+  padding-top: 0;
+  font-weight: 600;
+}
+
+/* 说明文字也从「右侧那一列」回到整行 —— 卡片里只有一列 */
+.settings-content > .panel-section > .field > .field-help,
+.settings-content > .panel-section > .field-grid > .field > .field-help {
+  grid-column: auto;
+}
+
+/* 卡片里的输入控件不再自带边框（外层卡片就是它的框），
+   只留一条底部细线当「可输入」的暗示，聚焦时整张卡片亮起来。
+   ⚠️ 下面几条要压过 style.css 上半段的全局输入框规则，所以写得具体一些。 */
+.settings-content > .panel-section .field > input[type="text"],
+.settings-content > .panel-section .field > input[type="password"],
+.settings-content > .panel-section .field > input[type="number"],
+.settings-content > .panel-section .field > textarea,
+.settings-content > .panel-section .field > select {
+  border-radius: 10px;
+  background: var(--bg-side);
+  border: 1px solid transparent;
+}
+
+.settings-content > .panel-section .field > input[type="text"]:focus,
+.settings-content > .panel-section .field > input[type="password"]:focus,
+.settings-content > .panel-section .field > input[type="number"]:focus,
+.settings-content > .panel-section .field > textarea:focus,
+.settings-content > .panel-section .field > select:focus {
+  background: var(--bg-card);
+  border-color: var(--accent-border);
+}
+
+/* 「标签 + 右侧按钮」那一行（拉取可用模型 / 生成一句 / 刷新…）：
+   放进卡片后要跟标签同一行，filed-row 本来就是干这个的，这里只补一点底距。 */
+.settings-content > .panel-section .field > .field-row { margin-bottom: 2px; }
+
+/* 服务商卡片：设计稿里把一排胶囊标签换成了「带徽标 + 状态 + 选中圈」的卡片。
+   为什么换：胶囊上只塞得下一个名字，而用户挑服务商时真正要判断的是
+   「这家填没填 Key / 是不是本地桥接 / 现在选的是哪家」——
+   这些信息在胶囊里没地方放，只能靠 title 悬停，触屏和键盘都用不上。 */
+.provider-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.provider-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.provider-card:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-side);
+}
+
+/* 选中态：描边 + 一颗实心圆点。不整张染粉 —— 和开关行同一个理由，
+   同一屏里只能有一个东西用「整块变色」表示选中。 */
+.provider-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+.provider-card-badge {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.provider-card-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
+
+.provider-card-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-card-meta {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 选中圈：和开关同一套「圆 + 实心点」的语言 */
+.provider-card-radio {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border-hover);
+  background: transparent;
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+
+.provider-card.active .provider-card-radio {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 4px var(--bg-card);
+}
+
+/* 「添加服务商」那一行：按钮 + 展开的预设，摆在卡片网格下面 */
+.provider-add { display: flex; gap: 8px; margin-bottom: 10px; }
+
+/* 分组头部补一句统计（设计稿里是「已连接 4 家」这种），交给 JS 填。
+   空着的时候不占位 —— :empty 一挡，没有统计的分组不会多出一道空隙。 */
+.section-stat {
+  flex: 0 0 auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.section-stat:empty { display: none; }
+
+/* 窄窗口（比如把窗口拖得很小）：导航收成一条不占地方的横排。
+   不做成汉堡菜单 —— 六个分组横着排得下，何必再多一层开合。 */
+@media (max-width: 720px) {
+  .settings-shell { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .settings-nav {
+    flex-direction: row;
+    gap: 6px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-nav-item { width: auto; flex: 0 0 auto; }
+  .settings-nav-desc { display: none; }
 }
 
 .page-empty { padding: 60px 20px; text-align: center; }
@@ -3567,15 +3853,20 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 
 /* ------------------------------ 勾选项 ------------------------------ */
 
-/* 勾选项：整行是一张可点的小卡片，左边是一个开关 */
+/* 勾选项：整行是一张可点的小卡片。
+   2026-10-10：从「开关在左、文字在右」翻成「文字在左、开关在右」——
+   设置项一多，左边一列开关会把文字挤成锯齿，眼睛得来回找标题；
+   开关靠右之后每个标题都从同一条竖线起排，扫一眼就知道哪几项开着。
+   排版也回到常规字号（标题 13 / 说明 11.5→12），不再为了塞下开关而缩小。 */
 .check {
   display: flex;
-  align-items: flex-start;
-  gap: 13px;
-  padding: 12px 14px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
   margin-bottom: 9px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--bg-card);
   font-size: 13px;
   line-height: 1.55;
@@ -3587,20 +3878,26 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   border-color: var(--border-hover);
   background: var(--bg-side);
 }
+/* 开着的那行**不再整行染粉**：一行一行都染，扫下来反而看不出谁开谁关，
+   而且和「激活的服务商卡」抢同一个视觉信号。留边框 + 标题变色就够了。 */
 .check:has(input:checked) {
   border-color: var(--accent-border);
-  background: var(--accent-soft);
+  background: var(--bg-card);
 }
 
-/* 用开关代替系统勾选框 */
+/* 用开关代替系统勾选框。
+   order 把它排到文字块后面 —— HTML 里它仍写在文字之前（读屏器的顺序是
+   「开关，然后它的说明」，那是对的），视觉上用 flex 顺序翻过来就行，
+   不用为纯视觉去改 DOM 结构。 */
 .check > input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
   position: relative;
+  order: 2;
   flex: 0 0 auto;
-  width: 38px;
+  width: 40px;
   height: 22px;
-  margin: 2px 0 0;
+  margin: 0;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--toggle-track);
@@ -3622,15 +3919,25 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 }
 
 .check > input[type="checkbox"]:checked { background: var(--accent); border-color: var(--accent); }
-.check > input[type="checkbox"]:checked::after { transform: translateX(16px); background: #fff; }
+/* 40 宽的轨道 - 左右各 2 - 滑块 16 - 1 的边框误差 = 18，刚好顶到右端 */
+.check > input[type="checkbox"]:checked::after { transform: translateX(18px); background: #fff; }
 .check > input[type="checkbox"]:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
-/* 勾选项的两行文字：小标题 + 说明 */
-.check-text { display: flex; flex-direction: column; min-width: 0; }
-.check-title { font-size: 13px; color: var(--text-dim); line-height: 1.5; transition: color 0.15s; }
+/* 勾选项的两行文字：小标题 + 说明。
+   开关挪到右边之后，文字块自己吃掉剩余宽度（flex:1），说明才不会被压成挤牙膏。 */
+.check-text { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; gap: 3px; }
+.check-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  line-height: 1.5;
+  transition: color 0.15s;
+}
 .check:hover .check-title,
 .check:has(input:checked) .check-title { color: var(--text); }
-.check-desc { font-size: 11.5px; color: var(--text-faint); line-height: 1.5; }
+.check-desc { font-size: 12px; color: var(--text-faint); line-height: 1.55; }
+/* 说明里的 <b> 是重点（「每续一次会多花一次钱」这种），别让它跟正文一样淡 */
+.check-desc b { color: var(--text-dim); font-weight: 600; }
 
 /* ------------------------------ 提示条 ------------------------------ */
 
@@ -4735,8 +5042,13 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 /* 滑块。Chromium 默认那条「还没选到」的轨道，浅色下接近纯黑、夜间又偏亮，
    和这个面板的配色完全对不上（用户反馈「偏黑」就是这个）。
    所以轨道自己画：已选部分用主题色，未选部分用和开关同一条轨道色，
-   比例靠 --range-fill 这个变量跟着值走（JS 里更新）。 */
-.appearance-row input[type="range"] {
+   比例靠 --range-fill 这个变量跟着值走（JS 里更新）。
+
+   选择器覆盖两处：外观设置那行（.appearance-row）和设置页里普通的 .field
+   （桌宠「大小」那种，没有 .appearance-row 包着）—— 别让同一个软件里的
+   滑块长得不一样。 */
+.appearance-row input[type="range"],
+.field input[type="range"] {
   flex: 1 1 auto;
   min-width: 0;
   height: 18px;
@@ -4747,7 +5059,8 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   cursor: pointer;
 }
 
-.appearance-row input[type="range"]::-webkit-slider-runnable-track {
+.appearance-row input[type="range"]::-webkit-slider-runnable-track,
+.field input[type="range"]::-webkit-slider-runnable-track {
   height: 6px;
   border-radius: 999px;
   background: linear-gradient(
@@ -4757,7 +5070,8 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   );
 }
 
-.appearance-row input[type="range"]::-webkit-slider-thumb {
+.appearance-row input[type="range"]::-webkit-slider-thumb,
+.field input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 16px;
@@ -4771,7 +5085,8 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   box-shadow: 0 1px 3px rgba(23, 37, 66, 0.25);
 }
 
-.appearance-row input[type="range"]:focus-visible {
+.appearance-row input[type="range"]:focus-visible,
+.field input[type="range"]:focus-visible {
   outline: none;
   border-radius: 999px;
   box-shadow: var(--focus-ring);
@@ -4783,6 +5098,15 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   text-align: right;
   font-size: 12px;
   color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 「大小」那个百分比标签：跟在 label 文字后面，小而弱 */
+.field-badge {
+  margin-left: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
 
@@ -5602,6 +5926,77 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* 「空闲小动作」那三个勾：三个紧凑的小卡片横排。
+   ⚠️ 不能直接用 .check —— 那是整行卡片（label 撑满、开关甩到最右），
+      三个叠起来会占掉三行、像三个并列的开关。这里改成「勾选框 + 文字」挨在一起
+      的小块，横排放得下，也不跟上面那组开关抢视觉。 */
+.pet-gesture-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.check.check-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  padding: 7px 13px;
+  margin-bottom: 0;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+/* 这里用**原生勾选框**的样子（不是上面那把开关）—— 开关是「一行一个」的用法，
+   三个并排会变成三根小棍子，反而看不清哪个勾了。勾选框在选中时有填色，
+   扫一眼就知道。
+
+   ⚠️ 勾选框是 `position: relative` 的——`::after` 那根勾要绝对定位到框里，
+      没有定位祖先的话它会跑到最近的定位祖先（也就是整张卡片）上去。
+      上面那把开关用的是 `position: relative`（见 `.check > input[type=checkbox]`），
+      这里覆盖成 static 就把它废了。 */
+.check.check-inline > input[type="checkbox"] {
+  order: 0;
+  flex: 0 0 auto;
+  position: relative;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  background: var(--bg-input);
+  border: 1.5px solid var(--border);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+/* 勾：用 ::after 画一条折线（旋转 45° 的 L 形）。
+   未选中时 scale(0) 藏起来 —— 不用 display 切换，那样没有过渡动画。 */
+.check.check-inline > input[type="checkbox"]::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 4px;
+  width: 3.5px;
+  height: 6.5px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  transform: rotate(45deg) scale(0);
+  transition: transform 0.14s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.check.check-inline > input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.check.check-inline > input[type="checkbox"]:checked::after {
+  transform: rotate(45deg) scale(1);
+}
+
+.check.check-inline .check-title { font-size: 13px; font-weight: 500; }
 
 /* 配置读不出来（比如刚删了文件）时的兜底外观：别让一个空区块看着像坏了 */
 .pet-missing .field,

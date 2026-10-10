@@ -1,7 +1,11 @@
 'use strict';
 
 // ============================================================================
-//  renderer/pet/cat-figure.js —— 蓝白猫（蓝自）的动画状态机
+//  renderer/pet/cat-figure.js —— rig 形象的动画状态机
+//
+//  ⚠️ 文件名里的 cat 是**历史遗留**：最初为内置蓝白猫写，2026-10-10 蓝白猫形象包
+//     移出之后照样渲染大肥鱼（assets/pet/whale）等任何 rig 形象包。
+//     「换形象」走的是 assets/pet/<名字>/ 目录，不是改这里的代码。
 //
 //  从 Coopanion 形象包 figure.js（改编自 Pal-AI-Lab 大肥鲸 whale/figure.js，
 //  AGPL-3.0）移植到 Mimitale 的宠物窗口。骨架算法照搬（弹簧、铰链步态、
@@ -105,7 +109,10 @@ export function createCatFigure(opts = {}) {
   const deformers = {
     body: { kind: 'rot', pivot: PV.body },
     skirt: { kind: 'warp', parent: 'body', rect: rectOf('skirt') },
-    // 上身（衣身、领、双臂、头）鞠躬时绕腰转，裙和腿不动
+    // 上身（衣身、领、双臂、头）绕腰转，裙和腿不动。
+    // ⚠️ 这个 deformer 保留着（部件是靠它挂在骨架上的，删了会散架），
+    //    但**不再给它状态** —— 以前「鞠躬」手势会驱动它，那个手势 2026-10-10 去掉了。
+    //    rig.js 的 applyChain 对「没有状态的 deformer」直接 continue，等于恒等变换。
     waist: { kind: 'rot', parent: 'body', pivot: PV.waist },
     // 手臂用**绕肩铰链（warp + hinge）**，不能再用 rot：
     // 袖子已经从「上衣层」切出来并进手臂（见 step2_import.py 的 cut_sleeves），
@@ -187,14 +194,19 @@ export function createCatFigure(opts = {}) {
   }
 
   /**
-   * 画布尺寸：容器内**双向 contain**（窗口 300×380 ≈ 0.79 vs VIEW 188:288 ≈ 0.65，
-   * 按宽 fit 会竖向溢出 —— 必须取 min），再乘 DPR × 1.25 超采样（沿原版）。
-   * 每 20 帧查一次 + 变化小于 8% 不动，避免拖拽缩放时反复重建 GL 尺寸。
+   * 贴地余量：view 底到**脚底基准线**之间留的那几格。
    *
-   * 贴地：VIEW 底部留了 FEET_PAD 单位的余量（尾巴 / 跳跃），猫脚（y=256）在
-   * view 底之上 —— 用负 margin 把这段余量沉到窗口底以下，脚底刚好踩在窗口边上。
+   * ⚠️ 别写死。打包时脚底被钉在 rig y = 256（见 pack_cat.py 的 V()：`y = FEET`
+   *    时 V = 256），而 **`view[3]` 每个形象包不一样** —— 猫是 276（余量 20）、
+   *    大肥鱼是 272（余量 16）。早先这里硬编码 20，于是大肥鱼比猫多沉 4 个 rig
+   *    单位，脚底被推到窗口外 —— 表现是「大肥鱼的脚被窗口截掉了一点」。
+   *    改成按 model 推：脚底 rig y 直接由 `V(FEET)` 算（不假设 256 这个常量，
+   *    万一以后换个打包基准也自动跟上）。
    */
-  const FEET_PAD = 20; // view 底（276）到脚底（256）
+  const FEET_Y = V(FEET);
+  // 兜底：view 底理论上一定在脚底之上（余量 > 0），真要是数据坏了也别让脚飘起来
+  const FEET_PAD = Math.max(0, VIEW[3] - FEET_Y);
+
   function fitCanvas() {
     if (!container || !sizer) return;
     const rect = container.getBoundingClientRect();
@@ -241,7 +253,7 @@ export function createCatFigure(opts = {}) {
     sleepy: [-.7, 0], sleep: [-.9, 0], dizzy: [-.3, 0], dragged: [.6, .6], content: [-.2, .25], listening: [.6, .2],
     thinking: [.1, .15], run: [.2, .4], waking: [-.4, 0], squeeze: [-.3, 0], neutral: [0, .25],
     smug: [.5, .6], pout: [.3, 0], worried: [-.3, .1], determined: [.9, .3], flustered: [.4, .8], scared: [-1, 0],
-    excited: [1, 1], cry: [-1, 0], confused: [.2, .1], bowing: [-.2, .2],
+    excited: [1, 1], cry: [-1, 0], confused: [.2, .1],
   };
   // 头跟着表情：歪头（度，向前 +）和低头（angleY，向下 +）
   const HEAD_TILT = { shy: 7, thinking: -8, smug: -6, pout: -4, confused: -7, worried: 3, cry: 4 };
@@ -295,22 +307,21 @@ export function createCatFigure(opts = {}) {
     const [gT, gL] = GROUP[mode] || [0, 0];
     const bend = (o.tilt ?? 0) * (1 - wTilt) + (o.lean ?? 0) * Math.sign(o.facing || 1) * (1 - wLean);
     wTilt = lerp(wTilt, gT, ease(10, dt)); wLean = lerp(wLean, gL, ease(10, dt));
-    // 短手势由她自己画：点头低头两下、摇头左右转、招手、鞠躬
+    // 短手势由她自己画：点头低头两下、摇头左右转、招手
     const g = o.gesture, gk = g ? g.k : 0;
     const env = (a, b) => smooth(0, a, gk) * (1 - smooth(b, 1, gk));
     const nod = g?.kind === 'nod' ? Math.sin(gk * Math.PI * 2) ** 2 * (1 - .3 * gk) : 0;
     const shake = g?.kind === 'shake' ? Math.sin(gk * Math.PI * 6) * smooth(0, .12, gk) * (1 - gk) : 0;
     const wave = g?.kind === 'wave' ? env(.15, .8) : 0;      // 一只手举到头侧挥
-    const bow = g?.kind === 'bow' ? env(.25, .7) : 0;        // 上身绕腰前倾
     const shiver = g?.kind === 'shiver' ? env(.08, .85) : 0; // 抱紧发抖、耳朵压下
     const flap = g?.kind === 'flap' ? env(.05, .75) : 0;     // 耳、尾、呆毛、双臂一起扑腾
-    const gNeck = nod * 7 + shake * 2.5 + bow * 10 + wave * 4, gYaw = shake * 1.1;
+    const gNeck = nod * 7 + shake * 2.5 + wave * 4, gYaw = shake * 1.1;
     const headA = headTilt + gNeck;
     const tiltVel = (headA - prevTilt) / Math.max(dt, 1e-3); prevTilt = headA;
     const yawVel = (gYaw - prevYaw) / Math.max(dt, 1e-3); prevYaw = gYaw;
     const angleX = clamp(clamp(o.look[0] / 5, -1, 1) * .9 + gYaw, -1.4, 1.4);
     // angleY + 低头（脸整体下移、头顶露出更多），往下看、睡觉、难过、大哭都是正
-    const angleY = clamp(clamp(o.look[1] / 4, -1, 1) * .7 + (mode === 'sleep' ? .8 : 0) + (HEAD_PITCH[face] || 0) + nod * .9 + bow * .5, -1.4, 1.4);
+    const angleY = clamp(clamp(o.look[1] / 4, -1, 1) * .7 + (mode === 'sleep' ? .8 : 0) + (HEAD_PITCH[face] || 0) + nod * .9, -1.4, 1.4);
 
     /* 弹簧 */
     const sway = clamp(o.swing / 26, -1.6, 1.6);
@@ -357,7 +368,6 @@ export function createCatFigure(opts = {}) {
     /* 变形器状态 */
     // 坐姿近似（没有坐姿贴图）：身体压低 + 裙摆摊开 + 腿大角度前伸，视觉上是「猫坐」
     st.body = { a: -sway * 1.2 + (held ? o.swing * .15 : 0), ty: low - 9.6 * sitK, sx: 1 + .006 * breath, sy: 1 - .012 * breath };
-    st.waist = { a: bow * 20 };
     st.skirt = {
       fn: (u, v) => {
         const k = v * v;
@@ -453,8 +463,8 @@ export function createCatFigure(opts = {}) {
     draw,
     setFacing,
     groupTilt,
-    /** 她自己画的短手势：点头、摇头、招手、鞠躬 */
-    gestures: ['nod', 'shake', 'wave', 'bow'],
+    /** 她自己画的短手势：点头、摇头、招手 */
+    gestures: ['nod', 'shake', 'wave'],
     /** 忘掉运动状态（弹簧、时钟），给从头重放时间线的调用方 */
     reset() {
       for (const k in sp) { sp[k].x = 0; sp[k].v = 0; }
