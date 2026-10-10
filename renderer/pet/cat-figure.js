@@ -235,13 +235,35 @@ export function createCatFigure(opts = {}) {
     canvas.height = Math.max(16, Math.round(cssH * k));
   }
 
+  /* =========================================================================
+     🎚️ 尾巴手感调节区 —— 觉得「不怎么摇 / 摇太凶」就改下面这几个数
+     -------------------------------------------------------------------------
+     观感由 **四处** 共同决定，改完直接重启（桌宠窗口会跟着刷新）看效果：
+       ① TAIL_FREQ / TAIL_FREQ_K  —— 快慢（正弦频率，单位 rad/s，÷2π 才是 Hz）
+       ② TAIL_SWING               —— 摆幅（尖端的角度幅度，单位「度」）
+       ③ TAIL_DAMP                —— 阻尼（会不会过冲回弹 = 果冻感）
+       ④ TAIL_BEND_K              —— 放大系数（角度 → 尾尖位移，u² 曲线）
+
+     ⚠️ 只调 ① 效果很弱：上一轮只降频率调了三轮都没治好。真正明显的是 ② 和 ④
+        （② 是摆幅本身，④ 又把它放大一遍，两个是相乘的）。
+
+     当前这套（2026-10-10 定）：站着时尾尖约 ±5°，说笑时约 ±10°，频率上限 0.45Hz。
+     ⚠️ 说笑时是 wagAmp≈1 —— 也就是「它开心的时候」才摇得最明显，中性站姿本来就只
+        是轻轻呼吸式微摆。**测试时点它一下 / 看它说完话那一瞬**，别盯着静止的站着看。
+     ========================================================================= */
+  const TAIL_FREQ = 1.8;   // 基础频率 rad/s。→ 2.6 更活泼 / 1.4 更慵懒
+  const TAIL_FREQ_K = 1.0; // 心情好时额外加的频率（乘 wagAmp）。→ 1.8 摇得更欢
+  const TAIL_SWING = 10;   // 摆幅（度）。→ 15 摇得很明显 / 5 很含蓄
+  const TAIL_DAMP = 12;    // 弹簧阻尼。⚠️ 别低于 8：
+                           //   k=40 时 ζ = c/(2√40) —— c=12 → ζ≈0.95（几乎不过冲，推荐）
+                           //   c=5 → ζ≈0.40（欠阻尼，任何输入都过冲 25% 再回弹 = 果冻感）
+  const TAIL_BEND_K = .5;  // warp 放大系数。→ 0.7 尾尖摆得更开 / 0.3 更收敛
+
   /* ---------- 每帧状态 ---------- */
   const sp = {
     hairY: spring(50, 8, 1.2), bangs: spring(110, 10, 1.6),
-    // ⚠️ tail 的阻尼别调回 5：k=40/c=5 是 ζ≈0.4 的欠阻尼，走路 sway 一来尾巴就
-    //    过冲回弹好几下（果冻感 = 用户说的「抖」）。c=12 时 ζ≈0.95，几乎不过冲，
-    //    只剩跟随 —— 尾巴该是「毛绒绒地摆」，不是「弹簧片」。
-    skirt: spring(100, 9, 1.6), skirtY: spring(90, 10, 1.1), tail: spring(40, 12, 32),
+    skirt: spring(100, 9, 1.6), skirtY: spring(90, 10, 1.1),
+    tail: spring(40, TAIL_DAMP, 32),   // ← 尾巴弹簧：k=40 固定，阻尼用 TAIL_DAMP
     ears: spring(90, 9, 30), ahoge: spring(140, 6, 38), head: spring(70, 10, 16),
     armN: spring(60, 9, 125), armF: spring(60, 9, 95),
   };
@@ -354,14 +376,14 @@ export function createCatFigure(opts = {}) {
     const ears = sp.ears.step(earMood * 14 + sway * 10, dt) + (face === 'angry' ? 2.5 * Math.sin(t * 40) : 0) + flap * 13 * Math.sin(t * 26);
     const ahoge = sp.ahoge.step(-tiltVel * .12 - yawVel * .5 + sway * 18 + (face === 'surprised' ? -16 : 0) + (face === 'confused' ? 20 : 0) + (mode === 'sleep' ? 22 : 0) - hairY * 12, dt)
       + flap * 12 * Math.sin(t * 19);
-    // ⚠️ 尾巴要的是「慢慢摇」，不是「抖」。这条公式改过两轮了，把口径先钉死：
-    //    sin() 里的数是 **rad/s**（除以 2π 才是 Hz），别再当成 Hz 写进注释吓自己。
-    //    第一轮 4+5*wagAmp（最大 1.43Hz）嫌快；改成 3.2+2.3（0.88Hz）**还是嫌快** ——
-    //    因为「快」的观感不只是正弦频率：spring(40,5) 欠阻尼（ζ≈0.4）每一笔输入都
-    //    过冲回弹，tailBend 的 warp 又按 u² 把角度放大到尾尖 —— 小角度高频过冲
-    //    到了尾尖就是「抖」。所以本轮三管齐下：正弦放慢到 0.45Hz 上限、幅度 11→7、
-    //    尾巴弹簧的阻尼加重（见 sp.tail 那行）。别只调其中一处就验收。
-    const tail = sp.tail.step(sway * 14 + tailMood * 12, dt) + wagAmp * 7 * Math.sin(t * (1.8 + 1.0 * wagAmp)) + Math.sin(t * 1.1) * 2.5
+    // 尾巴三项之和（手感参数见文件上方的「🎚️ 尾巴手感调节区」）：
+    //   ① 弹簧跟随（走路 sway + 情绪 tailMood）—— 幅度大、但被阻尼按住不过冲
+    //   ② 心情好时自己摇的正弦 —— 这就是「摇尾巴」，wagAmp 越大越快越欢
+    //   ③ 一点点常驻微摆（Math.sin(t*1.1)*2.5）—— 让它看起来是活的，不摇的时候也在呼吸
+    // ⚠️ sin() 里的数是 **rad/s**（÷2π 才是 Hz），别再当成 Hz 写进注释吓自己。
+    const tail = sp.tail.step(sway * 14 + tailMood * 12, dt)
+      + wagAmp * TAIL_SWING * Math.sin(t * (TAIL_FREQ + TAIL_FREQ_K * wagAmp))
+      + Math.sin(t * 1.1) * 2.5
       + flap * 14 * Math.sin(t * 17);
 
     /* 腿：kit 给的是髋->脚线段（按 Coo 的尺寸），取角度（脚在髋右前方为正） */
@@ -402,8 +424,8 @@ export function createCatFigure(opts = {}) {
     st.armFar = { fn: hinge(PV.armFar, armF, 0, 16) };
     st.legBack = { fn: hinge(PV.legBack, lerp(legA[0], -55, sitK), -lift[0] * .9 * (1 - sitK)) };
     st.legFront = { fn: hinge(PV.legFront, lerp(legA[1], -60, sitK), -lift[1] * .9 * (1 - sitK)) };
-    st.tail = { a: tail - 10 * sitK };
-    st.tailBend = { fn: u => [0, -tail * .5 * u * u] };
+    st.tail = { a: tail - 10 * sitK };                    // 尾巴根整体转向（含坐下时压一点）
+    st.tailBend = { fn: u => [0, -tail * TAIL_BEND_K * u * u] };  // 从根到尾尖的弯曲（放大区④）
     st.neck = { a: headA + clamp(bend * .8, -10, 12) - runK * 12, ty: (mode === 'sleep' ? 2.5 : 0) + breath * .35 };
     // 头部视差值**必须几乎一致**：头部各层（后发 / 蓝内发 / 脸 / 五官 / 前发 / 双耳）
     // 在原图里是紧挨着的，系数差多少就会横向错开多少。

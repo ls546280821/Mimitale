@@ -906,15 +906,34 @@ section('参数口径：尾巴摇动 / 缩放重算，别改回会「抖」的�
   // ⚠️ 尾巴摇动频率已经两轮下调（9 → 5.5 → 2.8 rad/s 上限），且尾巴弹簧
   //    spring(40,12) 的阻尼也加重了（欠阻尼的过冲回弹 = 果冻感「抖」）。
   //    这两处是「尾巴抖得快」的根因，别改回去。sin() 里是 rad/s，别当 Hz。
+  //
+  //    2026-10-10 起四个手感参数抽成了「🎚️ 尾巴手感调节区」的命名常量（星宝要自己调），
+  //    所以断言口径跟着改：查的是「公式用了常量」+「常量的取值」两件事，
+  //    不再匹配内联的字面量 —— 否则星宝一改数值测试就红，而那是预期行为。
   ok(
     !/Math\.sin\(t \* \(4 \+ 5 \* wagAmp\)\)/.test(stripComments(figSrc)),
     '尾巴摇动不再用最初的 4 + 5 * wagAmp'
   );
   ok(
-    /1\.8 \+ 1\.0 \* wagAmp/.test(figSrc),
-    '尾巴频率是 1.8 + 1.0 * wagAmp（上限 ~0.45Hz 的慢摇）'
+    /Math\.sin\(t \* \(TAIL_FREQ \+ TAIL_FREQ_K \* wagAmp\)\)/.test(figSrc),
+    '尾巴频率走 TAIL_FREQ + TAIL_FREQ_K * wagAmp 这两个可调常量'
   );
-  ok(/spring\(40,\s*12,\s*32\)/.test(figSrc), '尾巴弹簧阻尼已加重（40,12,32，不再欠阻尼过冲）');
+  // 常量本身必须有定义、且在「还能看出在摇」的区间里（别被调到 0 或负数）
+  const numOf = (name) => {
+    const m = figSrc.match(new RegExp(`const\\s+${name}\\s*=\\s*(-?[\\d.]+)`));
+    return m ? parseFloat(m[1]) : NaN;
+  };
+  const fq = numOf('TAIL_FREQ'), fk = numOf('TAIL_FREQ_K'), sw = numOf('TAIL_SWING');
+  ok(Number.isFinite(fq) && fq > 0 && fq < 4, `TAIL_FREQ 在 (0,4) rad/s 内（当前 ${fq}）`);
+  ok(Number.isFinite(fk) && fk >= 0 && fk < 4, `TAIL_FREQ_K 在 [0,4) 内（当前 ${fk}）`);
+  ok(Number.isFinite(sw) && sw > 2 && sw < 20, `TAIL_SWING 在 (2,20) 度内，摇得出来（当前 ${sw}）`);
+  ok(
+    /tail:\s*spring\(40,\s*TAIL_DAMP,\s*32\)/.test(figSrc),
+    '尾巴弹簧走 TAIL_DAMP 常量（k=40 固定）'
+  );
+  const dmp = numOf('TAIL_DAMP');
+  ok(Number.isFinite(dmp) && dmp >= 8, `TAIL_DAMP ≥ 8，别调回欠阻尼（当前 ${dmp}，ζ≈${(dmp / (2 * Math.sqrt(40))).toFixed(2)}）`);
+  ok(/tail \* TAIL_BEND_K \* u \* u/.test(figSrc), 'tailBend 放大系数走 TAIL_BEND_K');
   ok(!/spring\(40,\s*5,/.test(stripComments(figSrc)), '旧的尾巴弹簧 (40,5) 已清掉');
 
   // 摇头手势：原来 π*6（0.8 秒甩 3 个来回 = 7.5Hz），改成 π*4（2.5Hz）
