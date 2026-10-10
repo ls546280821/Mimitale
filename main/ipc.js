@@ -80,7 +80,12 @@ const { recordRequest, listRequests, clearRequests, MAX_ENTRIES: MAX_LOGGED_REQU
 // 桌宠：通道注册在这里，实现都在 main/pet-*.js（窗口 / 数据 / 发言）
 const { registerPetIpc } = require('./pet-ipc.js');
 
-let activeController = null; // 用于「停止生成」
+// 「停止生成」：按 requestId 各管各的。
+// ⚠️ 以前是单个 activeController，每次 chat:send 都先 abort 上一个 ——
+//    于是后台摘要、剧情选项、AI 生成角色、世界开局、聊天流**互相掐**：
+//    回复刚完就发下一句会掐掉后台摘要（还记一次失败），聊天流式期间点「AI 生成」
+//    或它的「中止」会把聊天回复掐掉删掉。桌宠那边早就因为同一个坑另起了一套（pet-brain.js）。
+const activeControllers = new Map(); // requestId → AbortController
 
 // 允许当头像的图片格式（扩展名 → MIME）
 const IMAGE_MIME = {
@@ -682,13 +687,18 @@ function registerIpc() {
     }
   });
 
-  ipcMain.handle('chat:stop', () => {
-    if (activeController) {
-      activeController.abort();
-      activeController = null;
-      return true;
+  ipcMain.handle('chat:stop', (_event, requestId) => {
+    // 带 id：只停那一个请求。不带（老调用方）：全停，跟以前的语义一致。
+    const ids = requestId ? [String(requestId)] : [...activeControllers.keys()];
+    let stopped = false;
+    for (const id of ids) {
+      const controller = activeControllers.get(id);
+      if (!controller) continue;
+      controller.abort();
+      activeControllers.delete(id);
+      stopped = true;
     }
-    return false;
+    return stopped;
   });
 
   ipcMain.handle('chat:send', async (event, payload) => {
@@ -724,11 +734,12 @@ function registerIpc() {
       return { ok: false, requestId, error: `还没有填写「${endpoint.providerName}」的 API Key。` };
     }
 
-    if (activeController) {
-      activeController.abort();
-    }
-    activeController = new AbortController();
-    const { signal } = activeController;
+    // 同一个 requestId 重发（理论上不会）才顶掉旧的；别的请求一概不碰
+    const previous = activeControllers.get(requestId);
+    if (previous) previous.abort();
+    const controller = new AbortController();
+    activeControllers.set(requestId, controller);
+    const { signal } = controller;
 
     try {
       if (isBridge) {
@@ -779,8 +790,8 @@ function registerIpc() {
     } catch (err) {
       return { ok: false, requestId, error: (err && err.message) || '未知错误' };
     } finally {
-      if (activeController && activeController.signal === signal) {
-        activeController = null;
+      if (activeControllers.get(requestId) === controller) {
+        activeControllers.delete(requestId);
       }
     }
   });

@@ -15,6 +15,7 @@
 //    ② 瞬时锁要重试 —— 重试能过就别退化成「保存失败」
 //    ③ 备份不留半截文件 —— .backup 要么是旧的完整版，要么是新的完整版
 //    ④ 读兜底时「备份回填」失败，也得把已经读到的数据交出去
+//    ⑧（顺带）长会话读回来不能被截断
 //
 //  跑法（本机默认带 ELECTRON_RUN_AS_NODE，先 unset）：
 //    unset ELECTRON_RUN_AS_NODE
@@ -250,6 +251,31 @@ section('⑦ .backup 带只读属性时的真实 EPERM');
   check('只读的备份没让保存失败', !threw, threw && threw.message);
   check('主文件仍然写到了最新', (readJson(convoFile) || {}).conversations?.[0]?.id === 'f');
   check('只读的备份保持原样（也就没被写坏）', (readJson(convoBackup) || {}).conversations?.[0]?.id === 'old');
+}
+
+// ---------------------------------------------------------------------------
+//  ⑧ 长会话读回来一条不少（不在这份测试的「锁」主题里，但它测的也是 store.js 落盘）
+//     以前 loadConversations 每次读都只留最后 200 条：多出来的下次保存就永久没了，
+//     而且摘要的 start/end 是按下标记的，砍掉头部会让覆盖点整体错位。
+// ---------------------------------------------------------------------------
+section('⑧ 长会话读回不截断');
+{
+  const messages = Array.from({ length: 450 }, (_, i) => ({
+    role: i % 2 ? 'assistant' : 'user',
+    content: `第 ${i} 条`
+  }));
+  const summaries = [{ id: 's1', title: '第 1 段', text: '前情', start: 0, end: 300 }];
+  save({ id: 'long', title: '长会话', messages, summaries });
+
+  const loaded = store.loadConversations();
+  const convo = loaded.conversations.find((c) => c.id === 'long');
+  // ⚠️ 全用 ?.：截断回归时 messages[300] 是 undefined，直接 .content 会抛异常，
+  //    electron 主进程弹错误框卡住不退出 —— 失败要报出来，不能变成「挂起」。
+  const msgs = (convo && convo.messages) || [];
+  const end = convo?.summaries?.[0]?.end;
+  check('450 条消息全部读回', msgs.length === 450, `实际 ${msgs.length} 条`);
+  check('第一条还是最早那条', msgs[0]?.content === '第 0 条');
+  check('摘要覆盖点对应的消息没变', msgs[end]?.content === '第 300 条');
 }
 
 // ---------------------------------------------------------------------------

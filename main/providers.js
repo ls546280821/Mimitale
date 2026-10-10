@@ -483,9 +483,12 @@ function saveSettings(patch) {
   // 没有这道闸的话，渲染层（或者任何能调到这个 IPC 通道的人）随手塞一个键进来，
   // 就会被 normalizeSettings 里的 `{ ...DEFAULT_SETTINGS, ...raw }` 永久写进
   // config.json —— 不影响逻辑，但配置会越存越脏。
+  // ⚠️ 用 hasOwn 而不是 `in`：`in` 会顺着原型链找，`constructor` / `toString`
+  //    这类内置名都能混过去，一旦落盘，下次 `key in current` 又让它永远留着。
+  const has = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
   const clean = {};
   for (const [key, value] of Object.entries(patch && typeof patch === 'object' ? patch : {})) {
-    if (key in DEFAULT_SETTINGS || key in current) clean[key] = value;
+    if (has(DEFAULT_SETTINGS, key) || has(current, key)) clean[key] = value;
     else console.warn(`保存设置时忽略了未知字段「${key}」`);
   }
 
@@ -500,8 +503,11 @@ function saveSettings(patch) {
     }))
   };
 
-  writeJson(dataFile('config.json'), toSave);
-  return merged; // 返回明文版本供界面使用
+  // ⚠️ 返回**写盘的 Promise**（理由同 store.js 的 saveCharacters）：以前这里发起
+  //    writeJson 就直接 return merged —— 写失败没人接（unhandled rejection），
+  //    界面照样弹「设置已保存」，重启后刚填的 Key / 服务商全没了。
+  //    渲染层 settings.js / theme.js 都有 catch，失败会正常提示。
+  return writeJson(dataFile('config.json'), toSave).then(() => merged); // 明文版本供界面使用
 }
 
 module.exports = {

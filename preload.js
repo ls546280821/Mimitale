@@ -74,7 +74,8 @@ contextBridge.exposeInMainWorld('mimitale', {
 
   // --- 对话 ---
   sendChat: (payload) => ipcRenderer.invoke('chat:send', payload),
-  stopChat: () => ipcRenderer.invoke('chat:stop'),
+  // 带 requestId 只停那一个；不带就全停
+  stopChat: (requestId) => ipcRenderer.invoke('chat:stop', requestId),
   // 「请求记录」：最近几次实际发出去的请求（只在内存里，重启即空）
   requestLog: () => ipcRenderer.invoke('chat:requests'),
   clearRequestLog: () => ipcRenderer.invoke('chat:requests:clear'),

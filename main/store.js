@@ -257,20 +257,37 @@ function encryptApiKey(plaintext) {
   }
 }
 
+/**
+ * 密文的 base64 有多长 —— 用来把「解不开的密文」和「看着像 base64 的老明文 Key」分开。
+ *
+ * Windows 的 DPAPI 会给短字符串包上 100 多字节的头，base64 之后最少也在 100 字符往上；
+ * 而真 Key 就算全是 base64 字符集（比如 64 位十六进制），也就几十字符。
+ * 分不开的后果是**把好 Key 当密文丢掉**，所以阈值刻意取得比任何真 Key 都长。
+ */
+const CIPHERTEXT_MIN_CHARS = 80;
+
 function decryptApiKey(encrypted) {
-  if (!encrypted || !safeStorage.isEncryptionAvailable()) {
-    return encrypted;
-  }
+  if (!encrypted) return '';
+  // 不像 base64 的（正常 API Key 里都有 - 或 _）：老数据里的明文，直接当明文用
+  if (!/^[A-Za-z0-9+/]+=*$/.test(encrypted)) return encrypted;
+  // 本机没有加密能力（某些精简系统 / 非 Windows）：无从判断，保持原样
+  if (!safeStorage.isEncryptionAvailable()) return encrypted;
   try {
-    // 检查是否是 base64 编码的加密数据
-    if (!/^[A-Za-z0-9+/]+=*$/.test(encrypted)) {
-      return encrypted; // 明文，直接返回
-    }
-    const buffer = Buffer.from(encrypted, 'base64');
-    return safeStorage.decryptString(buffer);
+    return safeStorage.decryptString(Buffer.from(encrypted, 'base64'));
   } catch (err) {
-    // 解密失败，可能是明文 API Key（旧版本数据）
-    return encrypted;
+    // 解不开。短的当「看着像 base64 的老明文 Key」照旧用；长的才是真密文。
+    //
+    // ⚠️ 真密文必须返回空，**不能把密文当 Key 交出去**：以前这么干，界面上是一串
+    //    乱码、请求报「401 Key 不对」，用户完全看不出是「这把 Key 本机读不出来了」。
+    //    钥匙由 Windows 绑在本机本账号上（DPAPI），换电脑 / 换 Windows 账号就会这样 ——
+    //    这时候唯一正确的做法是让他重填一次。返回空之后，发请求时会明确提示
+    //    「还没有填写「X」的 API Key」，而且下次保存不会把这个密文再加密一遍。
+    if (encrypted.length < CIPHERTEXT_MIN_CHARS) return encrypted;
+    console.warn(
+      '[crypto] API Key 解不开（换过电脑 / 换过 Windows 账号？），需要重新填一次:',
+      err.message
+    );
+    return '';
   }
 }
 
@@ -294,17 +311,12 @@ function loadConversations() {
       .slice(0, MAX_CONVERSATIONS);
   }
 
-  // 限制每个会话的消息数量
-  const MAX_MESSAGES_PER_CONVERSATION = 200;
-  conversations = conversations.map(c => {
-    if (Array.isArray(c.messages) && c.messages.length > MAX_MESSAGES_PER_CONVERSATION) {
-      return {
-        ...c,
-        messages: c.messages.slice(-MAX_MESSAGES_PER_CONVERSATION)
-      };
-    }
-    return c;
-  });
+  // ⚠️ 这里**不能**截断单个会话的消息（以前每次读都只留最后 200 条）：
+  //   ① 截掉的消息下次保存就从磁盘上永久消失，用户毫不知情；
+  //   ② 摘要的 start/end 是按消息数组下标记的（见 renderer/js/data/memory.js），
+  //      从头部砍掉 N 条后覆盖点整体错位 —— 一批**从没压缩过**的消息被当成
+  //      「已被摘要覆盖」，从上下文里静默消失。
+  //   发给模型的长度由 maxTurns + 摘要控制，不靠这里砍。
 
   return {
     conversations,

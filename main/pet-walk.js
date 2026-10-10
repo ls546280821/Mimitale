@@ -115,7 +115,11 @@ function startTrip() {
     const step = SPEED * Math.max(0.001, (now - last) / 1000);
     last = now;
     const b = w.getBounds();
-    if (!walkAllowed()) { stopTrip(true); return; }
+    // ⚠️ 这里只看窗口还在不在、可不可见，**别调 walkAllowed()** —— 它要 loadPetConfig()
+    //    （同步读盘 + JSON.parse + 归一化），16ms 一次 = 一趟散步几百次主线程读盘。
+    //    配置那几项（enabled / visible / walkEnabled）一改，pet-ipc 都会调 refreshWalk()
+    //    把这趟停掉，用不着在这里每帧重查。
+    if (!w.isVisible()) { stopTrip(true); return; }
     if (!walkPosition) walkPosition = { x: b.x, y: b.y };
     const ddx = target.x - walkPosition.x, ddy = target.y - walkPosition.y;
     const d = Math.hypot(ddx, ddy);

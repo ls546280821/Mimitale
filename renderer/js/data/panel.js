@@ -505,7 +505,7 @@ function isStatusBlockLine(line) {
  *    带上字段名就能分清：是面板字段的名字才砍，套不上的段落照常显示。
  *    代价只是「模型编了个新字段名时，它的值会显示到重绘为止」，比吞掉正文轻得多。
  */
-export function cutTrailingStatusBlock(text, knownFields) {
+export function cutTrailingStatusBlock(text, knownFields, knownGroups) {
   const lines = String(text || '').split('\n');
 
   // 只认会话里真实存在的字段名。没传就退回「不砍」—— 宁可多显示，也不误砍正文。
@@ -514,6 +514,14 @@ export function cutTrailingStatusBlock(text, knownFields) {
       .map((n) => String(n || '').trim())
       .filter(Boolean)
       .map((n) => n.replace(/^【|】$/g, ''))
+  );
+
+  // 这一局真实存在的分组名（`—— 组名 ——` 的组名）。没传就等于「没有已知分组」，
+  // 于是破折号开头的行一律当正文 —— 同上，宁可多显示。
+  const groups = new Set(
+    asArray(knownGroups)
+      .map((n) => String(n || '').trim())
+      .filter(Boolean)
   );
 
   /** 这一行是不是「面板字段行」（就是 cleanAssistantText 最后要剥的那种） */
@@ -525,19 +533,59 @@ export function cutTrailingStatusBlock(text, knownFields) {
     const rest = m[2].trim();
     // 有值、有冒号，或者这个名字本来就是这一局的面板字段 → 是状态行
     // （流式阶段冒号还没写到，所以「名字已知」也得算）
-    if (/^[:：]/.test(rest)) return true;
+    //
+    // ⚠️ 带冒号那条必须再问一句「这个名字允许当面板字段吗」：内心描写 / 上帝视角
+    //    写的是【心理】：她其实…、`【旁白】：…`，形状和字段行一模一样，
+    //    光看冒号会把正文**整段**吞掉（一直吞到收尾重绘才蹦出来）。
+    if (/^[:：]/.test(rest)) return panelFieldAllowed(name);
     return known.has(name);
+  };
+
+  /**
+   * 这一行是不是**已知分组**的小标题（`—— 组名 ——`）。
+   *
+   * ⚠️ 以前只要行首是 `——` 就砍。中文对话里破折号起头的行非常常见
+   *    （`——等等，你说什么？`），整段正文在流式期间都不显示，
+   *    直到收尾重绘才一次性蹦出来 —— 和【心理】那次是同一类 bug。
+   *    收尾的 cleanAssistantText 本来就是「只剥已知组名」，这里对齐它。
+   *    流式阶段收尾那个 `——` 可能还没到达，所以「已知组名的前缀」也算。
+   */
+  const isGroupHeaderLine = (line) => {
+    const t = line.trim();
+    if (!t.startsWith('——')) return false;
+    if (!groups.size) return false;
+    const m = t.match(GROUP_HEADER_RE);
+    const name = m ? m[1].trim() : t.replace(/^——\s*/, '').replace(/\s*——$/, '').trim();
+    if (!name) return false;
+    if (groups.has(name)) return true;
+    for (const g of groups) {
+      if (g.startsWith(name)) return true;
+    }
+    return false;
   };
 
   let cut = lines.length;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
-    // 非【】开头的状态块（—— / [当前状态 / 剧情选项 / <emo>）跟正文不冲突，照旧
-    if (isStatusBlockLine(line) && !line.trim().startsWith('【')) {
-      cut = i;
-      break;
+    const t = line.trim();
+    // 破折号开头的行：只有确认是已知分组小标题才砍，否则当正文显示
+    if (t.startsWith('——')) {
+      if (isGroupHeaderLine(line)) {
+        cut = i;
+        break;
+      }
+      continue;
     }
-    if (isPanelFieldLine(line)) {
+    // 【】开头的行：交给字段名判定（正文小标题不砍）
+    if (t.startsWith('【')) {
+      if (isPanelFieldLine(line)) {
+        cut = i;
+        break;
+      }
+      continue;
+    }
+    // 其余状态块（[当前状态 / 剧情选项 / <emo>）跟正文不冲突，照旧
+    if (isStatusBlockLine(line)) {
       cut = i;
       break;
     }
@@ -762,6 +810,8 @@ export function syncConvoPanel(convo) {
     }
   }
   const latest = new Map();
+  // 手改过的字段 → 改动时刻。重扫历史时，比它早写的回复不许覆盖（见 markPanelManual）
+  const manualTable = convo.panelManual && typeof convo.panelManual === 'object' ? convo.panelManual : {};
 
   for (const msg of convo.messages) {
     if (!msg || msg.role !== 'assistant') continue;
@@ -796,7 +846,10 @@ export function syncConvoPanel(convo) {
           knownNames.push(rawName);
         }
       }
-      latest.set(key, value);
+      // 手改过的字段只认「改完之后」的回复：旧回复里那句旧值不许把手改顶回去。
+      // 时间戳缺失 / 是老的 true → 按 0 处理，不设限（保持改动前的行为）。
+      const editedAt = Number(manualTable[key]) || 0;
+      if (!editedAt || Number(msg.at || 0) > editedAt) latest.set(key, value);
     }
   }
 
@@ -987,18 +1040,24 @@ export function setPanelField(convo, name, value) {
 }
 
 /**
- * 记下「这个字段是玩家手动改过的」。
+ * 记下「这个字段是玩家手动改过的」，值是**改动的时刻**。
  *
  * 为什么要记：AI 每轮会把状态栏原样再输出一遍，玩家的手改会在下一轮扫描时
  * 被 AI 的旧值顶掉（这正是「我改了但一会儿又变回去」的由来）。
  * 有了这张表，扫描遇到「无主那份 vs 主角那份」时就知道该听谁的。
  *
- * 存在会话上的 `panelManual`（复合键 → true）。老会话没有这个键 = 谁都没手改过。
+ * ⚠️ 为什么记的是时刻、不只是 true：syncConvoPanel 每次都会把**全部历史**重扫一遍，
+ *    只要那句「HP 50/100」还在历史里，就会被重新 set 进 latest —— 手改的值在
+ *    切候选 / 编辑消息（都会触发重扫）之后立刻被打回原形。带上时刻就能分辨
+ *    「这句是改之前写的，不算数」和「这是改之后的新回复，可以覆盖」。
+ *
+ * 存在会话上的 `panelManual`（复合键 → 毫秒时间戳）。老会话里是 true（没有时刻），
+ * 读的时候按 0 处理 = 不设限，等下次手改自然带上时刻。
  */
 function markPanelManual(convo, key) {
   if (!convo) return;
   const table = convo.panelManual && typeof convo.panelManual === 'object' ? convo.panelManual : {};
-  convo.panelManual = { ...table, [key]: true };
+  convo.panelManual = { ...table, [key]: Date.now() };
 }
 
 /**

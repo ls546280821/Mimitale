@@ -44,6 +44,35 @@ async function writeWithOneLateRetry(writeOnce) {
 }
 
 /**
+ * 同一个文件（key）的写入**串起来**，永远不并发。
+ *
+ * ⚠️ 为什么非串不可：persistConversations 的防抖只管「什么时候**开始**写」。
+ *    前一次还飞在路上时又触发一次，两次写就并发 —— 主进程那边排队，
+ *    可**先发出的那次反而可能后落盘**（它在主进程内部还有退避重试，最多再等 0.5 秒）。
+ *    结果：磁盘上是旧快照，刚改的那一下没了。
+ *    实测最容易踩的两处：改状态栏（persistConversations(0)）紧接着回复结束保存；
+ *    以及关窗口那次保存（beforeunload）被还在飞的上一次盖掉。
+ *
+ * ⚠️ 队尾必须自己把异常吃掉（.then 的两个处理函数都要写）：一次失败会把链
+ *    永久钉在 rejected，之后每次保存都直接跳过 —— 和 main/store.js 的
+ *    writeQueue 是同一个坑，那边有长注释。
+ */
+const writeChains = new Map(); // key → 队尾 Promise
+
+function queueWrite(key, call) {
+  const previous = writeChains.get(key) || Promise.resolve();
+  const result = previous.then(() => writeWithOneLateRetry(call));
+  writeChains.set(
+    key,
+    result.then(
+      () => undefined,
+      () => undefined
+    )
+  );
+  return result;
+}
+
+/**
  * 写盘失败时统一的说法。
  *
  * ⚠️ 2026-10-08 更正：原来这里一口咬定「文件可能被杀软临时占用或带了只读属性」，
@@ -74,7 +103,7 @@ function writeFailedText(what, err) {
 export function persistConversations(delay) {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    writeWithOneLateRetry(() =>
+    queueWrite('conversations', () =>
       api.saveConversations({ conversations: state.conversations, activeId: state.activeId })
     ).catch((err) => {
       console.error('保存会话失败（已自动重试过）', err);
@@ -128,7 +157,7 @@ export function persistPresets(immediate) {
     return Promise.resolve(true);
   }
 
-  return writeWithOneLateRetry(() => api.savePresets(buildPayload()))
+  return queueWrite('presets', () => api.savePresets(buildPayload()))
     .then(() => true)
     .catch((err) => {
       console.error('保存预设失败（已自动重试过）', err);
@@ -159,7 +188,7 @@ export function persistCharacters(immediate) {
     return Promise.resolve(true);
   }
 
-  return writeWithOneLateRetry(() => api.saveCharacters(buildPayload()))
+  return queueWrite('characters', () => api.saveCharacters(buildPayload()))
     .then(() => true)
     .catch((err) => {
       console.error('保存角色失败（已自动重试过）', err);
@@ -183,7 +212,8 @@ export async function persistLibrary() {
   }
 
   try {
-    await writeWithOneLateRetry(() =>
+    // 和 persistCharacters 共用一个 key：两者写的都是 characters.json，必须互相排队
+    await queueWrite('characters', () =>
       api.saveCharacters({ characters: characters(), worldbooks: worldbooks() })
     );
     return true;

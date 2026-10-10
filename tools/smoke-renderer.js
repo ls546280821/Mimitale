@@ -4685,6 +4685,54 @@ await scenario('流式：当前状态那段在显示前就砍掉', async () => {
       JSON.stringify(narratedShown)
     );
 
+    // --- 回归：带冒号的正文小标题也不能砍 ---
+    // 【心理】：她其实… 和「【字段名】：值」的形状一模一样，光看冒号会把整段吞掉。
+    const narratedColon = [
+      '她低头笑了一下。',
+      '',
+      '【心理】：她其实很想留下来。',
+      '',
+      '【旁白】：雨还在下。'
+    ].join('\n');
+    const colonShown = mod.cutTrailingStatusBlock(narratedColon, fields);
+    check(
+      '【心理】：/【旁白】：带冒号的正文小标题也不被砍掉',
+      colonShown.includes('她其实很想留下来') && colonShown.includes('雨还在下'),
+      JSON.stringify(colonShown)
+    );
+
+    // --- 回归：中文对话里破折号起头的行是正文，不是分组标题 ---
+    // 真 bug：以前只要行首是「——」就整体截断，这种对话行之后的整段回复
+    // 在流式期间都不显示，直到收尾重绘才蹦出来。
+    const dashed = [
+      '*她愣了一下。*',
+      '',
+      '——等等，你说什么？',
+      '',
+      '她把手里的书合上了。'
+    ].join('\n');
+    const dashShown = mod.cutTrailingStatusBlock(dashed, fields, ['状态栏', '关系']);
+    check(
+      '破折号起头的对话行不被砍掉',
+      dashShown.includes('——等等，你说什么？') && dashShown.includes('她把手里的书合上了'),
+      JSON.stringify(dashShown)
+    );
+
+    // 反向：**已知分组**的小标题仍然要砍（否则状态块会漏到气泡上）
+    const groupHeader = ['*正文。*', '', '—— 关系 ——', '【好感度】：63/100'].join('\n');
+    const groupShown = mod.cutTrailingStatusBlock(groupHeader, fields, ['状态栏', '关系']);
+    check(
+      '已知分组的「—— 关系 ——」仍然被砍掉',
+      groupShown.includes('*正文。*') && !groupShown.includes('关系'),
+      JSON.stringify(groupShown)
+    );
+    // 流式阶段收尾那个「——」还没到达：半截标题也该砍
+    const halfGroup = mod.cutTrailingStatusBlock('*正文。*\n\n—— 关', fields, ['状态栏', '关系']);
+    check('半截分组标题（—— 关）也砍，不会闪一下', halfGroup.trim() === '*正文。*', JSON.stringify(halfGroup));
+    // 没传分组名时一律当正文（宁可多显示，也不误砍）
+    const noGroups = mod.cutTrailingStatusBlock('*正文。*\n\n—— 关系 ——\n', fields);
+    check('没传分组名时不砍破折号行（宁可多显示）', noGroups.includes('—— 关系 ——'), JSON.stringify(noGroups));
+
     // --- 收尾渲染：cleanAssistantText 也要剥掉抬头 ---
     const groups = ['状态栏', '关系'];
     const final = mod.cleanAssistantText(streamed, fields, groups);
@@ -5399,6 +5447,36 @@ await scenario('面板：同名属性按 owner 各自保留', async () => {
     '老数据里重复的「前缀妹妹·好感度」被并回「好感度」',
     mod.convoPanelFields(legacyDup).length === 1 && legacyDup.panel[dupBase] === '90/100',
     JSON.stringify(legacyDup.panelFields) + ' ' + JSON.stringify(legacyDup.panel)
+  );
+
+  // --- 手动改过的字段：重扫历史不能把旧值顶回来 ---
+  // 真 bug：改了 HP 之后切候选 / 编辑消息都会重跑 syncConvoPanel，而它把**全部历史**
+  // 重扫一遍 —— 历史里那句旧的「HP 50/100」又把 latest 覆盖回 50，手改当场失效。
+  // 现在 panelManual 记的是「改动时刻」，比它早写的回复不许覆盖。
+  const manualConvo = {
+    panel: {}, panelFields: [], panelDefs: {}, player: null,
+    messages: [{ role: 'assistant', content: '【HP】：50/100', at: 1000 }]
+  };
+  mod.syncConvoPanel(manualConvo);
+  const hpKey = mod.convoPanelFields(manualConvo).find((k) => mod.panelFieldName(k) === 'HP');
+  check('先扫出历史里的 HP', !!hpKey && manualConvo.panel[hpKey] === '50/100', JSON.stringify(manualConvo.panel));
+
+  // 手动改成 80，然后重扫（模拟切候选 / 编辑消息）
+  mod.setPanelField(manualConvo, hpKey, '80/100');
+  mod.syncConvoPanel(manualConvo);
+  check(
+    '手改成 80 之后重扫历史，不会被旧的 50 顶回去',
+    manualConvo.panel[hpKey] === '80/100',
+    JSON.stringify(manualConvo.panel)
+  );
+
+  // 手改之后来的**新回复**仍然可以更新它（否则字段就冻死了）
+  manualConvo.messages.push({ role: 'assistant', content: '【HP】：30/100', at: Date.now() + 1000 });
+  mod.syncConvoPanel(manualConvo);
+  check(
+    '手改之后的新回复可以更新该字段（没被冻死）',
+    manualConvo.panel[hpKey] === '30/100',
+    JSON.stringify(manualConvo.panel)
   );
 
   // 单角色聊天：字段名不冲突时，注入不该加前缀（保持老行为）

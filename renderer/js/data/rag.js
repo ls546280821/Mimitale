@@ -64,8 +64,11 @@ export async function recallSection(convo) {
       convoId: convo.id,
       // 和关键词注入用同一套规则，否则两处会给出不一致的世界书范围
       worldbookIds: effectiveWorldbookIds(convo),
-      // 最近这些本来就会进上下文，别捞回来占位置
-      recentCount: RAG_QUERY_TURNS * 2,
+      // 最近这些本来就会进上下文，别捞回来占位置。
+      // ⚠️ 口径必须和 buildApiMessages 一致：那边发出去的是最后 `maxTurns * 2` 条
+      //    （见 data/messages.js），这里只排除 6 条的话，第 7~40 条会被当成
+      //    「早先的回忆」捞回来 —— 和原文重复，还白占 topK 的位置。
+      recentCount: Math.max(1, Number(settings.maxTurns) || 20) * 2,
       query,
       topK: RAG_TOP_K,
       minScore: RAG_MIN_SCORE

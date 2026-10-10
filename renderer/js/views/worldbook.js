@@ -891,6 +891,12 @@ export async function closeWorldbooksModal() {
 
   // 放弃：草稿清掉，新建但没保存过的书连壳一起收掉
   discardDrafts();
+  // ⚠️ 表单也得收起来：输入框里还留着刚放弃的书名 / 条目原文。下次打开时
+  //    selectWorldbook 会先 stash —— 表单可见就把这些「已放弃」的值又写进一份
+  //    新草稿，再点保存就落盘了。两个 stash 都认「表单隐藏 → 不读」，收起即可；
+  //    重新打开时 selectWorldbook 会按目标书把它们再亮出来、重填。
+  el.wb.entriesWrap.classList.add('hidden');
+  showEntryForm(false);
 
   el.wb.modal.classList.add('hidden');
   renderWorldbookChars();

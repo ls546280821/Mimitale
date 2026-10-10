@@ -22,7 +22,8 @@ import {
   SUMMARY_MIN_MESSAGES,
   convoSummaries,
   nextSegmentTitle,
-  buildTranscript,
+  buildTranscriptFromStart,
+  summaryRangeIntact,
   pendingSummaryRange,
   generateSummary,
   summarizingConvos,
@@ -59,7 +60,9 @@ export async function maybeSummarize(convo) {
   renderHeader();
 
   try {
-    const transcript = buildTranscript(slice, charNameForSummary(convo));
+    // 覆盖范围按**真正写进原文的条数**记（超长时尾巴那几条留给下一段），
+    // 见 data/memory.js 的 buildTranscriptFromStart
+    const { text: transcript, count: covered } = buildTranscriptFromStart(slice, charNameForSummary(convo));
     const previous = convoSummaries(convo).map((s) => String(s.text || '')).join('\n\n');
 
     const text = await generateSummary(convo, transcript, previous);
@@ -74,6 +77,13 @@ export async function maybeSummarize(convo) {
       return false;
     }
 
+    // 等模型这段时间里用户删过消息：start 已过期，照记会吞掉错位的消息。放弃，下一轮重压
+    if (!summaryRangeIntact(convo, start, slice, covered)) {
+      convo.summaryBusy = false;
+      renderHeader();
+      return false;
+    }
+
     // 关键：这里必须以 convo.summaries 的当前值重新取，不能用闭包里的旧引用
     const list = convoSummaries(convo);
     list.push({
@@ -81,7 +91,7 @@ export async function maybeSummarize(convo) {
       title: nextSegmentTitle(convo),
       text,
       start,
-      end: start + slice.length,
+      end: start + covered,
       at: now()
     });
     convo.summaries = list;
@@ -91,7 +101,7 @@ export async function maybeSummarize(convo) {
     summaryFailures.delete(convo.id);
     persistConversations(0);
     renderHeader();
-    showToast(`已把较早的 ${slice.length} 条对话压缩成「${list[list.length - 1].title}」`, 'ok');
+    showToast(`已把较早的 ${covered} 条对话压缩成「${list[list.length - 1].title}」`, 'ok');
     return true;
   } catch (err) {
     console.error('生成摘要失败', err);
@@ -122,8 +132,12 @@ export async function summarizeNow() {
     return;
   }
 
-  // 手动触发时绕过阈值判断，直接压
-  summarizingConvos.delete(convo.id);
+  // 手动触发只绕过「攒够没有」的阈值，**不绕过并发闸** —— 以前这里直接
+  // delete 掉闸，后台摘要还在跑时点一下，同一段原文会被压两次、存两段重复摘要。
+  if (summarizingConvos.has(convo.id)) {
+    showToast('正在压缩中，稍等一下', 'error');
+    return;
+  }
   const { start, pending: nowPending } = pendingSummaryRange(convo);
   const keepNewest = SUMMARY_MIN_MESSAGES;
   const slice = nowPending.slice(0, Math.max(SUMMARY_MIN_MESSAGES, nowPending.length - keepNewest));
@@ -138,11 +152,17 @@ export async function summarizeNow() {
   renderMemoryModal();
 
   try {
-    const transcript = buildTranscript(slice, charNameForSummary(convo));
+    // 覆盖范围按**真正写进原文的条数**记（超长时尾巴那几条留给下一段），
+    // 见 data/memory.js 的 buildTranscriptFromStart
+    const { text: transcript, count: covered } = buildTranscriptFromStart(slice, charNameForSummary(convo));
     const previous = convoSummaries(convo).map((s) => String(s.text || '')).join('\n\n');
     const text = await generateSummary(convo, transcript, previous);
     if (!text) {
       showToast('摘要返回为空', 'error');
+      return;
+    }
+    if (!summaryRangeIntact(convo, start, slice, covered)) {
+      showToast('压缩期间对话有改动，这段没存，再点一次就好', 'error');
       return;
     }
 
@@ -152,14 +172,14 @@ export async function summarizeNow() {
       title: nextSegmentTitle(convo),
       text,
       start,
-      end: start + slice.length,
+      end: start + covered,
       at: now()
     });
     convo.summaries = list;
     convo.updatedAt = now();
     summaryFailures.delete(convo.id);
     persistConversations(0);
-    showToast(`已压缩 ${slice.length} 条对话`, 'ok');
+    showToast(`已压缩 ${covered} 条对话`, 'ok');
   } catch (err) {
     console.error('压缩失败', err);
     showToast((err && err.message) || '压缩失败', 'error');

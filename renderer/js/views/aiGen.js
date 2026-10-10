@@ -329,6 +329,10 @@ export function parseGeneratedCharacter(raw) {
 let layerEl = null;  // 整个浮层
 let nodes = null;    // 里面要反复用到的节点
 let busy = false;    // 正在生成（防重复点、控制按钮状态）
+// 这次生成的 requestId：中止只停它自己，别连带掐掉正在流的聊天回复；
+// 中止 / 关弹窗时清空 —— 回执回来一对不上就丢掉，不再往下开编辑器
+let currentGenId = null;
+let escHandler = null; // 弹窗开着时挂在 document 上的 Esc 监听（捕获阶段）
 let scope = 'library';
 let targetBook = null;
 
@@ -367,6 +371,18 @@ export function openAiGenModal(options = {}) {
   buildLayer();
   document.body.appendChild(layerEl);
 
+  // Esc 关的是**这一层**：它不在 main.js 的全局 Esc 链上，不拦的话 Esc 会冒到
+  // 底下的世界书编辑器 / 角色库，把那层关掉、留这层浮在空中。
+  // 捕获阶段 + stopPropagation，同 charExpressions.js 的做法。
+  if (escHandler) document.removeEventListener('keydown', escHandler, true);
+  escHandler = (event) => {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    event.preventDefault();
+    closeLayer();
+  };
+  document.addEventListener('keydown', escHandler, true);
+
   if (nodes.prompt) nodes.prompt.value = '';
   if (nodes.brief) nodes.brief.value = '';
   if (nodes.status) {
@@ -391,6 +407,10 @@ function updateButtons() {
 function closeLayer() {
   // 生成期间关掉等于放弃这次结果，先中止请求
   if (busy) stopGen();
+  if (escHandler) {
+    document.removeEventListener('keydown', escHandler, true);
+    escHandler = null;
+  }
   if (layerEl && layerEl.parentNode) layerEl.parentNode.removeChild(layerEl);
   layerEl = null;
   nodes = null;
@@ -488,10 +508,11 @@ function buildLayer() {
   nodes = { prompt, brief, status, go: goBtn, stop: stopBtn };
 }
 
-/** 中止这次生成：和聊天共用一个中止接口 */
+/** 中止这次生成：只停自己这一个请求（按 requestId），不碰聊天 */
 function stopGen() {
   if (!busy) return;
-  api.stopChat();
+  if (currentGenId) api.stopChat(currentGenId);
+  currentGenId = null;
   busy = false;
   updateButtons();
   if (nodes && nodes.status) nodes.status.textContent = '已中止';
@@ -525,6 +546,7 @@ async function generate() {
       : LIBRARY_SYSTEM + briefSection(nodes.brief && nodes.brief.value);
 
   const requestId = uid();
+  currentGenId = requestId;
   busy = true;
   updateButtons();
   if (nodes.status) nodes.status.textContent = bridge ? '本地模型正在生成…可能要等一会儿（约 30~60 秒）' : '正在生成…';
@@ -541,6 +563,10 @@ async function generate() {
       // 本机桥接：只要文字，别让它顺手配一张图（那一趟要几十秒）
       noImage: true
     });
+
+    // 已经中止 / 关掉弹窗（或又开了一轮）：这份回执作废，别再开编辑器。
+    // 本机桥接或中止来得太晚时，请求照样会正常返回，光靠「报错里有 abort」拦不住。
+    if (currentGenId !== requestId) return;
 
     if (!response || response.ok !== true) {
       const message = (response && response.error) || '调用失败';
@@ -572,8 +598,12 @@ async function generate() {
   } catch (err) {
     showToast((err && err.message) || '生成失败', 'error');
   } finally {
-    busy = false;
-    updateButtons();
+    // 只收拾自己这一轮：已作废的旧请求别把新一轮的 busy 也复位掉
+    if (currentGenId === requestId) {
+      currentGenId = null;
+      busy = false;
+      updateButtons();
+    }
   }
 }
 

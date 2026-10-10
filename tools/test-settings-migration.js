@@ -16,8 +16,8 @@
 //
 //  ⚠️ main/providers.js 会 require ./store.js，而 store.js 需要 electron 的
 //     app / safeStorage。这里没有 Electron 运行时，所以先往 require 缓存里塞个假的
-//     （口径与 tools/test-pet-store.js 一致）。全程只用 normalizeSettings 这个纯函数，
-//     不碰磁盘、不碰真实数据。
+//     （口径与 tools/test-pet-store.js 一致）。迁移用例只用 normalizeSettings 这个纯函数；
+//     最后两条 saveSettings 用例会写盘，但写的是 tmpRoot 下的假 userData，不碰真实数据。
 // ============================================================================
 const assert = require('node:assert/strict');
 const test = require('node:test');
@@ -46,7 +46,9 @@ Module._load = function patched(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-const { normalizeSettings, takeSettingsNotices, DEFAULT_SETTINGS } = require('../main/providers.js');
+const { normalizeSettings, takeSettingsNotices, DEFAULT_SETTINGS, saveSettings } = require('../main/providers.js');
+// 假 electron 的 userData 指在 tmpRoot 里，data-dir.js 会当成「显式改过」直接用它 —— 不碰真实数据
+const { dataFile } = require('../main/store.js');
 
 // 一份「旧结构」的配置：有 providers（不然会走旧版扁平配置分支，那不是这里要测的），
 // 深度是当初的默认值 3，且**没有** settingsVersion。
@@ -104,6 +106,59 @@ test('全新安装（没有任何配置）：用默认值，且不产生迁移�
   assert.equal(out.worldbookRecursiveDepth, DEFAULT_SETTINGS.worldbookRecursiveDepth);
   assert.equal(DEFAULT_SETTINGS.worldbookRecursiveDepth, 1, '新装默认 1 层');
   assert.deepEqual(takeSettingsNotices(), [], '全新安装没什么好告知的');
+});
+
+test('saveSettings：内置名（constructor / toString）混不过白名单', async () => {
+  const saved = await saveSettings({ constructor: 'x', toString: 'y', theme: 'dark' });
+  assert.equal(saved.theme, 'dark', '白名单里的正常键照存');
+  const onDisk = JSON.parse(fs.readFileSync(dataFile('config.json'), 'utf8'));
+  for (const key of ['constructor', 'toString']) {
+    assert.ok(!Object.prototype.hasOwnProperty.call(onDisk, key), `「${key}」不该被写进 config.json`);
+  }
+});
+
+test('saveSettings：写盘失败要让调用方知道（返回被拒绝的 Promise，而不是假装成功）', async () => {
+  const original = fs.renameSync;
+  fs.renameSync = () => {
+    const err = new Error('disk full');
+    err.code = 'ENOSPC'; // 非瞬时锁，不重试，直接抛
+    throw err;
+  };
+  try {
+    await assert.rejects(Promise.resolve(saveSettings({ theme: 'light' })), /写入失败/);
+  } finally {
+    fs.renameSync = original;
+  }
+});
+
+test('API Key 解不开时不再把密文当 Key（换电脑 / 换 Windows 账号）', () => {
+  const { decryptApiKey } = require('../main/store.js');
+  // 假 safeStorage：真实现只认自己写出来的 blob，别的输入一律抛。
+  // 这里用前缀模拟 —— BLOB: 是「本机写出来的」，FAIL 是「本机解不开的」（换账号/换机器），
+  // 其余（比如有人拿明文十六进制当 base64 塞进来）真实现也会抛。
+  fakeElectron.safeStorage.isEncryptionAvailable = () => true;
+  fakeElectron.safeStorage.decryptString = (buf) => {
+    const text = buf.toString('utf8');
+    if (text.startsWith('FAIL')) throw new Error('bad data');
+    if (!text.startsWith('BLOB:')) throw new Error('not a DPAPI blob');
+    return text.slice(5);
+  };
+  // 密文都很长：DPAPI 给短字符串包了 100 多字节的头，base64 之后 100 字符往上
+  const unreadable = Buffer.from('FAIL' + 'x'.repeat(200), 'utf8').toString('base64');
+  const readable = Buffer.from('BLOB:sk-' + 'y'.repeat(200), 'utf8').toString('base64');
+  const hexKey = 'a1b2c3d4'.repeat(8); // 64 位十六进制：全是 base64 字符集，但是真 Key
+
+  try {
+    assert.ok(unreadable.length > 80, '前提：这个是「长密文」');
+    assert.equal(decryptApiKey(unreadable), '', '解不开的长密文返回空 —— 不能把密文当 Key 发出去');
+    assert.equal(decryptApiKey(hexKey), hexKey, '看着像 base64 的短明文 Key 照旧能用（不能误伤）');
+    assert.equal(decryptApiKey('sk-abc123def456'), 'sk-abc123def456', '带 - 的正常 Key 原样返回');
+    assert.equal(decryptApiKey(''), '', '空的还是空');
+    assert.equal(decryptApiKey(readable), 'sk-' + 'y'.repeat(200), '能解开的密文照常还原');  } finally {
+    // 还原成这份测试共用的假实现（没有加密能力）
+    fakeElectron.safeStorage.isEncryptionAvailable = () => false;
+    fakeElectron.safeStorage.decryptString = (s) => s;
+  }
 });
 
 test('清理临时目录', () => {

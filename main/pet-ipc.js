@@ -549,6 +549,9 @@ function registerPetIpc() {
     const text = String((payload && payload.text) || '').trim();
     if (!text) return { ok: false, error: '没有可说的内容' };
     const config = loadPetConfig();
+    // 用户点过「退出桌宠」就别把窗口又拉起来（setPetVisible 会重建窗口），
+    // 跟 speakOnce 的口径一致
+    if (!config.enabled) return { ok: false, error: '桌宠已关闭' };
     const pet = findPet(config, config.activeId);
     if (pet && !pet.visible) setPetVisible(true);
     sendToPet('pet:say', { lines: [text], text, reason: 'preview' });

@@ -83,17 +83,28 @@ function bridgeHealthUrl(baseUrl) {
   return `${normalizeBaseUrl(baseUrl)}/health`;
 }
 
+/** 下载图片的体积上限 —— 远超任何正常生图结果，只拦「对面给了个巨型文件」 */
+const MAX_DOWNLOAD_BYTES = 40 * 1024 * 1024;
+const MAX_REDIRECTS = 5;
+
 /**
  * 下一个二进制文件（生图接口有时直接给链接）。
  * 和 requestJson 一个路子，只是把响应体当 Buffer 收着，不当 JSON 解析。
+ *
+ * 三道闸（以前都没有）：重定向最多跟 5 跳（防环）；Location 可以是相对地址；
+ * 响应体超过上限就掐断（防一个超大响应把主进程内存吃光）。
  */
-function downloadBinary(url, timeoutMs = 120000) {
+function downloadBinary(url, timeoutMs = 120000, redirectsLeft = MAX_REDIRECTS) {
   return new Promise((resolve, reject) => {
     let target;
     try {
       target = new URL(url);
     } catch (err) {
       reject(new Error('图片链接格式不对。'));
+      return;
+    }
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+      reject(new Error('图片链接只支持 http / https。'));
       return;
     }
 
@@ -108,11 +119,36 @@ function downloadBinary(url, timeoutMs = 120000) {
       },
       (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          downloadBinary(res.headers.location, timeoutMs).then(resolve, reject);
+          res.resume(); // 3xx 的响应体不要，但得读掉，不然这条连接一直挂着
+          if (redirectsLeft <= 0) {
+            reject(new Error('下载图片失败：重定向次数太多。'));
+            return;
+          }
+          let next;
+          try {
+            next = new URL(res.headers.location, target).toString();
+          } catch (err) {
+            reject(new Error('下载图片失败：重定向地址格式不对。'));
+            return;
+          }
+          downloadBinary(next, timeoutMs, redirectsLeft - 1).then(resolve, reject);
+          return;
+        }
+        const declared = Number(res.headers['content-length']);
+        if (declared > MAX_DOWNLOAD_BYTES) {
+          req.destroy(new Error('下载图片失败：文件太大。'));
           return;
         }
         const chunks = [];
-        res.on('data', (c) => chunks.push(c));
+        let received = 0;
+        res.on('data', (c) => {
+          received += c.length;
+          if (received > MAX_DOWNLOAD_BYTES) {
+            req.destroy(new Error('下载图片失败：文件太大。'));
+            return;
+          }
+          chunks.push(c);
+        });
         res.on('end', () => {
           const buffer = Buffer.concat(chunks);
           if (res.statusCode >= 200 && res.statusCode < 300 && buffer.length) {

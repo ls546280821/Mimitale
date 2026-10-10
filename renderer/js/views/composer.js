@@ -747,5 +747,6 @@ export function switchVariant(index, delta) {
 }
 
 export async function stopGenerating() {
-  await api.stopChat();
+  // 只停聊天这一路 —— 后台摘要 / AI 生成角色这些不归「停止」按钮管
+  if (state.requestId) await api.stopChat(state.requestId);
 }

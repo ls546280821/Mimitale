@@ -18,6 +18,7 @@ import { showToast } from '../ui/toast.js';
 import { confirmDialog } from '../ui/confirm.js';
 import { createConvo, branchSkeleton } from '../data/conversations.js';
 import { persistConversations } from '../data/persist.js';
+import { shiftSummariesForRemoval } from '../data/memory.js';
 import { showView } from './viewSwitch.js';
 import { renderAll } from './redraw.js';
 import { resetPetTurns } from '../data/petContext.js';
@@ -127,6 +128,8 @@ export async function removeMessage(index) {
   });
   if (!ok) return;
 
+  // 先挪摘要覆盖点再删（要靠被删的那条算它在上下文里的位置）
+  shiftSummariesForRemoval(convo, index);
   convo.messages.splice(index, 1);
   convo.updatedAt = now();
   state.usage = null;

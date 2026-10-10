@@ -58,6 +58,50 @@ export function summarizedCount(convo) {
   return max;
 }
 
+/**
+ * 删掉 convo.messages[messageIndex] 之前调：把摘要的 start/end 跟着挪。
+ *
+ * 为什么必须挪：start/end 是 convoContextMessages 里的**下标**。删掉覆盖范围内
+ * （或之前）的一条，后面的消息整体前移一格 —— 不挪的话，紧挨着覆盖点的那条
+ * **从没被压缩过**的消息会滑进「已覆盖」区间，从此既不在摘要里、也不进上下文。
+ *
+ * 被删的那条本身不进上下文（错误提示 / 空占位）就什么都不用动。
+ * 挪完缩成空的段直接丢掉（它覆盖的原文全删光了）。
+ */
+export function shiftSummariesForRemoval(convo, messageIndex) {
+  const list = convoSummaries(convo);
+  if (!list.length || !convo || !Array.isArray(convo.messages)) return;
+
+  const removed = convo.messages[messageIndex];
+  const context = convoContextMessages(convo);
+  const ci = context.indexOf(removed);
+  if (ci < 0) return;
+
+  for (const seg of list) {
+    const start = Number(seg.start) || 0;
+    const end = Number(seg.end) || 0;
+    if (ci < start) seg.start = start - 1;
+    if (ci < end) seg.end = end - 1;
+  }
+  convo.summaries = list.filter((s) => s.end > s.start);
+}
+
+/**
+ * 压缩请求回来、准备记覆盖范围之前调：[start, start+count) 还是不是当初送去压的那几条？
+ *
+ * 摘要要等模型几秒到几十秒，期间用户可以删消息（removeMessage 只拦流式中，不拦后台摘要）。
+ * 删了的话 start 已经过期，照记就会把错位的那段标成「已覆盖」—— 和 shiftSummariesForRemoval
+ * 防的是同一种吞消息。对不上就放弃这一段，下一轮按新的位置重压。
+ */
+export function summaryRangeIntact(convo, start, sent, count) {
+  if (summarizedCount(convo) !== start) return false;
+  const context = convoContextMessages(convo);
+  for (let i = 0; i < count; i += 1) {
+    if (context[start + i] !== sent[i]) return false;
+  }
+  return true;
+}
+
 export function nextSegmentTitle(convo) {
   return `第 ${convoSummaries(convo).length + 1} 段`;
 }
@@ -112,24 +156,37 @@ function buildSummaryPrompt(previousSummary, transcriptText) {
   return parts.join('\n');
 }
 
-/** 把消息列表拼成压缩用的原文；超长就从最早的开始截掉 */
-export function buildTranscript(messages, charName) {
+/** 一条消息在压缩原文里的样子 */
+function transcriptLine(m, charName) {
+  const who = m.role === 'user' ? '对方' : charName || '角色';
+  // 摘要不需要状态栏，剥掉省 token
+  const text = String(m.content || '').trim();
+  return `${who}：${m.role === 'assistant' ? stripPanelLines(text) : text}`;
+}
+
+/**
+ * 给「往后压一段」用的原文：**从最早那条往后**装，装满为止。
+ * 返回 { text, count } —— count 是真正写进原文的条数，摘要的 end 必须按它记。
+ *
+ * ⚠️ 别改回「从最后往前装」的那种（旧的 buildTranscript 就是这么写的，已删）：
+ *    它超长时砍的是**最早**的几条，而调用方照样按整段 slice.length 记覆盖范围 ——
+ *    被砍掉的那几条既不在摘要里、又被当成「已压缩」挡在上下文外面，永久消失。
+ *    长回复的角色扮演（每条两千多字）十几条就会撞上。
+ *    **所有调用点都走这个函数**（summarize.js 的压一段 / memoryUi.js 的重新生成），
+ *    从头装、按实际条数记，装不下的那几条留到下一段再压。
+ */
+export function buildTranscriptFromStart(messages, charName) {
   const lines = [];
   let total = 0;
 
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const m = messages[i];
-    const who = m.role === 'user' ? '对方' : charName || '角色';
-    // 摘要不需要状态栏，剥掉省 token
-    const text = String(m.content || '').trim();
-    const line = `${who}：${m.role === 'assistant' ? stripPanelLines(text) : text}`;
-
+  for (const m of messages) {
+    const line = transcriptLine(m, charName);
     if (total + line.length > MAX_SUMMARY_INPUT_CHARS && lines.length) break;
     total += line.length;
-    lines.unshift(line);
+    lines.push(line);
   }
 
-  return lines.join('\n\n');
+  return { text: lines.join('\n\n'), count: lines.length };
 }
 
 /**

@@ -464,11 +464,12 @@ function bindEvents() {
     // 所以 base 用 cleanAssistantText 剥旧状态块（保留夹在中间的正文），
     // 本轮新增的 delta 用 cutTrailingStatusBlock 从第一个状态行起整体截断（不闪）。
     chunkTarget.delta += text;
-    // 把这一局的面板字段名带进去：只有「真的是面板字段」的行才砍，
-    // 内心描写 / 上帝视角的【心理】【旁白】小标题不能被当成状态块吞掉。
+    // 把这一局的面板字段名 + 分组名带进去：只有「真的是面板字段 / 已知分组标题」
+    // 的行才砍 —— 内心描写 / 上帝视角的【心理】【旁白】小标题，以及中文对话里
+    // 破折号起头的正文（「——等等，你说什么？」），都不能被当成状态块吞掉。
     const display =
       chunkTarget.base +
-      cutTrailingStatusBlock(chunkTarget.delta, convoFieldDisplayNames(convo));
+      cutTrailingStatusBlock(chunkTarget.delta, convoFieldDisplayNames(convo), [...panelGroupNames(convo)]);
     streamPainter.push(chunkTarget.node, display);
   });
 

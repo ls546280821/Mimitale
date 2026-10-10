@@ -38,7 +38,7 @@ import {
   MAX_SUMMARY_CHARS,
   convoContextMessages,
   convoSummaries,
-  buildTranscript,
+  buildTranscriptFromStart,
   pendingSummaryRange,
   generateSummary,
   summarizingConvos,
@@ -253,8 +253,15 @@ async function regenerateSummary(convo, segmentId) {
   }
 
   summarizingConvos.add(convo.id);
+  // 也挂上 summaryBusy（「压一段」那边还有 summarizingConvos 的并发闸兜着）。
+  // 这里不重画弹窗：点下去那颗按钮正显示「生成中…」，重画会把它冲掉；调用方结束后会重画。
+  convo.summaryBusy = true;
   try {
-    const transcript = buildTranscript(slice, charNameForSummary(convo));
+    // ⚠️ 和 summarize.js 用同一个口径：**从最早那条往后装**，别用 buildTranscript ——
+    //    它超长时砍的是**最早**的那几条。重新生成这段时若砍掉开头，摘要就只覆盖了
+    //    这一段的后半截，前半截原文又被这段的 end 挡在上下文外，等于静默丢了。
+    //    （这里只写回 target.text、不动 start/end，所以返回的 count 用不上。）
+    const transcript = buildTranscriptFromStart(slice, charNameForSummary(convo)).text;
     // 用「这段之前」的摘要当背景
     const previous = list
       .slice(0, index)
@@ -279,6 +286,7 @@ async function regenerateSummary(convo, segmentId) {
     showToast((err && err.message) || '重新生成失败', 'error');
     return false;
   } finally {
+    convo.summaryBusy = false;
     summarizingConvos.delete(convo.id);
   }
 }
