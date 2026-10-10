@@ -1546,7 +1546,6 @@
             <div class="wb-entries-head">
               <div class="wb-entries-title">
                 <input id="wb-name" type="text" spellcheck="false" placeholder="世界书名称" aria-label="世界书名称" />
-                <div id="wb-entry-count" class="wb-count"></div>
               </div>
               <div class="wb-entries-actions">
                 <button id="btn-preview-wb" class="btn btn-ghost btn-sm" type="button">预览命中</button>
@@ -1556,10 +1555,20 @@
             </div>
 
             <!-- 本书角色：从角色库复制进来的独立副本。
-                 和角色库里的那个角色互相独立，改哪边都不影响另一边。 -->
+                 和角色库里的那个角色互相独立，改哪边都不影响另一边。
+                 它就是「这本书的 NPC 名单」—— 进世界时 GM 照着他们演，
+                 勾了「显示状态」的还会出现在右栏头像条上。 -->
             <div class="wb-chars">
               <div class="wb-chars-head">
-                <span class="field-label">本书角色</span>
+                <!-- 标题整块就是折叠开关：一本酒馆书十来号 NPC，一排 chip 能把
+                     下面的条目和开场白挤没。收起只是 CSS 藏起来（DOM 还在），
+                     所以「＋ 新建」之后照样找得到 chip。 -->
+                <button id="btn-toggle-wb-chars" class="wb-chars-toggle" type="button" aria-expanded="true"
+                        title="本书角色 = 这本书的 NPC 名单：进世界时 GM 会照着他们演，勾了「显示状态」的会出现在右栏头像条上">
+                  <span class="wb-caret" aria-hidden="true"></span>
+                  <span class="field-label">本书角色</span>
+                  <span id="wb-char-count" class="wb-count"></span>
+                </button>
                 <div class="wb-chars-actions">
                   <button id="btn-add-wb-chars" class="btn btn-ghost btn-sm" type="button">＋ 从角色库加入</button>
                   <button id="btn-ai-wb-char" class="btn btn-ghost btn-sm" type="button"
@@ -1578,6 +1587,12 @@
               <textarea id="wb-opening" rows="3" spellcheck="false" placeholder="进这个世界时自动作为第一条消息。留空则让 AI 按设定现生成一段开局。"></textarea>
             </label>
 
+            <!-- 条目：标题和「开场白」一个样式。条目数原来挂在书名下面，
+                 看着像书名的注脚 —— 挪到它自己的标题旁边才对得上。 -->
+            <div class="wb-entry-head">
+              <span class="field-label">条目</span>
+              <span id="wb-entry-count" class="wb-count"></span>
+            </div>
             <div id="wb-entry-list" class="wb-entry-list"></div>
           </div>
         </section>

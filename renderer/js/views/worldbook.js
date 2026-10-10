@@ -87,6 +87,8 @@ export function initWorldbook(opts = {}) {
   el.wb.btnPreview.addEventListener('click', previewWorldbook);
   el.wb.btnAddChars.addEventListener('click', openWorldbookCharPicker);
   el.wb.btnNewChar.addEventListener('click', newWorldbookCharacter);
+  // 「本书角色」标题整块就是折叠开关：副本一多，那一排 chip 会把条目和开场白挤没
+  if (el.wb.btnToggleChars) el.wb.btnToggleChars.addEventListener('click', toggleWorldbookCharsFold);
   // 「AI 生成」→ 按这本书的设定生成一个 NPC 副本。生成结果一样落到角色编辑器
   // 草稿里（和「＋ 新建」同一条路），看过再保存。
   if (el.wb.btnAiChar) {
@@ -416,7 +418,21 @@ function renderEntryList() {
           entry.constant && h('span', { class: 'wb-badge', text: '常驻' }),
           entry.enabled === false && h('span', { class: 'wb-badge', text: '停用' })
         ),
-        h('div', { class: 'wb-entry-keys', text: (entry.keys || []).join(' / ') || '（无关键词）' })
+        h('div', { class: 'wb-entry-keys', text: (entry.keys || []).join(' / ') || '（无关键词）' }),
+        // 行上的 ×：一键删（不问确认框 —— 删的只是草稿，整本书点「保存」才落盘，
+        // 反悔的办法是不保存）。stopPropagation 是必须的：不然这一下同时把该条选中了。
+        button({
+          class: 'wb-entry-del',
+          text: '×',
+          title: '删除这条条目（点「保存」才写进磁盘）',
+          ariaLabel: `删除条目「${entry.title}」`,
+          onClick: (event) => {
+            event.stopPropagation();
+            if (removeEntry(entry.id)) {
+              showToast('条目已删除，点「保存」才写进磁盘；不保存关掉就还原');
+            }
+          }
+        })
       )
     );
   }
@@ -521,9 +537,34 @@ function selectEntry(id) {
 // ---------------------------------------------------------------------------
 //  本书角色：从角色库复制进来的独立副本
 //  和角色库里的那个角色互相独立 —— 改这边不影响那边，反之亦然。
+//
+//  这一块同时就是「这本书的 NPC 名单」（GM 提示词里的名单按它拼）。一本酒馆书
+//  动辄十来号人，所以标题整块做成折叠开关，默认按副本数决定收不收。
 // ---------------------------------------------------------------------------
 
-/** 画「本书角色」那一排 */
+/**
+ * 副本到这个数就先收起来。
+ * 一排 chip 能占掉半栏，下面的条目和开场白被挤成一条缝（2026-10-10 用户反馈）。
+ * 手动点过就以用户的选择为准；状态只记在内存里（和设置页的折叠卡片一样不落盘）。
+ */
+const WB_CHARS_COLLAPSE_AT = 6;
+const wbCharsExpanded = new Map(); // bookId → 用户手动切过的展开状态（有值就压过默认）
+
+function charsExpanded(book, count) {
+  const manual = wbCharsExpanded.get(book.id);
+  return typeof manual === 'boolean' ? manual : count < WB_CHARS_COLLAPSE_AT;
+}
+
+/** 点标题：本书角色 展开 ⇄ 收起 */
+function toggleWorldbookCharsFold() {
+  const book = currentWorldbook();
+  if (!book) return;
+  const count = worldbookCharacters(book).length;
+  wbCharsExpanded.set(book.id, !charsExpanded(book, count));
+  renderWorldbookChars();
+}
+
+/** 画「本书角色」那一排（外加标题上的副本数 / 折叠状态） */
 export function renderWorldbookChars() {
   const host = el.wb.charList;
   if (!host) return;
@@ -532,7 +573,16 @@ export function renderWorldbookChars() {
   const book = currentWorldbook();
   if (!book) return;
 
-  for (const c of worldbookCharacters(book)) {
+  const copies = worldbookCharacters(book);
+  const expanded = charsExpanded(book, copies.length);
+
+  // 收起是 CSS 藏起来（chip 仍在 DOM 里）—— 读 textContent 的检查照样认得到
+  if (el.wb.charCount) el.wb.charCount.textContent = copies.length ? `${copies.length} 个` : '';
+  if (el.wb.btnToggleChars) el.wb.btnToggleChars.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  const box = host.closest('.wb-chars');
+  if (box) box.classList.toggle('collapsed', !expanded);
+
+  for (const c of copies) {
     host.appendChild(
       h(
         'div',
@@ -964,11 +1014,39 @@ function newEntry() {
   el.wb.e.title.select();
 }
 
+/**
+ * 从草稿里删掉一条条目。两个入口共用：列表行上的 ×（不问，图快）和表单底部的
+ * 「删除条目」（问一句）。
+ *
+ * 删的只是**草稿**里的那一份 —— 整本书点「保存」才写进磁盘，所以这里不需要
+ * 自己确认。返回是否真的删了。
+ */
+function removeEntry(id) {
+  const draft = currentDraft();
+  if (!draft) return false;
+  if (!draft.entries.some((e) => e.id === id)) return false;
+
+  // 表单里正在填的先收进草稿：删的不一定是正在编辑的那条，
+  // 不 stash 的话紧接着的 renderEntryList / fillEntryForm 会把它正在打的字冲掉。
+  stashEntryForm();
+
+  draft.entries = draft.entries.filter((e) => e.id !== id);
+  markDraftDirty();
+
+  // 删的是正在编辑的那条 → 落到剩下的第一条（和整条删空时一致）
+  if (editingEntryId === id) editingEntryId = draft.entries.length ? draft.entries[0].id : null;
+
+  el.wb.entryCount.textContent = wbEntryCountText(draft.entries);
+  renderEntryList();
+  fillEntryForm(currentEntry());
+  return true;
+}
+
 async function deleteEntry() {
   const entry = currentEntry();
-  const draft = currentDraft();
-  if (!entry || !draft) return;
+  if (!entry) return;
 
+  // 先把表单里的名字收进草稿，确认框里才是刚敲的那个（不是上次回填的）
   stashEntryForm();
 
   const ok = await confirmDialog({
@@ -979,14 +1057,7 @@ async function deleteEntry() {
   });
   if (!ok) return;
 
-  draft.entries = draft.entries.filter((e) => e.id !== entry.id);
-  markDraftDirty();
-
-  editingEntryId = draft.entries.length ? draft.entries[0].id : null;
-  el.wb.entryCount.textContent = wbEntryCountText(draft.entries);
-  renderEntryList();
-  fillEntryForm(currentEntry());
-
+  removeEntry(entry.id);
   showToast('条目已删除，点「保存」才会写进磁盘');
 }
 

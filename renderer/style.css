@@ -4032,6 +4032,41 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 
 .wb-chars-head .field-label { padding-top: 0; }
 
+/* 标题整块是折叠开关。收起只藏 chip 和按钮（DOM 留着），所以收起状态不影响
+   程序化找元素。副本多的时候默认就是收起的，见 worldbook.js 的 WB_CHARS_COLLAPSE_AT。 */
+.wb-chars-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.wb-chars-toggle:hover { color: var(--accent); }
+
+/* 小三角：展开时朝下、收起时朝右。用 border 画，跟着 currentColor 走 */
+.wb-caret {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  opacity: 0.55;
+  transition: transform 0.15s ease;
+}
+
+.wb-chars:not(.collapsed) .wb-caret { transform: rotate(90deg); }
+.wb-chars.collapsed .wb-chars-actions,
+.wb-chars.collapsed .wb-char-list { display: none; }
+.wb-chars.collapsed .wb-chars-head { margin-bottom: 0; }
+
 /* 按钮排不下了就换行（宁可两行，也别溢出被裁） */
 .wb-chars-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .wb-chars-actions .btn { white-space: nowrap; }
@@ -4226,6 +4261,18 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
    另外它是内容区不是空隙，别让 flex 把它压扁。 */
 .wb-opening { flex: 0 0 auto; padding: 10px 12px 0; }
 
+/* 「条目」标题：和「开场白」一样是一行 field-label，条目数跟在它后面。
+   这个数是原来挂在书名下面的那个（`#wb-entry-count`，id 没换）。 */
+.wb-entry-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 12px 12px 0;
+}
+
+.wb-entry-head .field-label { padding-top: 0; }
+
 .wb-entries-title { display: flex; flex-direction: column; gap: 4px; }
 .wb-entries-title input { min-height: 34px; font-size: 13px; padding: 7px 11px; }
 .wb-count { font-size: 11px; color: var(--text-faint); }
@@ -4235,7 +4282,9 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 .wb-entry-list { flex: 1 1 auto; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
 
 .wb-entry {
-  padding: 7px 9px;
+  position: relative;
+  /* 右侧留出 × 的位置，常驻 / 停用那两个徽章不会被压在它下面 */
+  padding: 7px 26px 7px 9px;
   border: 1px solid transparent;
   border-radius: 8px;
   cursor: pointer;
@@ -4245,6 +4294,33 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 .wb-entry:hover { background: var(--bg-card); border-color: var(--border); }
 .wb-entry.active { background: var(--accent-soft); border-color: var(--accent-border-faint); }
 .wb-entry.disabled { opacity: 0.5; }
+
+/* 行上的 ×：平时淡着、鼠标扫过来（或键盘 Tab 到）才亮 —— 点一下直接删，
+   不问确认框（删的只是草稿，点「保存」才落盘，反悔的办法是不保存）。 */
+.wb-entry-del {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.wb-entry:hover .wb-entry-del,
+.wb-entry-del:focus-visible { opacity: 1; }
+.wb-entry-del:hover { color: var(--danger); background: var(--danger-bg); }
 
 .wb-entry-title {
   font-size: 12.5px;

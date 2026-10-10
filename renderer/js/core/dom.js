@@ -314,6 +314,8 @@ export const el = {
     btnExport: $('btn-export-wb'),
     btnDelBook: $('btn-del-worldbook'),
     charList: $('wb-char-list'),
+    charCount: $('wb-char-count'),
+    btnToggleChars: $('btn-toggle-wb-chars'),
     btnAddChars: $('btn-add-wb-chars'),
     btnAiChar: $('btn-ai-wb-char'),
     btnNewChar: $('btn-new-wb-char'),

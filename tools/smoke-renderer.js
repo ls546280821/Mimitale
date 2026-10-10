@@ -2759,6 +2759,41 @@ await scenario('世界书：新建条目', async () => {
   click('#btn-export-wb');
   await sleep(300);
   check('导出世界书后有提示', $('#toast').textContent.includes('已导出'), $('#toast').textContent);
+
+  // --- 「条目」标题 + 行上的 × ---
+  check('「条目」有自己的标题（跟开场白一个样式）',
+    $('.wb-entry-head .field-label').textContent === '条目', $('.wb-entry-head .field-label').textContent);
+  check('条目数挂在标题旁边（不再挂在书名下面）',
+    $('.wb-entry-head .wb-count') === byId('wb-entry-count'));
+
+  // 两条新条目：删「甲」的时候不该把编辑焦点从「乙」抢走（× 上的 stopPropagation）
+  click('#btn-new-entry');
+  setValue('#wb-e-title', '甲条目');
+  click('#btn-new-entry');
+  setValue('#wb-e-title', '乙条目');
+  await waitFor('甲、乙两条都在列表里', () =>
+    $('#wb-entry-list').textContent.includes('甲条目') && $('#wb-entry-list').textContent.includes('乙条目'));
+  check('正在编辑的是刚建的「乙条目」', byId('wb-e-title').value === '乙条目', byId('wb-e-title').value);
+
+  click($$('#wb-entry-list .wb-entry').find((r) => r.textContent.includes('甲条目')).querySelector('.wb-entry-del'));
+  await sleep(150);
+  check('× 把那条条目删掉了', !$('#wb-entry-list').textContent.includes('甲条目'));
+  check('× 删除不弹确认框', !shown('#confirm-modal'));
+  check('× 不会顺手把编辑焦点抢过去', byId('wb-e-title').value === '乙条目', byId('wb-e-title').value);
+  check('× 删除有「点保存才写进磁盘」的提示', $('#toast').textContent.includes('点「保存」'), $('#toast').textContent);
+
+  // 删正在编辑的那一条 → 焦点落到剩下的第一条，不会停在一个已经不存在的条目上
+  click($$('#wb-entry-list .wb-entry').find((r) => r.textContent.includes('乙条目')).querySelector('.wb-entry-del'));
+  await sleep(150);
+  check('删掉正在编辑的那条，焦点落到第一条', byId('wb-e-title').value === '世界总览', byId('wb-e-title').value);
+  check('右栏表单还开着（条目没删空）', shown('#wb-form'));
+
+  click('#btn-save-wb');
+  await sleep(300);
+  const keptTitles = ((await savedWorldbooks())[0].entries || []).map((e) => e.title);
+  check('× 删掉的条目保存后没落到磁盘上',
+    !keptTitles.includes('甲条目') && !keptTitles.includes('乙条目'), JSON.stringify(keptTitles));
+  check('别的条目没被误删', keptTitles.includes('世界总览'), JSON.stringify(keptTitles));
 });
 
 // ---------------------------------------------------------------------------
@@ -2827,6 +2862,23 @@ await scenario('世界书：本书角色', async () => {
   click('#btn-close-chars');
   await sleep(120);
   check('副本保存后关闭不弹确认框', !shown('#confirm-modal'));
+
+  // 「本书角色」标题整块是折叠开关：副本一多，那一排 chip 会把条目和开场白挤没。
+  // 收起只是 CSS display:none（chip 还在 DOM 里），所以这里查 computed style 才算数。
+  const charsBox = $('#wb-char-list').closest('.wb-chars');
+  check('标题上标着副本数', byId('wb-char-count').textContent.includes('个'), byId('wb-char-count').textContent);
+  check('副本少的时候默认展开', !charsBox.classList.contains('collapsed'));
+  click('#btn-toggle-wb-chars');
+  await sleep(120);
+  check('点标题收起整块', charsBox.classList.contains('collapsed'));
+  check('收起后 chip 真的不占地方', getComputedStyle(byId('wb-char-list')).display === 'none');
+  check('收起后操作按钮也跟着收', getComputedStyle($('.wb-chars-actions')).display === 'none');
+  check('收起时 aria-expanded 跟着变', byId('btn-toggle-wb-chars').getAttribute('aria-expanded') === 'false');
+  click('#btn-toggle-wb-chars');
+  await sleep(120);
+  check('再点一下又展开', !charsBox.classList.contains('collapsed')
+    && getComputedStyle(byId('wb-char-list')).display !== 'none');
+  check('展开后副本还在', $('#wb-char-list').textContent.includes('冒烟NPC'), $('#wb-char-list').textContent);
 
   click('#btn-close-worldbooks');
   await waitFor('世界书弹窗关闭', () => !shown('#worldbooks-modal'));
