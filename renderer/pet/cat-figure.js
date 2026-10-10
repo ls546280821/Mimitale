@@ -231,8 +231,15 @@ export function createCatFigure(opts = {}) {
     sizer.style.width = `${f1(cssW)}px`;
     sizer.style.height = `${f1(cssH)}px`;
     sizer.style.marginBottom = `${-(cssH * FEET_PAD / vh).toFixed(1)}px`;
-    canvas.width = wantPx;
-    canvas.height = Math.max(16, Math.round(cssH * k));
+    // ⚠️ canvas 的像素尺寸**只在真的变了**才重设。给 canvas.width / height 赋值会
+    //    **清空整个绘制缓冲** —— 紧接着那一帧窗口里什么都没有，视觉上就是「闪一下」。
+    //    窗口在拖动 / 系统改尺寸 / 改缩放时会来回抖一两像素，每次都重设就闪个不停。
+    //    差 1px 不重设：那点差异肉眼看不出来，但省掉一次清空。
+    const wantPy = Math.max(16, Math.round(cssH * k));
+    if (Math.abs(canvas.width - wantPx) > 1 || Math.abs(canvas.height - wantPy) > 1) {
+      canvas.width = wantPx;
+      canvas.height = wantPy;
+    }
   }
 
   /* =========================================================================

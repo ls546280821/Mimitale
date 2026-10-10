@@ -52,6 +52,12 @@ let dragTimer = null;
 let dragOffset = null;
 let dragStartBounds = null;
 let moveSaveTimer = null;
+// == 下面这两个用于「尺寸自愈」：
+//    尺寸纠正本身会再送一次 'resize'，直接同步调就是递归、连着调就是事件风暴，
+//    所以 resize 那条路一律先攒一下（sizeFixTimer）再纠。
+let sizeFixTimer = null;
+// 上一次**真正**纠尺寸的时刻（节流用，见 throttledEnsureSize）
+let sizeFixAt = 0;
 // 当前窗口**内容区**尺寸对应的缩放。所有尺寸判断都以它为准 ——
 // 注意它不是从 getBounds 反推的，而是我们自己维护的「应该多大」
 let currentScale = 1;
@@ -196,13 +202,60 @@ function ensureSize() {
   if (sizeMatchesScale(win, currentScale)) return;
   const now = contentBoundsOf(win);
   const { width, height } = sizeFor(currentScale);
-  // 只纠尺寸，位置保持右下角不动（和 applyScale 一致），避免拖拽中被拽回去
   win.setContentBounds({
     x: now.x + (now.width - width),
     y: now.y + (now.height - height),
     width,
     height
   });
+}
+
+/**
+ * 挪动宠物窗口（拖动 / 散步共用的那个 16ms 步进全走它）。
+ *
+ * ⚠️⚠️ 必须用 setContentBounds **带上尺寸**，绝不能用 setPosition：
+ *    setPosition 只挪位置、尺寸沿用当前值 —— 而系统在窗口每次移动后会重算一次
+ *    内容区尺寸（useContentSize 的窗口按 DPI 换算，一次漂一点），挪一次涨一点，
+ *    拖久了就越来越大。
+ *    每一步都把「位置 + 正确尺寸」一起写下去，系统**连漂移的机会都没有** ——
+ *    也就不需要事后纠；不用「先挪再纠」，窗口就不会在两个值之间每帧振荡
+ *    （2026-10-10 第四轮：先 setPosition 再 ensureSize 纠回去 = 宠物抖个不停）。
+ *
+ * 为什么尺寸取的是 currentScale 而不是读回来的：读回来的那个可能刚被系统改过，
+ * 写回去等于把脏值固化；写「应该的值」才是把窗口当**我们**的。
+ */
+function movePetWindow(x, y) {
+  const win = getPetWindow();
+  if (!win || win.isDestroyed()) return;
+  const { width, height } = sizeFor(currentScale);
+  win.setContentBounds({ x: Math.round(x), y: Math.round(y), width, height });
+}
+
+/**
+ * resize 那条路的尺寸纠正（**节流**，不是防抖）。
+ *
+ * ⚠️ 这里用防抖会饿死：拖动 / 散步时系统连着重算尺寸、resize 事件源源不断，
+ *    「停下 60ms 才执行」等于永远不执行 —— 表现就是「长按拖动时一直变大、
+ *    松手才变回去」（2026-10-10 实际踩过这个坑）。节流保证持续事件里也至少
+ *    每 SIZE_FIX_MS 纠一次。
+ */
+const SIZE_FIX_MS = 80;
+function throttledEnsureSize() {
+  const now = Date.now();
+  const wait = SIZE_FIX_MS - (now - sizeFixAt);
+  if (wait <= 0) {
+    clearTimeout(sizeFixTimer);
+    sizeFixTimer = null;
+    sizeFixAt = now;
+    ensureSize();
+    return;
+  }
+  if (sizeFixTimer) return; // 已经排了一个在等，别插队
+  sizeFixTimer = setTimeout(() => {
+    sizeFixTimer = null;
+    sizeFixAt = Date.now();
+    ensureSize();
+  }, wait);
 }
 
 /** 记下当前位置（防抖）—— 拖动时 moved 会连发几十次，不能每次都写盘 */
@@ -247,7 +300,10 @@ function startDrag() {
     const w = getPetWindow();
     if (!w) return stopDrag();
     const point = screen.getCursorScreenPoint();
-    w.setPosition(Math.round(point.x - dragOffset.x), Math.round(point.y - dragOffset.y));
+    // 走 movePetWindow（setContentBounds 带尺寸）而不是 setPosition：
+    // 让系统每一步都拿到「位置 + 正确尺寸」，它没有机会漂，我们也就不用纠 ——
+    // 不「挪完再纠」就没有两个值之间的振荡 = 不抖。
+    movePetWindow(point.x - dragOffset.x, point.y - dragOffset.y);
   }, 16);
 }
 
@@ -377,9 +433,22 @@ function createPetWindow() {
     scheduleSaveBounds();
     ensureSize();
   });
+  // ⚠️ 只挂 'moved' 挡不住全部：Windows 重算内容区尺寸时**位置可能一点都不变**
+  //    （只把尺寸改大），那种情况 'moved' 根本不送 —— 窗口就停在「变大」的样子上，
+  //    再也缩不回来。用户报的「长按拖动时宠物放大」正对上这个：
+  //    变大的那一侧不自愈，而尺寸一变又会走渲染层的 resize（那里重建命中掩码，
+  //    见 renderer/pet/pet.js）。'resize' 兜住另一半，两条合起来才是
+  //    「位置和尺寸都不漂」。
+  //
+  // ⚠️⚠️ 但**不能在事件里同步调 ensureSize**：ensureSize 自己就是 setContentBounds，
+  //    它又会再送一次 'resize' —— 同步就是递归，连着调就是事件风暴（一轮拖动里
+  //    系统每几毫秒重算一次尺寸，每次都纠就是每秒几十次窗口缩放 = 肉眼看是「闪」）。
+  //    所以走**节流**（不是防抖！防抖会被持续到来的 resize 饿死，见 throttledEnsureSize）。
+  petWindow.on('resize', () => throttledEnsureSize());
   petWindow.on('closed', () => {
     stopDrag();
     clearTimeout(moveSaveTimer);
+    clearTimeout(sizeFixTimer);
     petWindow = null;
   });
 
@@ -390,6 +459,7 @@ function createPetWindow() {
 function destroyPetWindow() {
   stopDrag();
   clearTimeout(moveSaveTimer);
+  clearTimeout(sizeFixTimer);
   pendingScale = null;
   const win = getPetWindow();
   petWindow = null;
@@ -450,9 +520,11 @@ module.exports = {
   //    （只剩 pet:ready 的推送那条路，拉取那条是哑的）。
   buildPetStatePayload,
   applyScale,
-  // 让散步循环在每趟走完时也纠一次尺寸（它 setPosition 会触发 moved，但
+  // 让散步循环在每趟走完时也纠一次尺寸（它移动窗口会触发 moved，但
   // 有些平台 moved 不送，兜底手动调一次更稳）
   ensureSize,
+  // 拖动 / 散步的 16ms 步进用它挪窗口（setContentBounds 带尺寸，防漂）
+  movePetWindow,
   sizeFor,
   startDrag,
   stopDrag,

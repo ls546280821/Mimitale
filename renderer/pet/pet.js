@@ -132,17 +132,21 @@ function maskSource() {
  *
  * 掩码除了给点选判断用，还顺手算出**宠物头顶的 y**（见 `spriteTopInWrap`）——
  * 气泡要贴着它放，别飘在画布上方那片空白里。
+ *
+ * ⚠️ 调用的时机比函数本身更要紧：`fitCanvas` 一改 canvas 的像素尺寸就清空绘制缓冲，
+ *    所以**尺寸刚变过的那一帧画布是空的**。在那一帧调用本函数会得到一张全透明的
+ *    掩码（= 宠物点不动）。正确时机见文件下方 resize 那条注释。
  */
 function rebuildMask() {
-  mask = null;
+  const previous = mask;
   spriteTopInWrap = null;
   const src = maskSource();
-  if (!src) return;
+  if (!src) { mask = null; return; }
 
   const rect = src.getBoundingClientRect();
   const w = Math.round(rect.width);
   const h = Math.round(rect.height);
-  if (w <= 0 || h <= 0) return;
+  if (w <= 0 || h <= 0) { mask = null; return; }
 
   try {
     const canvas = document.createElement('canvas');
@@ -154,7 +158,24 @@ function rebuildMask() {
     const pixels = ctx.getImageData(0, 0, w, h).data;
 
     const alpha = new Uint8Array(w * h);
-    for (let i = 0; i < w * h; i += 1) alpha[i] = pixels[i * 4 + 3];
+    let solid = 0;
+    for (let i = 0; i < w * h; i += 1) {
+      const a = pixels[i * 4 + 3];
+      alpha[i] = a;
+      if (a >= ALPHA_THRESHOLD) solid += 1;
+    }
+
+    // 整张画布都透明 = 这份像素根本还没画上去（fitCanvas 刚给 canvas 改过像素尺寸、
+    // 绘制缓冲被清空；或者首帧还没渲染）。**别拿它当掩码** —— 那等于宣告
+    // 「宠物身上一个实心像素都没有」，命中判断全部落空，宠物就点不动了。
+    // 真正防这件事的是 resize 那条路（`catRig.refit(rebuildMask)`，等下一帧画完），
+    // 这里只是兜底：读不到东西就保留上一份能用的掩码。
+    if (!solid && previous) {
+      mask = previous;
+      syncBubbleAnchor();
+      return;
+    }
+
     mask = { w, h, alpha };
 
     // 头顶：第一个「这一行有足够多不透明像素」的行。
@@ -227,9 +248,17 @@ function syncBubbleAnchor() {
  *
  * 为什么要量而不是写死：尾巴尺寸在 CSS 里，改了 CSS 这里忘了跟就会压头发
  * （2026-10-10 把尾巴从 7.5px 加到 9px 时，气泡就压到 ahoge 上了）。
- * 取 ::before（尾巴外沿）的 `bottom` 偏移 —— 它是负数，绝对值就是探出的高度。
+ *
+ * 尾巴现在是「旋转圆角方块」（见 pet.css 的 .bubble::before）：视觉探出量
+ * 是对角线的一半，**没法**从 CSS 的 bottom 偏移读出来 —— 所以实测值写在
+ * :root 的 `--tail-overhang` 里，这里优先用它；变量缺失（旧样式表）再退回
+ * 从 ::before 上量 bottom 偏移的旧量法。
  */
 function overhangBelowBubble() {
+  const rootCs = getComputedStyle(document.documentElement);
+  const declared = parseFloat(rootCs.getPropertyValue('--tail-overhang'));
+  if (Number.isFinite(declared) && declared > 0) return declared;
+
   const cs = getComputedStyle(bubble, '::before');
   if (cs && cs.content && cs.content !== 'none') {
     const off = parseFloat(cs.bottom);
@@ -244,10 +273,36 @@ function overhangBelowBubble() {
 //   ① 立刻让 rig 按新尺寸重建位图。不这么做的话位图要等 draw 里那个 20 帧周期才重算，
 //      中间那几帧是旧尺寸的像素被 CSS 拉伸，看着就是「宠物被拉长了一瞬间」。
 //   ② 重建不透明掩码（点选命中区要跟着新尺寸走）。
-// ⚠️ 顺序不能反：refit 改了 canvas 的 width/height，掩码要读的是**新**画布的像素。
+//
+// ⚠️⚠️ ②**绝不能在 ① 的同一帧里做**（2026-10-10 修的 bug）。
+//    `fitCanvas` 给 `canvas.width / height` 赋新值会**当场清空 WebGL 绘制缓冲**，
+//    所以 ① 之后这一帧的 canvas 是**空白**的 —— 用它算出来的掩码整张透明，
+//    `inSprite` 于是次次落空 → 窗口一直判定「鼠标不在宠物身上」→ 一直保持鼠标穿透
+//    → **宠物看得见、但点不动也拖不走**。
+//    用户实测的形态正是这个：长按（拖动时系统重算了内容区尺寸 → 触发 resize）
+//    之后就点不到了，去设置里改一次大小/缩放又能点 —— 因为那条路是在
+//    `pet:state` → `applyState` 之后**延迟 150ms** 才重建掩码的，那时画布早画好了。
+//    所以这里把重建挂到 `refit` 的「下一帧画完」回调上（cat.js 的帧循环负责触发）。
+/**
+ * 拖动期间攒下的「尺寸变了，等松手再重建」标记。
+ * 为什么要攒：见下面 resize 那条注释 —— 拖动中重建就是「一直闪」。
+ */
+let refitPending = false;
+
+/** 按当前窗口尺寸重建位图 + 命中掩码（掩码必须等下一帧画完，见 cat.js 的 refit） */
+function refitNow() {
+  refitPending = false;
+  catRig.refit(rebuildMask);
+}
+
 window.addEventListener('resize', () => requestAnimationFrame(() => {
-  catRig.refit();
-  rebuildMask();
+  // 拖动中**先不重建**（2026-10-10 修「拖动时一直闪」）：
+  // 拖动时窗口跟着光标跑，而主进程那边同时还在把系统重算出来的尺寸纠回去，
+  // 一次拖动能触发几十次 resize。每次都重建 = 每帧给 canvas 重设一次像素尺寸 =
+  // 每帧清空一次绘制缓冲 → 视觉上就是「闪个不停」。
+  // 攒到松手（mouseup / blur）后统一补一次 —— 那时尺寸已经纠稳，一次就够。
+  if (dragging) { refitPending = true; return; }
+  refitNow();
 }));
 // 气泡内容一变高，下沿就该重新对一次头顶（气泡是「底边锚定」的）
 if (window.ResizeObserver) {
@@ -519,6 +574,13 @@ window.petBridge.onSay((payload) => {
 
 let dragging = false;
 
+/**
+ * 最近一次的指针位置（窗口坐标）。
+ * 只在「拖动中途失焦」那条兜底路上用：blur 事件本身不带坐标，而没有坐标就重算不了
+ * 穿透状态 —— 不复位的话窗口会卡在不穿透那一侧，整块矩形变成点不动的死区。
+ */
+let lastPointer = null;
+
 spriteWrap.addEventListener('mousedown', (event) => {
   if (event.button !== 0) return;
   // 只有按在**宠物的实体像素**上才算拖。sprite-wrap 铺满整个窗口，
@@ -532,6 +594,7 @@ spriteWrap.addEventListener('mousedown', (event) => {
 });
 
 document.addEventListener('mousemove', (event) => {
+  lastPointer = { x: event.clientX, y: event.clientY };
   // 视线跟踪的原料：相对窗口中心的偏移（cat.js 内部会 clamp / 衰减）
   const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
   catRig.mouseMove((event.clientX - cx) / 40, (event.clientY - cy) / 40);
@@ -548,6 +611,8 @@ document.addEventListener('mouseup', async (event) => {
   dragging = false;
   catRig.dragEnd();
   spriteWrap.classList.remove('dragging');
+  // 拖动中攒下的重建补上（拖动里窗口尺寸变过，那时故意没重建，见 resize 那条注释）
+  if (refitPending) requestAnimationFrame(refitNow);
   // 拖完光标可能停在透明区域上，主动重算一次
   setClickThrough(!(inBubble(event.clientX, event.clientY) || inSprite(event.clientX, event.clientY)));
 
@@ -572,12 +637,20 @@ document.addEventListener('mouseup', async (event) => {
 
 // 拖动时窗口跟着光标跑，有可能收不到 mouseup（在窗口外面松的手）。
 // 一失去焦点就当作拖完了，不然宠物会一直「粘」在鼠标上。
+// ⚠️ 复位拖动的同时**必须把穿透状态也重算一次**：少了这一步，窗口会停在
+//    「不穿透」那一侧 —— 整块 300×380 的矩形就变成桌面上一片点不动的死区
+//    （点宠物旁边的图标毫无反应，看着就像「宠物丢了」）。
+//    blur 事件不带坐标，所以用最后一次记录的指针位置，和 mouseup 同口径。
 window.addEventListener('blur', () => {
   if (!dragging) return;
   dragging = false;
   catRig.dragEnd();
   spriteWrap.classList.remove('dragging');
   window.petBridge.dragEnd();
+  // 拖动中攒下的重建也补上（和 mouseup 同一条口径）
+  if (refitPending) requestAnimationFrame(refitNow);
+  const p = lastPointer;
+  setClickThrough(!(p && (inBubble(p.x, p.y) || inSprite(p.x, p.y))));
 });
 
 // 右键交给主进程弹**原生菜单**（理由见 preload-pet.js）

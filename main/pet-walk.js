@@ -25,7 +25,7 @@
 const { screen } = require('electron');
 
 const { loadPetConfig, findPet } = require('./pet-store.js');
-const { getPetWindow, sendToPet, ensureSize } = require('./pet-window.js');
+const { getPetWindow, sendToPet, ensureSize, movePetWindow } = require('./pet-window.js');
 
 /** 等待间隔（秒）：两次散步之间 */
 const WAIT_MIN = 90;
@@ -152,13 +152,16 @@ function startTrip() {
     const d = Math.hypot(ddx, ddy);
     if (d <= Math.max(2, step)) {
       walkPosition = { x: target.x, y: target.y };
-      w.setPosition(target.x, target.y);
+      movePetWindow(target.x, target.y);
       stopTrip(true);
       return;
     }
     walkPosition.x += (ddx / d) * step;
     walkPosition.y += (ddy / d) * step;
-    w.setPosition(Math.round(walkPosition.x), Math.round(walkPosition.y));
+    // 走 movePetWindow（setContentBounds 带尺寸）而不是 setPosition：
+    // 散步也是连续移动，系统同样会在每步后重算内容区尺寸 —— 不带尺寸挪，
+    // 「散步时越来越大」就会悄悄回来；带上尺寸它连漂的机会都没有。
+    movePetWindow(walkPosition.x, walkPosition.y);
   }, STEP_MS);
 }
 

@@ -306,6 +306,43 @@ ok(/nodeIntegration:\s*false/.test(createSrc), 'nodeIntegration:false');
 ok(/sandbox:\s*true/.test(createSrc), 'sandbox:true（和设计记录一致，别比主窗口更宽松）');
 ok(!/sandbox:\s*false/.test(createSrc), 'sandbox 没有被关掉');
 
+// 尺寸自愈要「位置」和「尺寸」两条都接上：
+// Windows 重算内容区尺寸时位置可能一点都不变（只把尺寸改大），'moved' 不送 ——
+// 少了 'resize' 这条，窗口就停在放大状态再也缩不回来（用户报的「长按拖动时放大」）。
+// ⚠️ 但它必须是**节流**：ensureSize 自己就 setContentBounds，而它会再送一次
+//    'resize' —— 同步调是递归，连着调是事件风暴（每秒几十次窗口缩放 = 闪）。
+//    用**防抖**更糟：拖动 / 散步时 resize 源源不断，「停下才执行」等于永不执行，
+//    表现就是「长按拖动时一直变大、松手才变回去」（2026-10-10 实际踩过）。
+ok(
+  /on\('resize',[\s\S]{0,500}?throttledEnsureSize\(\)/.test(createSrc),
+  "窗口 resize 走节流纠尺寸（同步=递归、防抖=被饿死）"
+);
+ok(
+  /function throttledEnsureSize\(\)/.test(petWindowSrc),
+  '有 throttledEnsureSize（节流实现）'
+);
+ok(
+  !/setTimeout\(ensureSize,\s*60\)/.test(petWindowSrc),
+  '没有退回「防抖 60ms」那个会被持续 resize 饿死的写法'
+);
+// 拖动 / 散步挪窗口必须走 movePetWindow（setContentBounds 带着正确尺寸），
+// 不能用 setPosition —— setPosition 挪完，系统会重算一次内容区尺寸，拖着拖着
+// 就变大；而「挪完再用 ensureSize 纠回去」= 窗口在两个值之间每帧振荡 = 抖
+// （2026-10-10 第四轮：第三轮那种「setPosition + ensureSize(true)」就是这么抖的）。
+ok(/function movePetWindow\(x, y\)/.test(petWindowSrc), '有 movePetWindow（带尺寸挪窗口，防漂）');
+{
+  const dragBlock = (petWindowSrc.match(/dragTimer = setInterval[\s\S]*?\}, 16\);/) || [''])[0];
+  ok(/movePetWindow\(/.test(dragBlock), '拖动循环走 movePetWindow');
+  ok(!/setPosition\(/.test(dragBlock), '拖动循环里没有 setPosition');
+  ok(!/ensureSize\(/.test(dragBlock), '拖动循环里不再事后纠（不「挪完再纠」= 不振荡）');
+}
+{
+  const walkSrc = read('main/pet-walk.js');
+  const walkBlock = (walkSrc.match(/walkTimer = setInterval[\s\S]*?\}, STEP_MS\);/) || [''])[0];
+  ok(/movePetWindow\(/.test(walkBlock), '散步循环也走 movePetWindow（「散步时越来越大」不许回归）');
+  ok(!/setPosition\(/.test(walkBlock), '散步循环里没有 setPosition');
+}
+
 // ---------------------------------------------------------------------------
 section('「隐藏 = 不说话」这条口径');
 
@@ -367,11 +404,19 @@ section('气泡：有尾巴、长句不撑破、逐句淡入');
 {
   const cssSrc = read('renderer/pet/pet.css');
 
-  // 尾巴（::before/::after 两个三角）—— 没有它气泡就是浮在头上的一张卡片，
-  // 跟宠物是「两张贴纸」，不像它在说话
-  ok(/\.bubble::before/.test(cssSrc) && /\.bubble::after/.test(cssSrc), '气泡有指向宠物的小尾巴');
+  // 尾巴（旋转圆角方块，见 .bubble::before）—— 没有它气泡就是浮在头上的一张卡片，
+  // 跟宠物是「两张贴纸」，不像它在说话。
+  // 2026-10-10 定版（星布谷地方向）：从「两层 CSS 三角」换成**单个旋转方块**
+  // （描边顺着气泡流下来、尖端圆润、放大不锯齿），::after 那层因此删掉了。
+  ok(/\.bubble::before/.test(cssSrc), '气泡有指向宠物的小尾巴');
+  ok(
+    /transform:\s*rotate\(45deg\)/.test(cssSrc),
+    '尾巴是旋转方块做法（不是两层 CSS 三角，那个放大有锯齿）'
+  );
   // 尾巴画在框外，父容器一裁就没了
   ok(/\.bubble\s*\{[^}]*overflow:\s*visible/.test(cssSrc), '气泡不裁剪（否则尾巴被切掉）');
+  // 尾巴的实际探出量要声明给 pet.js（旋转方块探出量读不出 bottom 偏移）
+  ok(/--tail-overhang/.test(cssSrc), '有 --tail-overhang 给 pet.js 的气泡锚点用');
 
   // ---- 「可爱」这一版的具体做法（2026-10-10）----
   // 都是**观感**上的取舍，容易被后来的人当成"随便调的"改回去，所以钉住：
@@ -382,10 +427,15 @@ section('气泡：有尾巴、长句不撑破、逐句淡入');
   }
   // 描边带主题蓝，不是灰的
   ok(/--bubble-edge/.test(cssSrc), '气泡描边用带主题色的 --bubble-edge（不是纯灰）');
-  // 渐变填充，不是平涂
+  // 2026-10-10 定版（星布谷地方向）：**纯白底**，不要渐变 —— 用户原话「渐变色
+  // 不是很好看，感觉风格有点老气」。别把 linear-gradient 加回 .bubble 的背景。
   ok(
-    /\.bubble\s*\{[^}]*background:\s*linear-gradient/.test(cssSrc),
-    '气泡用上浅下深的渐变（纯平涂像系统提示框）'
+    /\.bubble\s*\{[^}]*background:\s*var\(--bubble-bg\)/.test(cssSrc),
+    '气泡是纯白底（--bubble-bg），不再用渐变'
+  );
+  ok(
+    !/\.bubble\s*\{[^}]*background:\s*linear-gradient/.test(cssSrc),
+    '.bubble 背景没有退回渐变'
   );
   // 冒出来有回弹（过冲的 cubic-bezier），不是直上直下
   ok(
@@ -945,16 +995,55 @@ section('参数口径：尾巴摇动 / 缩放重算，别改回会「抖」的�
   ok(/refit\(\)\s*\{\s*fitCanvas\(true\)/.test(figSrc), 'figure 暴露 refit() = 强制重算');
 
   const catSrc = read('renderer/pet/cat.js');
-  ok(/refit\(\)\s*\{\s*figure\?\.refit\(\)/.test(catSrc), 'catRig 把 refit 转出去');
+  ok(
+    /refit\(onDrawn\)\s*\{[\s\S]{0,500}figure\.refit\(\)/.test(catSrc),
+    'catRig 把 refit 转出去，并支持 onDrawn 回调'
+  );
+  ok(/\bafterDrawOnce\b/.test(catSrc), 'cat.js 有「下一帧 draw 之后执行一次」的回调机制');
 
   const petSrc = read('renderer/pet/pet.js');
-  // ⚠️ 顺序不能反：refit 改了 canvas 尺寸，掩码要读新画布的像素
-  const resizeBlock = (petSrc.match(/addEventListener\('resize'[\s\S]{0,200}/) || [''])[0];
-  ok(/catRig\.refit\(\)/.test(resizeBlock), 'pet.js 的 resize 回调里调了 refit');
+  /**
+   * ⚠️ 掩码重建必须挂在 refit 的「下一帧画完」回调上。
+   *
+   * 2026-10-10 修的 bug：原来是同一帧里 `catRig.refit(); rebuildMask();`，
+   * 注释给的理由是「掩码要读新画布的像素」—— 恰恰相反。`fitCanvas` 给
+   * `canvas.width / height` 赋新值会**清空 WebGL 绘制缓冲**，当帧读到的是一张
+   * **空白**画布，算出来的掩码整张透明 → `inSprite` 次次落空 → 窗口一直保持
+   * 鼠标穿透 → 宠物看得见却点不动、也拖不走。用户实测形态：长按拖动之后点不到，
+   * 去设置里改一次大小又能点（那条路是延迟 150ms 重建的）。
+   * 别把这两条改回「同一帧」的写法。
+   */
+  const resizeBlock = (petSrc.match(/addEventListener\('resize'[\s\S]{0,400}/) || [''])[0];
+  ok(/refitNow\(\)/.test(resizeBlock), 'pet.js 的 resize 回调走 refitNow()');
   ok(
-    resizeBlock.indexOf('catRig.refit()') < resizeBlock.indexOf('rebuildMask()'),
-    'refit 在 rebuildMask **之前**（掩码要读新画布的像素）'
+    /dragging[\s\S]{0,60}refitPending/.test(resizeBlock),
+    '拖动中只标记待补、不当场重建（拖动中重建画布 = 一直闪）'
   );
+  ok(
+    /function refitNow\(\)[\s\S]{0,200}catRig\.refit\(rebuildMask\)/.test(petSrc),
+    'refitNow 把掩码重建挂在 refit 的「下一帧画完」回调上（当帧读像素只会拿到空白画布）'
+  );
+  ok(
+    !/catRig\.refit\(\)\s*;\s*\n\s*rebuildMask\(\)/.test(petSrc),
+    '没有退回「同一帧 refit 完就 rebuildMask」的老写法'
+  );
+  ok(/if \(!solid && previous\)/.test(petSrc), 'rebuildMask 读到全透明画布时保留旧掩码（兜底）');
+  // 拖动攒下的重建要在 mouseup / blur 两条收尾路上都补
+  ok(
+    (petSrc.match(/if \(refitPending\) requestAnimationFrame\(refitNow\)/g) || []).length === 2,
+    'mouseup 和 blur 都补了拖动中攒下的重建'
+  );
+  // canvas 像素尺寸只在真变了才重设：重设会清空绘制缓冲 → 那一帧是空的 = 闪
+  ok(
+    /Math\.abs\(canvas\.width - wantPx\) > 1/.test(figSrc),
+    'canvas 像素尺寸差 1px 不重设（重设会清空 → 闪）'
+  );
+
+  // blur 兜底（拖到窗口外松手）除了复位拖动，还得重算穿透状态 ——
+  // 少这一步窗口会卡在「不穿透」那侧，整块矩形变成桌面上一片点不动的死区
+  const blurBlock = (petSrc.match(/addEventListener\('blur'[\s\S]{0,700}/) || [''])[0];
+  ok(/setClickThrough\(/.test(blurBlock), 'blur 兜底复位拖动时也重算穿透状态');
+  ok(/lastPointer/.test(petSrc), '有 lastPointer 记录，blur 才知道该按哪一点重算');
 }
 
 // ---------------------------------------------------------------------------

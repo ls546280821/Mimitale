@@ -233,12 +233,24 @@ function startLoop() {
     if (busy && face === 'thinking') fc.think = true;
 
     figure.draw(fc, o);
+
+    // 窗口尺寸刚变过（refit 传了回调）→ 等**这一帧画完**再回调。
+    // 时机就是关键：fitCanvas 给 canvas 改像素尺寸会清空绘制缓冲，refit 当帧的
+    // 画布是空的，那时去读像素只会拿到一张全透明掩码 → 宠物点不动。
+    if (afterDrawOnce) {
+      const run = afterDrawOnce;
+      afterDrawOnce = null;
+      run();
+    }
   };
   rafId = requestAnimationFrame(step);
 }
 
 let prevMode = 'idle';
 let dragHeld = false;
+
+/** 下一帧 draw 完成后执行一次的回调（目前只有 pet.js 的掩码重建用）。 */
+let afterDrawOnce = null;
 
 function modelPivot(name) {
   const pv = figure && figure.model && figure.model.pivots;
@@ -351,8 +363,23 @@ export const catRig = {
 
   applyState,
 
-  /** 窗口尺寸变了：立刻按新尺寸重建位图（理由见 cat-figure.js 的 refit 注释） */
-  refit() { figure?.refit(); },
+  /**
+   * 窗口尺寸变了：立刻按新尺寸重建位图（理由见 cat-figure.js 的 refit 注释）。
+   *
+   * ⚠️ 传了 onDrawn 就**不是在当帧回调**，而是挂到「下一帧画完之后」（帧循环里触发）。
+   *    调用方要用它重建不透明掩码时必须走这条路：fitCanvas 一改 canvas 的像素尺寸
+   *    就清空了绘制缓冲，当帧读像素只能拿到一张空白画布 —— 算出来的掩码整张透明，
+   *    命中判断全部落空，表现是「宠物看得见但点不动」（2026-10-10 修的就是这个）。
+   */
+  refit(onDrawn) {
+    if (!figure) {
+      // 没有形象（占位框那条）时掩码本来就该是空的，直接回调让调用方收尾
+      if (onDrawn) onDrawn();
+      return;
+    }
+    figure.refit();
+    if (onDrawn) afterDrawOnce = onDrawn;
+  },
 
   setBusy, said, chunk, poked,
   setGestures,
@@ -369,5 +396,7 @@ export const catRig = {
     figure = null; texMap = null; modelKey = '';
     mode = 'idle'; face = 'neutral'; walking = false; dragHeld = false;
     gesture = null; legPhase = 0; prevMode = 'idle';
+    // 形象拆了，挂着的「下一帧重建掩码」也不能再跑（回调属于上一只形象的尺寸）
+    afterDrawOnce = null;
   },
 };

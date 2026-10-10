@@ -24,18 +24,20 @@
 
 :root {
   --scale: 1;
-  /* 气泡底色跟着主界面的配色思路走（暖白 + 深字），但用半透明 ——
-     它会压在宠物身上，全不透明会把宠物挡掉一块。 */
-  --bubble-bg: rgba(255, 255, 255, 0.94);
-  --bubble-fg: #33313a;
-  --bubble-line: rgba(60, 55, 80, 0.14);
-  /* 圆角比正文色更亮一点的描边：单色描边是「系统提示框」，换成带一点主题色的
-     淡蓝天蓝才像「角色在说话」。 */
-  --bubble-edge: rgba(126, 160, 226, 0.42);
-  /* 气泡底色的渐变两端（上浅下深一点点，给个体积感，不是纯平涂） */
-  --bubble-bg-top: rgba(255, 255, 255, 0.97);
-  --bubble-bg-bottom: rgba(238, 244, 255, 0.95);
-  --accent: #3f6fd8;
+  /* 气泡底色：**纯白**（2026-10-10 用户定版：渐变显老气，要「星布谷地」那种
+     简约可爱）。留 4% 透明 —— 气泡会压在宠物身上，一点透不至于把宠物
+     挡成死白一块。「简约」靠的是：纯白底 + 极淡的蓝灰细描边 + 柔和低饱和
+     的影子 + 大圆角，不需要渐变撑体积感。 */
+  --bubble-bg: rgba(255, 255, 255, 0.96);
+  --bubble-fg: #3c3a45;
+  /* 描边：淡蓝灰、存在感要「隐约」。带一点主题色（纯灰会像系统提示框），
+     但比上一版更收敛 —— 简约风的描边是若有若无的。 */
+  --bubble-edge: rgba(140, 156, 196, 0.38);
+  --accent: #5a7fd8;
+  /* 尾巴探出气泡下沿的高度。尾巴是「旋转方块」做法（见 .bubble::before），
+     旋转后的视觉探出量没法从 CSS 的 bottom 偏移直接读出来，
+     所以把实测值写在这儿给 pet.js 的 overhangBelowBubble() 用。 */
+  --tail-overhang: 8px;
   /* 气泡固定基准字号。刻意用整数：早先这里是 12.5px —— 那个 .5 没有任何
      排版依据（不是 2x 屏取整，也不是行高整数比，本项目行高是无单位倍数），
      纯属早期调参残留，别的地方也没跟它对齐。 */
@@ -156,17 +158,19 @@ body {
   bottom: var(--bubble-bottom, 68%);
   z-index: 2;
   pointer-events: auto;
-  /* 上浅下深的极淡渐变 —— 纯平涂像系统提示框，给一点体积感才像「一张贴纸」 */
-  background: linear-gradient(180deg, var(--bubble-bg-top), var(--bubble-bg-bottom));
-  /* 描边带一点主题蓝 */
-  border: 1.5px solid var(--bubble-edge);
-  /* 圆角给足：小圆角是「对话框」，大圆角才「软」。
-     13px → 18px 是这一版"可爱"里最能一眼看出来的改动。 */
-  border-radius: 18px;
-  padding: 9px 13px;
+  /* 纯白底（2026-10-10 定版，理由见 :root 的 --bubble-bg 注释） */
+  background: var(--bubble-bg);
+  /* 描边若有若无 —— 简约风的分层主要靠下面那两层很柔的影子 */
+  border: 1px solid var(--bubble-edge);
+  /* 圆角再放大一档（18 → 22）：「简约可爱」的圆是*饱满*的圆，
+     小圆角立刻退回「系统对话框」。 */
+  border-radius: 22px;
+  padding: 10px 14px;
+  /* 影子只负责「浮起来」，不负责「立体感」—— 两层都柔、都低饱和蓝灰，
+     不需要拟物的高光和暗部。 */
   box-shadow:
-    0 5px 16px rgba(80, 105, 165, 0.15),
-    0 1px 3px rgba(80, 105, 165, 0.08);
+    0 8px 24px rgba(96, 116, 156, 0.16),
+    0 2px 6px rgba(96, 116, 156, 0.08);
   /* 尾巴（.bubble::before）绝对定位在框外，不能裁掉 */
   overflow: visible;
   animation: bubble-in 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -180,33 +184,25 @@ body {
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* 指向宠物的小尖角。窗口里宠物是贴底居中站的，所以尾巴放在**底部中间**、
-   朝下 —— 气泡看起来像「从它那冒出来的一句话」，而不是浮在头顶的一张卡片。
-   用两层三角（外描边色 + 内底色）做出和边框连贯的效果。
-   2026-10-10：尾巴稍微加大了一点（7.5/6 → 9/7），和更大的圆角配着更圆润；
-   再给它一点左右不对称 —— 正中间的三角像「对话框」，偏一点才像手绘的。 */
-.bubble::before,
-.bubble::after {
+/* 指向宠物的小尾巴 —— 「旋转圆角方块」做法（2026-10-10 换掉 CSS 三角）：
+   一个小方块绕中心转 45°，只给「右、下」两条边上描边、右下角带一点圆角，
+   转完正好是一个**尖端圆润**的小尖角；方块的上半藏进气泡里，白色填充顺手把
+   气泡底边那段描边补掉，于是描边是**顺着流下来**的，不会断。
+   旧的是两层 border 三角拼的：一放大就锯齿，和气泡的衔接也硬。
+   视觉探出量（对角线的一半 ≈ 7.8px）没法从 bottom 偏移读出来，
+   实测值写在 :root 的 --tail-overhang 里给 pet.js 用。 */
+.bubble::before {
   content: "";
   position: absolute;
-  left: 46%;
-  width: 0;
-  height: 0;
-  border-style: solid;
-}
-
-.bubble::before {
-  bottom: -9px;
-  transform: translateX(-50%);
-  border-width: 9px 8px 0;
-  border-color: var(--bubble-edge) transparent transparent;
-}
-
-.bubble::after {
-  bottom: -7px;
-  transform: translateX(-50%);
-  border-width: 7px 6px 0;
-  border-color: var(--bubble-bg-bottom) transparent transparent;
+  left: 44%;
+  bottom: -5.5px;
+  width: 11px;
+  height: 11px;
+  background: var(--bubble-bg);
+  border-right: 1px solid var(--bubble-edge);
+  border-bottom: 1px solid var(--bubble-edge);
+  border-bottom-right-radius: 3.5px;
+  transform: rotate(45deg);
 }
 
 /* 尾巴下面曾经在 2026-10-10 加过「三个飘下去的小圆点」做装饰，后来撤掉了：
@@ -229,8 +225,18 @@ body {
   max-height: 38vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* 细滚动条，别让它在这么小的气泡里显得很笨重 */
-  scrollbar-width: thin;
+  /* 2026-10-10 定版（星布谷地方向）：滚动条整个**藏掉**。
+     原先的 `scrollbar-width: thin` 是 Firefox 属性，Chromium 根本不认 ——
+     生成内容超限时冒出来的是 Windows 默认那条粗灰滚动条，在可爱气泡里最突兀。
+     藏掉之后滚动能力还在（overflow-y: auto 没动）：滚轮照样能滚回去看，
+     流式生成时代码也会一路自动滚到底，滚动位置由内容自己说话，不需要一根杆。
+     两行各写一遍是双保险：前者是标准属性（新 Chromium 认），后者兜旧版。 */
+  scrollbar-width: none;
+}
+.bubble-lines::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .bubble-line {
@@ -251,22 +257,13 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* 逐句冒出来的分隔：给第二句起加一条分隔线，读起来像一句一句说的。
-   2026-10-10：从 `dashed` 虚线改成**淡渐变线** —— 虚线是典型的系统 UI 语言，
-   跟"可爱"正好相反；一条两端淡出、中间最深的细线安静得多。 */
+/* 逐句冒出来的分隔：给第二句起加一条极淡的实色细线，读起来像一句一句说的。
+   2026-10-10 定版（星布谷地方向）：两端淡出的「渐变线」也一起撤了 —— 那是给
+   旧渐变底配的工艺，纯白底上它反而显得刻意；简约风里一条若有若无的直线就是全部。 */
 .bubble-line + .bubble-line {
-  margin-top: 5px;
-  padding-top: 5px;
-  background-image: linear-gradient(
-    90deg,
-    transparent,
-    var(--bubble-edge) 18%,
-    var(--bubble-edge) 82%,
-    transparent
-  );
-  background-repeat: no-repeat;
-  background-size: 100% 1px;
-  background-position: 0 0;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(120, 132, 168, 0.14);
 }
 
 .bubble-line.typing::after {
