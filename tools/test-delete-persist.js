@@ -162,7 +162,7 @@ app.whenReady().then(async () => {
   })()`);
   log('[D 重开窗口看到]', JSON.stringify(D));
 
-  // --- E. 模拟「杀软一直占着」：characters.json 设成只读，删了就该失败 ---
+  // --- E. 模拟「一直被占着」：characters.json 设成只读，删了就该失败 ---
   const cf = path.join(TMP, 'characters.json');
   fs.chmodSync(cf, 0o444);
   const E = await win2.webContents.executeJavaScript(`(async () => {
@@ -181,7 +181,7 @@ app.whenReady().then(async () => {
   log('[E 之后] 磁盘 characters =', diskChars());
   try { fs.chmodSync(cf, 0o666); } catch (e) {}
 
-  // --- F. 模拟「杀软扫完就放开」：只读 1 秒后自动恢复 → 自动重试应该救回来 ---
+  // --- F. 模拟「占用解除」：只读 1 秒后自动恢复 → 自动重试应该救回来 ---
   // 渲染层那次延迟重试等 1.2 秒，所以这次第二次尝试落在 ~2.1 秒，文件 1 秒时已可写。
   fs.chmodSync(cf, 0o444);
   setTimeout(() => {

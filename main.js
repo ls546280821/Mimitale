@@ -33,9 +33,9 @@ const { startPet, shutdownPet } = require('./main/pet-ipc.js');
 //  必须点「确定」才能继续。对用户这是纯噪音（看不懂，而且往往出现在关窗口那种
 //  最不该被打断的时刻），对排查也没帮助 —— 日志里的堆栈更全。
 //
-//  2026-10-08 报的就是这个框：关窗口时写 conversations.json 撞上杀软的瞬时文件锁
-//  （那个坑本体在 main/store.js 的 tryBackup + main/ipc.js 的 registerSyncSave，
-//  这里只是最后一道拦网）。
+//  2026-10-08 报的就是这个框：关窗口时写 conversations.json 被拒（EPERM —— 进程当时是
+//  低完整性，见 main/store.js 开头那段）。那个坑本体在 main/store.js 的 tryBackup +
+//  main/ipc.js 的 registerSyncSave，这里只是最后一道拦网。
 // ---------------------------------------------------------------------------
 process.on('uncaughtException', (err) => {
   console.error('[main] 未捕获异常:', (err && err.stack) || err);
@@ -45,8 +45,8 @@ process.on('uncaughtException', (err) => {
 //  单实例保护
 //
 //  正常路径是 Electron 自己的锁（Chromium 的 process singleton）。
-//  ⚠️ 但有些机器上 Chromium **建不了**那把锁 —— 用户数据目录里写文件被安全软件 /
-//  权限策略拒掉，启动日志里是一行：
+//  ⚠️ 但有些机器上 Chromium **建不了**那把锁 —— 用户数据目录里写文件被拒
+//  （沙箱 / 低完整性标签 / 权限策略），启动日志里是一行：
 //      ERROR:chrome\browser\process_singleton_win.cc:318]
 //      Lock file can not be created: 拒绝访问。(0x5)
 //  这时 requestSingleInstanceLock() 也返回 false —— 和「真的已经开着第二个实例」

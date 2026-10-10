@@ -219,7 +219,8 @@ function ragCandidates(request) {
  * 还得点「确定」。关个窗口弹出这个，看着像程序崩了。
  *
  * 所以这里必须自己兜住：写不进去就写不进去，控制台留一行日志就够。
- * 真正的失败原因（比如杀软瞬时锁住文件）已经在 store.js 里 warn 过一遍了。
+ * 真正的失败原因（写不进去：低完整性 / 沙箱限制，或者真的瞬时占用）已经在 store.js 里
+ * warn 过一遍了。
  */
 function registerSyncSave(channel, save) {
   ipcMain.on(channel, (_event, payload) => {
@@ -1111,8 +1112,9 @@ function registerIpc() {
           writable: false,
           error:
             `资源管理器已启动，但这个进程写不进数据目录（${writable.error}）—— 保存会全部失败。` +
-            '常见原因：程序所在的文件夹被安全软件或沙箱限制住了，只允许它写自己那个目录；' +
-            '或者那个目录本身没有写权限。把整个 Mimitale 文件夹复制到别处再启动，通常就好了。'
+            '常见原因：程序所在的文件夹被沙箱限制住了（文件夹被打了低完整性标签，里面的 exe ' +
+            '跑起来就被降级，只能写这个文件夹），或者那个目录本身没有写权限。' +
+            '处理：清掉这个文件夹上的低完整性标签，或者把整个 Mimitale 文件夹复制到别处再启动。'
         };
       }
       return { ok: true, path: dir, info, writable: true };

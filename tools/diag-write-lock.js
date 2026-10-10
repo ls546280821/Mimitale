@@ -79,6 +79,8 @@ try {
 } catch (e) {
   console.log('目录内「写 + rename」：失败 [' + e.code + '] ' + e.message);
   console.log('  ⚠️ 这就是所有保存都会失败的原因（是权限判定，不是杀软瞬时锁，别去关杀软）');
+  console.log('     下一步：查 exe 所在目录的完整性标签 —— 是 Low 就说明会话沙箱又给目录打了标签，');
+  console.log('     进程（完整性 = min(令牌, exe 的标签)）写不了任何中完整性的位置。');
 } finally {
   for (const f of [probe, path.join(DIR, '__diag-probe.json')]) {
     try { fs.unlinkSync(f); } catch (e) {}
