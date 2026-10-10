@@ -903,16 +903,19 @@ section('参数口径：尾巴摇动 / 缩放重算，别改回会「抖」的�
 {
   const figSrc = read('renderer/pet/cat-figure.js');
 
-  // ⚠️ 尾巴摇动频率曾经是 `4 + 5 * wagAmp`，wagAmp=1 时正好 9Hz = 观感上的「抖动」。
-  //    这是「点它/说完话尾巴抖得又快又久」的根因，别改回去。
+  // ⚠️ 尾巴摇动频率已经两轮下调（9 → 5.5 → 2.8 rad/s 上限），且尾巴弹簧
+  //    spring(40,12) 的阻尼也加重了（欠阻尼的过冲回弹 = 果冻感「抖」）。
+  //    这两处是「尾巴抖得快」的根因，别改回去。sin() 里是 rad/s，别当 Hz。
   ok(
     !/Math\.sin\(t \* \(4 \+ 5 \* wagAmp\)\)/.test(stripComments(figSrc)),
-    '尾巴摇动不再用 9Hz 那套系数（4 + 5 * wagAmp）'
+    '尾巴摇动不再用最初的 4 + 5 * wagAmp'
   );
   ok(
-    /3\.2 \+ 2\.3 \* wagAmp/.test(figSrc),
-    '尾巴频率改成上限 5.5Hz 的 `3.2 + 2.3 * wagAmp`'
+    /1\.8 \+ 1\.0 \* wagAmp/.test(figSrc),
+    '尾巴频率是 1.8 + 1.0 * wagAmp（上限 ~0.45Hz 的慢摇）'
   );
+  ok(/spring\(40,\s*12,\s*32\)/.test(figSrc), '尾巴弹簧阻尼已加重（40,12,32，不再欠阻尼过冲）');
+  ok(!/spring\(40,\s*5,/.test(stripComments(figSrc)), '旧的尾巴弹簧 (40,5) 已清掉');
 
   // 摇头手势：原来 π*6（0.8 秒甩 3 个来回 = 7.5Hz），改成 π*4（2.5Hz）
   ok(/Math\.sin\(gk \* Math\.PI \* 4\)/.test(figSrc), '摇头手势改成 π*4（2.5Hz，不再是 7.5Hz 的打摆子）');

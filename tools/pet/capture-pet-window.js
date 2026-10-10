@@ -138,8 +138,16 @@ app.whenReady().then(async () => {
 
   const framesArg = process.argv.find((a) => a.startsWith('--frames='));
   const FRAMES = framesArg ? Math.max(1, parseInt(framesArg.slice('--frames='.length), 10) || 1) : 1;
+  // `--gap=<ms>` 覆盖连拍间隔（默认 1200ms —— 那是「走几步看关节」用的）。
+  // `--burst` = `--gap=60` 的快捷方式：**密集连拍**，专门看「抖多快」。
+  // 为什么需要：默认 1.2 秒一帧对「抖动」这种高频现象是**严重欠采样** ——
+  // 1Hz 的摆尾采下来每帧相位都不同、看着像随机乱摆，根本判断不了快慢。
+  // 要看清节奏就得按帧率量级采样（60ms ≈ 16fps，够数出一个周期里的相位变化）。
+  const burst = process.argv.includes('--burst');
+  const gapArg = process.argv.find((a) => a.startsWith('--gap='));
+  const GAP = burst ? 60 : (gapArg ? Math.max(16, parseInt(gapArg.slice('--gap='.length), 10) || 1200) : 1200);
   for (let i = 0; i < FRAMES; i++) {
-    if (i) await new Promise((r) => setTimeout(r, idleArg ? 1300 : 1200));
+    if (i) await new Promise((r) => setTimeout(r, burst ? GAP : (idleArg ? 1300 : GAP)));
     const img = await win.webContents.capturePage();
     const out = FRAMES > 1 ? OUT.replace(/\.png$/, `-${i + 1}.png`) : OUT;
     fs.writeFileSync(out, img.toPNG());

@@ -238,7 +238,10 @@ export function createCatFigure(opts = {}) {
   /* ---------- 每帧状态 ---------- */
   const sp = {
     hairY: spring(50, 8, 1.2), bangs: spring(110, 10, 1.6),
-    skirt: spring(100, 9, 1.6), skirtY: spring(90, 10, 1.1), tail: spring(40, 5, 32),
+    // ⚠️ tail 的阻尼别调回 5：k=40/c=5 是 ζ≈0.4 的欠阻尼，走路 sway 一来尾巴就
+    //    过冲回弹好几下（果冻感 = 用户说的「抖」）。c=12 时 ζ≈0.95，几乎不过冲，
+    //    只剩跟随 —— 尾巴该是「毛绒绒地摆」，不是「弹簧片」。
+    skirt: spring(100, 9, 1.6), skirtY: spring(90, 10, 1.1), tail: spring(40, 12, 32),
     ears: spring(90, 9, 30), ahoge: spring(140, 6, 38), head: spring(70, 10, 16),
     armN: spring(60, 9, 125), armF: spring(60, 9, 95),
   };
@@ -351,13 +354,14 @@ export function createCatFigure(opts = {}) {
     const ears = sp.ears.step(earMood * 14 + sway * 10, dt) + (face === 'angry' ? 2.5 * Math.sin(t * 40) : 0) + flap * 13 * Math.sin(t * 26);
     const ahoge = sp.ahoge.step(-tiltVel * .12 - yawVel * .5 + sway * 18 + (face === 'surprised' ? -16 : 0) + (face === 'confused' ? 20 : 0) + (mode === 'sleep' ? 22 : 0) - hairY * 12, dt)
       + flap * 12 * Math.sin(t * 19);
-    // ⚠️ 尾巴摇动的**频率**上限卡死在 5.5Hz 左右，别往上加。
-    //    早先这里写的是 `t * (4 + 5 * wagAmp)`，happy / love / excited 的 wagAmp = 1
-    //    时角频率正好 9 —— 9Hz 已经越过「摆动」进入「抖动」的观感区间，而且
-    //    wagAmp 又用 ease(3, dt) 慢慢爬，于是「说完一句话尾巴高频抖 3 秒多」。
-    //    5.5Hz 是猫科摆尾观感的上限：再快就只是机械振动了。
-    //    幅度系数 13 也一起收到 11（9Hz 时摆幅看着比 5Hz 时大得多，是频率带的错觉）。
-    const tail = sp.tail.step(sway * 14 + tailMood * 12, dt) + wagAmp * 11 * Math.sin(t * (3.2 + 2.3 * wagAmp)) + Math.sin(t * 1.3) * 3
+    // ⚠️ 尾巴要的是「慢慢摇」，不是「抖」。这条公式改过两轮了，把口径先钉死：
+    //    sin() 里的数是 **rad/s**（除以 2π 才是 Hz），别再当成 Hz 写进注释吓自己。
+    //    第一轮 4+5*wagAmp（最大 1.43Hz）嫌快；改成 3.2+2.3（0.88Hz）**还是嫌快** ——
+    //    因为「快」的观感不只是正弦频率：spring(40,5) 欠阻尼（ζ≈0.4）每一笔输入都
+    //    过冲回弹，tailBend 的 warp 又按 u² 把角度放大到尾尖 —— 小角度高频过冲
+    //    到了尾尖就是「抖」。所以本轮三管齐下：正弦放慢到 0.45Hz 上限、幅度 11→7、
+    //    尾巴弹簧的阻尼加重（见 sp.tail 那行）。别只调其中一处就验收。
+    const tail = sp.tail.step(sway * 14 + tailMood * 12, dt) + wagAmp * 7 * Math.sin(t * (1.8 + 1.0 * wagAmp)) + Math.sin(t * 1.1) * 2.5
       + flap * 14 * Math.sin(t * 17);
 
     /* 腿：kit 给的是髋->脚线段（按 Coo 的尺寸），取角度（脚在髋右前方为正） */
