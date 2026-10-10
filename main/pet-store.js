@@ -73,7 +73,55 @@ function petPersonaDir() {
   return path.join(petUserDir(), 'persona');
 }
 
+/**
+ * 人格文件按**形象**分仓，不按 petId（2026-10-10 星宝要求）。
+ *
+ * 理由：人格 = 这只小家伙的「性格」，而性格是**跟着形象走**的 ——
+ * 切到另一张形象包（比如从大肥鱼切到别的小动物）时，人格理应跟着换；
+ * 按 petId 分仓的话全项目只有一份人格，切了形象还是上一张的性格。
+ *
+ * 文件名用 `<source>-<skin>`（如 `assets-whale`、`user-mygirl`）：
+ * 前面带上 source 是因为 assets 和 user 下可能**重名**，只存 skin 会串卡
+ * —— 这和设置页那个形象下拉的 `source\0skin` 是同一个顾虑。
+ *
+ * ⚠️ 别只写 skin。也别用 safeId（那只认 [A-Za-z0-9_-] 且非法回落 'pet1'），
+ *    形象名允许中文、大小写（见 safeSkinName）。
+ */
+function personaKeyOf(pet) {
+  const look = (pet && pet.look) || {};
+  const source = look.source === 'user' ? 'user' : 'assets';
+  const skin = safeSkinName(look.skin || DEFAULT_SKIN);
+  return `${source}-${skin}`;
+}
+
+/** 按 petId 拿一只宠物（查不到返回 null）—— 人格的函数要拿它的 look */
+function petById(petId) {
+  try {
+    return findPet(loadPetConfig(), petId) || null;
+  } catch (err) {
+    return null;
+  }
+}
+
 function petPersonaFile(petId) {
+  const pet = petById(petId);
+  const key = personaKeyOf(pet || { look: { skin: DEFAULT_SKIN } });
+  // 文件名只用来落盘，收一下字符集（中文 / 空格保留，路径分隔符等清洗掉）
+  const safe = String(key).replace(/[\\/:*?"<>|]/g, '_').replace(/\.{2,}/g, '_').slice(0, 80);
+  return path.join(petPersonaDir(), `${safe}.md`);
+}
+
+/**
+ * 老的「按 petId 存」的那份人格文件路径（迁移用）。
+ *
+ * 迁移背景：人格从「按 petId」改成「按形象」之后，老用户已经改过的那份
+ * `persona/<petId>.md` 不能就这么放着不管 —— 那等于把人家写好的性格弄丢了。
+ * 所以第一次读某个形象的人格时，如果这个形象还没有自己的文件、
+ * 而老的 `<petId>.md` 又存在且**不是默认内容**，就把它当作这个形象的人格。
+ * 「不是默认内容」这个判断很关键：老文件里若只是当初自动写出去的默认文本，
+ * 迁过去没意义（还不如让新形象各拿各的默认）。
+ */
+function legacyPersonaFile(petId) {
   return path.join(petPersonaDir(), `${safeId(petId)}.md`);
 }
 
@@ -201,7 +249,9 @@ function defaultPet(id) {
     temperature: null, // null = 跟随全局设置的温度
     style: '', // 回复风格补充（拼进 prompt 的最后一层）
     // --- 记忆 ---
-    memoryMaxItems: 30, // 长期记忆保留多少条
+    memoryMaxItems: 50, // 长期记忆保留多少条（2026-10-10 从 30 提到 50）
+    // ⚠️ 改这个默认值**不会**动老用户已存的 30 —— 那是「改默认」，不是「改现状」。
+    //    用户可能自己调过，硬盖会覆盖他的选择。想统一只能另写一次迁移。
     // --- 多只（现在只有一只，但结构不写死）---
     createdAt: Date.now()
   };
@@ -620,20 +670,51 @@ function petRigPack(look) {
 //  人格
 // ---------------------------------------------------------------------------
 
+/**
+ * 读某只宠物**当前形象**的人格。
+ *
+ * 三条路，按顺序：
+ *   ① 该形象已有自己的文件 → 直接读它。
+ *   ② 该形象没有、但老的 `persona/<petId>.md` 存在且不是默认内容 → 迁移过来
+ *      （老用户的性格不能因为这次改动弄丢），迁移就是「写一份给新形象 + 读它」。
+ *   ③ 都没有 → 把内置那份写出去当起点，并返回它。
+ */
 function readPersona(petId) {
   const file = petPersonaFile(petId);
+
+  let existing = null;
   try {
-    return fs.readFileSync(file, 'utf8');
+    existing = fs.readFileSync(file, 'utf8');
   } catch (err) {
-    // 第一次跑：把内置那份写出去当起点。写失败也不影响本次返回（内存里那份照用）
-    try {
-      fs.mkdirSync(petPersonaDir(), { recursive: true });
-      fs.writeFileSync(file, DEFAULT_PERSONA, 'utf8');
-    } catch (writeErr) {
-      console.warn('[pet] 人格文件写不出去:', writeErr.message);
-    }
-    return DEFAULT_PERSONA;
+    existing = null; // 该形象还没有自己的文件
   }
+  if (existing != null) return existing;
+
+  // ② 迁移老文件：只在「内容确实是用户自己写的」时才迁。
+  //    判断口径是「非空 且 不等于内置默认」—— 老文件若就是当初自动写出去的默认文本，
+  //    迁过去毫无意义（新形象的默认本来就长一样），不迁反而更干净。
+  let legacy = null;
+  try {
+    legacy = fs.readFileSync(legacyPersonaFile(petId), 'utf8');
+  } catch (err) {
+    legacy = null;
+  }
+  const worthMigrating = typeof legacy === 'string'
+    && legacy.trim().length > 0
+    && legacy.trim() !== DEFAULT_PERSONA.trim();
+
+  const seed = worthMigrating ? legacy : DEFAULT_PERSONA;
+  // ③ / 迁移 落盘：写失败也不影响本次返回（内存里那份照用）
+  try {
+    fs.mkdirSync(petPersonaDir(), { recursive: true });
+    fs.writeFileSync(file, seed, 'utf8');
+    if (worthMigrating) {
+      console.log(`[pet] 人格已迁移到按形象存：${path.basename(legacyPersonaFile(petId))} → ${path.basename(file)}`);
+    }
+  } catch (writeErr) {
+    console.warn('[pet] 人格文件写不出去:', writeErr.message);
+  }
+  return seed;
 }
 
 function writePersona(petId, text) {
@@ -644,18 +725,28 @@ function writePersona(petId, text) {
 }
 
 /**
- * 还原成内置人格。
+ * 还原成内置人格（只还原**当前形象**那一份）。
  *
  * ⚠️ 别用「写一个空字符串」来实现「还原」：readPersona 读得到那个空文件，
  *    于是人格真的变成空的 —— 宠物会变成一段没有性格的文字生成器，
  *    而且用户完全不知道为什么。正解是把文件删掉，让 readPersona
  *    走「第一次跑」那条路重新写一份默认的出来。
+ *
+ * ⚠️ 删的是**当前形象**的文件（petPersonaFile 已按形象算路径）。
+ *    这里要顺手把老的 `persona/<petId>.md` 一并删掉 —— 不删的话，
+ *    下次 readPersona 会把它当成「值得迁移的老内容」又迁回来，
+ *    用户会发现「点了还原，人格却回来了」。
  */
 function resetPersona(petId) {
   try {
     fs.unlinkSync(petPersonaFile(petId));
   } catch (err) {
     /* 本来就没有就算了 */
+  }
+  try {
+    fs.unlinkSync(legacyPersonaFile(petId));
+  } catch (err) {
+    /* 老文件可能压根不存在 */
   }
   return readPersona(petId);
 }
@@ -736,7 +827,9 @@ function appendPetMemory(petId, item, maxItems) {
     });
 
     // 超上限：把最早的那些折进摘要
-    const limit = clampInt(maxItems, MEMORY_MAX_ITEMS_MIN, MEMORY_MAX_ITEMS_MAX, 30);
+    // 兜底值要和 defaultPet().memoryMaxItems 保持一致，否则「参数没传」和
+    // 「用默认配置」两条路会得到不同的保留量（30 vs 50）。
+    const limit = clampInt(maxItems, MEMORY_MAX_ITEMS_MIN, MEMORY_MAX_ITEMS_MAX, 50);
     let folded = [];
     if (limit === 0) {
       folded = items.splice(0, items.length);
@@ -768,6 +861,34 @@ function appendPetMemory(petId, item, maxItems) {
 
     await Promise.all(writes);
     return items;
+  });
+}
+
+/**
+ * 删掉**一条**长期记忆（界面每条右侧那个小垃圾桶）。
+ *
+ * ⚠️ 必须走 queueMutation：删除和「正在进行的追加」如果交错，
+ *    删除读到的旧快照会把刚追加的那条写回去、或者反过来把删掉的复原。
+ *    （clearPetMemory 用桶级 delete 避开了这个，但删单条只能读改写，绕不开。）
+ *
+ * 返回删除后的剩余条目数；itemId 不存在时不报错（可能刚被别处删过），
+ * 只是条目数不变。
+ */
+function deletePetMemoryItem(petId, itemId) {
+  const id = safeId(petId);
+  const want = String(itemId || '');
+  if (!want) return Promise.resolve(petMemoryItems(id).length);
+
+  return queueMutation(async () => {
+    const store = loadMemoryStore();
+    const bucket = store.pets[id] && typeof store.pets[id] === 'object' ? store.pets[id] : {};
+    const items = Array.isArray(bucket.items) ? bucket.items.slice() : [];
+    const next = items.filter((m) => !m || m.id !== want);
+    if (next.length === items.length) return items.length; // 没这条：原样返回
+
+    store.pets[id] = { items: next };
+    await writeJson(petMemoryFile(), store);
+    return next.length;
   });
 }
 
@@ -862,6 +983,7 @@ module.exports = {
   petMemoryItems,
   petMemoryDigest,
   appendPetMemory,
+  deletePetMemoryItem,
   clearPetMemory,
   exportPetMemory,
   // 日志

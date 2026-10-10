@@ -36,6 +36,7 @@ const {
   petMemoryItems,
   petMemoryDigest,
   appendPetMemory,
+  deletePetMemoryItem,
   clearPetMemory,
   exportPetMemory,
   readPersona,
@@ -606,6 +607,19 @@ function registerPetIpc() {
     await clearPetMemory(pet.id, data.keepDigest === true);
     broadcastState();
     return { ok: true };
+  });
+
+  // 删**一条**记忆（设置页每条右侧那个垃圾桶）。
+  // 和 clear 一样广播一次：状态行里的「记忆 N 条」要跟着变。
+  ipcMain.handle('pet:memory:delete', async (_event, payload) => {
+    const data = payload || {};
+    const config = loadPetConfig();
+    const pet = findPet(config, data.petId || config.activeId);
+    if (!pet) return { ok: false, error: '没有可用的桌宠' };
+    if (!data.itemId) return { ok: false, error: '没指定要删哪一条' };
+    const remain = await deletePetMemoryItem(pet.id, data.itemId);
+    broadcastState();
+    return { ok: true, remain };
   });
 
   ipcMain.handle('pet:memory:export', (_event, payload) => {

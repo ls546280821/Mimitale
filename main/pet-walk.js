@@ -9,7 +9,8 @@
 //
 //  行为节奏（一期 deliberately 从简）：
 //    等 90~360 秒（随机） → 在**当前显示器的工作区**里挑一个相距 120~420px 的
-//    目标点 → 以 40px/s 匀速走过去 → 到达即停 → 回到等待。
+//    目标点（左右各半、纵向不超过 ±55°，见 startTrip）→ 以 40px/s 匀速走过去
+//    → 到达即停 → 回到等待。
 //
 //  中断规则：
 //    · 拖拽中不散（用户拎着它呢）—— pet-ipc 的 drag-start / drag-end 会调 pause/resume
@@ -90,21 +91,47 @@ function startTrip() {
   const work = screen.getDisplayMatching(bounds).workArea;
   const margin = 24; // 离屏幕边至少留这么多，别贴边或压任务栏
 
-  // 目标点：当前附近 120~420px，clamp 进工作区（窗口完整可见）
+  /**
+   * 挑目标点。
+   *
+   * ⚠️ 别再用「全圆随机角度 + 纵向乘 0.6」那种写法 —— 那是用户反馈
+   *    「只往左边或右边散步」的根因：纵向目标被 0.6 压扁、再 clamp 进工作区之后，
+   *    有相当概率落成「几乎就在正上/正下方」，被下面那条 `|dx| < 8 → 取消这一趟`
+   *    直接毙掉，而且**不重排**（要再等 90~360 秒）—— 等得越久越像「从来不走纵向」。
+   *
+   * 现在改成「先定这一趟要走多远，再按角度求点」，并且把角度限制在
+   * **不至于太陡**的范围内（离水平线 ±55°），既保留了上下溜达，也避免
+   * 出现「目标几乎在正上/正下方 → 原地小幅挪动」那种没必要的趟。
+   */
   const dist = TRIP_MIN + Math.random() * (TRIP_MAX - TRIP_MIN);
-  const angle = Math.random() * Math.PI * 2;
-  let x = bounds.x + Math.cos(angle) * dist;
-  let y = bounds.y + Math.sin(angle) * dist * 0.6; // 桌面是横向的，纵向少走点
-  x = Math.round(Math.max(work.x + margin, Math.min(work.x + work.width - bounds.width - margin, x)));
-  y = Math.round(Math.max(work.y + margin, Math.min(work.y + work.height - bounds.height - margin, y)));
+  const angle = (Math.random() * 2 - 1) * (Math.PI * 55 / 180); // ±55°
+  const dir = Math.random() < 0.5 ? -1 : 1;                     // 左右各半
+
+  // 目标点：沿角度走 dist，纵向照旧压一点（桌面是横向的），再 clamp 进工作区
+  let x = bounds.x + Math.cos(angle) * dist * dir;
+  let y = bounds.y + Math.sin(angle) * dist * 0.6;
+  const maxX = work.x + work.width - bounds.width - margin;
+  const maxY = work.y + work.height - bounds.height - margin;
+  x = Math.round(Math.max(work.x + margin, Math.min(maxX, x)));
+  y = Math.round(Math.max(work.y + margin, Math.min(maxY, y)));
+
+  /**
+   * 目标离得够远才值得走。
+   *
+   * ⚠️ 判据是**实际要走的路程**（dx、dy 一起看），不是只看 dx。
+   *    原来只判 `|dx| < 8`：贴着屏幕左/右边缘、或纵向目标被 clamp 到几乎
+   *    正上/正下方时都会命中，于是那一趟被白白取消。
+   */
+  const dx = x - bounds.x;
+  const dy = y - bounds.y;
+  if (Math.hypot(dx, dy) < 24) { stopTrip(true); return; }
   target = { x, y };
 
-  const dx = x - bounds.x;
-  if (Math.abs(dx) < 8) { stopTrip(true); return; } // 几乎是原地，不值得走
-
   walkPosition = { x: bounds.x, y: bounds.y };
-  const facing = dx > 0 ? 1 : -1;
-  sendToPet('pet:walk', { walking: true, facing });
+  // 朝向只由横向分量定：纵向行走时保持原朝向（猫横着身子上下走），
+  // dx 太小时（比如近乎垂直的一趟）沿用当前朝向，别把它翻来翻去。
+  const facing = Math.abs(dx) < 4 ? null : (dx > 0 ? 1 : -1);
+  sendToPet('pet:walk', facing == null ? { walking: true } : { walking: true, facing });
 
   let last = Date.now();
   clearInterval(walkTimer);

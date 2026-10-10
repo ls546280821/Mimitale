@@ -94,7 +94,7 @@ eq(blank.activeId, 'pet1', '默认 activeId');
 eq(blank.enabled, true, '桌宠默认开启');
 eq(blank.pets[0].speakEveryTurns, 3, '默认每隔 3 轮说一次');
 eq(blank.pets[0].speakLines, 3, '默认每次 3 句');
-eq(blank.pets[0].memoryMaxItems, 30, '默认记忆保留 30 条');
+eq(blank.pets[0].memoryMaxItems, 50, '默认记忆保留 50 条');
 eq(blank.pets[0].visible, true, '默认在桌面上显示');
 eq(blank.pets[0].speakEnabled, true, '默认允许主动发言');
 eq(blank.pets[0].useMainModel, true, '默认跟随主模型');
@@ -357,18 +357,101 @@ const PET = 'pet1';
   eq(skinOf({ kind: 'rig', skin: '' }), 'whale', '空名字退回默认 whale');
 
   // -------------------------------------------------------------------------
-  section('人格文件');
+  section('人格文件：按形象分仓 + 老文件迁移 + 还原');
+
+  const personaDir = path.join(tmpRoot, 'pet', 'persona');
 
   const seeded = petStore.readPersona(PET);
   ok(seeded.includes('蓝自'), '第一次读会把内置人格写出来');
-  ok(fs.existsSync(path.join(tmpRoot, 'pet', 'persona', `${PET}.md`)), '人格文件落在 data/pet/persona/ 下');
+  // 默认形象是 whale（assets），文件名按 `source-skin` 拼
+  ok(fs.existsSync(path.join(personaDir, 'assets-whale.md')),
+    '人格文件按形象落在 persona/<source>-<skin>.md（不是按 petId）');
 
   petStore.writePersona(PET, '我是测试用的人格');
   eq(petStore.readPersona(PET), '我是测试用的人格', '写进去的能读回来');
 
+  // ---- 切形象 → 人格跟着换 ----
+  // 这是需求的核心：人格跟形象绑定，换形象要换一套人格，互不干扰。
+  // ⚠️ patchPet 是异步的（走 queueMutation），**必须 await** ——
+  //    不然下面的 readPersona 读到的还是切换前的形象。
+  await petStore.patchPet(PET, { look: { kind: 'rig', source: 'assets', skin: 'anotherpet' } });
+  const other = petStore.readPersona(PET);
+  ok(other.includes('蓝自'), '切到新形象时拿到的是**该形象**的人格（首次 = 内置默认）');
+  ok(!other.includes('我是测试用的人格'), '旧形象的人格不会串到新形象上');
+  ok(fs.existsSync(path.join(personaDir, 'assets-anotherpet.md')), '新形象有自己的文件');
+
+  // 切回去，旧人格还在
+  await petStore.patchPet(PET, { look: { kind: 'rig', source: 'assets', skin: 'whale' } });
+  eq(petStore.readPersona(PET), '我是测试用的人格', '切回原形象，之前改过的人格原样还在');
+
+  // ---- 老文件迁移：从「按 petId 存」升上来时不能把用户写的性格弄丢 ----
+  // 场景：老用户只有 persona/<petId>.md，没有按形象分的那种文件。
+  // 这里用一只独立的宠物 id 来验（不污染上面 PET 的状态）——
+  // 先给它播种一次默认人格，再把那份默认内容改写成「用户手写」的样子。
+  const legacyPet = 'legacyPet';
+  const legacyFile = path.join(personaDir, `${legacyPet}.md`);
+  petStore.readPersona(legacyPet);                       // 播种：此时会写成 assets-whale.md
+  fs.writeFileSync(legacyFile, '这是老用户手写的人格', 'utf8');
+  fs.rmSync(path.join(personaDir, 'assets-whale.md'));   // 清掉新格式那份，制造「只有老文件」的升级现场
+
+  const migrated = petStore.readPersona(legacyPet);
+  eq(migrated, '这是老用户手写的人格', '老 persona/<petId>.md 会被迁移成当前形象的人格（不丢）');
+  eq(petStore.readPersona(legacyPet), '这是老用户手写的人格', '迁移后落盘了，再读还是它');
+
+  // ---- 老文件内容就是内置默认时，不值得迁移 ----
+  // ⚠️ 拿「真实的内置默认」不能靠读某个文件 —— 上一段测试改过 assets-whale.md。
+  //    干净做法：把该形象文件删掉、读一次，这次返回的就是刚播种的默认内容。
+  const legacyPet2 = 'legacyPet2';
+  fs.rmSync(path.join(personaDir, 'assets-whale.md'), { force: true });
+  const defaultText = petStore.readPersona(legacyPet2);          // 播种 → 拿到真·默认
+  fs.rmSync(path.join(personaDir, 'assets-whale.md'), { force: true });
+  fs.writeFileSync(path.join(personaDir, `${legacyPet2}.md`), defaultText, 'utf8'); // 老文件 == 默认
+
+  const notMigrated = petStore.readPersona(legacyPet2);
+  ok(notMigrated.includes('蓝自'), '老文件内容就是内置默认时，照常给该形象播种默认（不当作自定义）');
+
   const restored = petStore.resetPersona(PET);
   ok(restored.includes('蓝自'), '还原会把内置那份重新写出来');
   ok(restored.trim().length > 0, '⚠️ 还原之后人格不能是空的（空人格会让宠物变成没有性格的文字生成器）');
+  // 还原之后老文件也要一起清掉，否则下次读会被当成「值得迁移的老内容」又迁回来
+  ok(!fs.existsSync(path.join(personaDir, `${PET}.md`)), '还原会把老的 persona/<petId>.md 一并删掉（不然会迁回来）');
+
+  // -------------------------------------------------------------------------
+  section('记忆：单条删除（不牵连其他条）');
+
+  await petStore.clearPetMemory(PET, false);
+  await petStore.appendPetMemory(PET, { kind: 'say', text: '第一条' }, 50);
+  await petStore.appendPetMemory(PET, { kind: 'event', text: '第二条' }, 50);
+  await petStore.appendPetMemory(PET, { kind: 'user', text: '第三条' }, 50);
+
+  const before = petStore.petMemoryItems(PET);
+  eq(before.length, 3, '删之前是 3 条');
+  const middleId = before[1].id;
+
+  const remain = await petStore.deletePetMemoryItem(PET, middleId);
+  eq(remain, 2, '删一条后返回剩余 2 条');
+  const after = petStore.petMemoryItems(PET);
+  eq(after.map((m) => m.text), ['第一条', '第三条'], '删掉的是指定那一条，前后两条都在');
+  ok(!after.some((m) => m.id === middleId), '被删的 id 不再出现');
+
+  // 删一个不存在的 id：不报错、也不误删
+  const same = await petStore.deletePetMemoryItem(PET, 'no-such-id');
+  eq(same, 2, '删不存在的 id 不报错、条目数不变');
+  eq(petStore.petMemoryItems(PET).map((m) => m.text), ['第一条', '第三条'], '内容也没被动过');
+
+  // 空 id 直接拒绝
+  eq(await petStore.deletePetMemoryItem(PET, ''), 2, '空 itemId 直接返回当前条数');
+
+  // -------------------------------------------------------------------------
+  section('默认值：长期记忆保留 50 条');
+
+  eq(petStore.normalizePetConfig(null).pets[0].memoryMaxItems, 50, '新配置默认保留 50 条');
+  // 上限的合法区间没变，只是默认值变了
+  ok(petStore.MEMORY_MAX_ITEMS_MIN === 0 && petStore.MEMORY_MAX_ITEMS_MAX === 200,
+    '记忆上限区间仍是 0~200（只改了默认值，没改区间）');
+  // 显式给了值就听用户的（不迁移老配置的 30）
+  eq(petStore.normalizePetConfig({ pets: [{ memoryMaxItems: 30 }] }).pets[0].memoryMaxItems, 30,
+    '老配置里显式写的 30 原样保留（改默认 ≠ 改现状）');
 
   // -------------------------------------------------------------------------
   section('位置记忆');

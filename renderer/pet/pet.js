@@ -240,7 +240,15 @@ function overhangBelowBubble() {
   return 0;
 }
 
-window.addEventListener('resize', () => requestAnimationFrame(rebuildMask));
+// 窗口尺寸变了（用户改「大小」/ 系统缩放变化）：两件事都得做 ——
+//   ① 立刻让 rig 按新尺寸重建位图。不这么做的话位图要等 draw 里那个 20 帧周期才重算，
+//      中间那几帧是旧尺寸的像素被 CSS 拉伸，看着就是「宠物被拉长了一瞬间」。
+//   ② 重建不透明掩码（点选命中区要跟着新尺寸走）。
+// ⚠️ 顺序不能反：refit 改了 canvas 的 width/height，掩码要读的是**新**画布的像素。
+window.addEventListener('resize', () => requestAnimationFrame(() => {
+  catRig.refit();
+  rebuildMask();
+}));
 // 气泡内容一变高，下沿就该重新对一次头顶（气泡是「底边锚定」的）
 if (window.ResizeObserver) {
   new ResizeObserver(() => requestAnimationFrame(syncBubbleAnchor)).observe(bubble);

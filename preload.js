@@ -113,6 +113,7 @@ contextBridge.exposeInMainWorld('mimitale', {
   petPersonaGet: (payload) => ipcRenderer.invoke('pet:persona:get', payload),
   petPersonaSave: (payload) => ipcRenderer.invoke('pet:persona:save', payload),
   petMemoryGet: (payload) => ipcRenderer.invoke('pet:memory:get', payload),
+  petMemoryDelete: (payload) => ipcRenderer.invoke('pet:memory:delete', payload),
   petMemoryClear: (payload) => ipcRenderer.invoke('pet:memory:clear', payload),
   petMemoryExport: (payload) => ipcRenderer.invoke('pet:memory:export', payload),
   petSetVisible: (payload) => ipcRenderer.invoke('pet:window:setVisible', payload),

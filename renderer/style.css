@@ -6062,9 +6062,43 @@ input[type="number"]:hover::-webkit-outer-spin-button { opacity: 0.8; }
 .pet-memory-item.kind-event { border-left-color: var(--ok-border); }
 .pet-memory-item.kind-user { border-left-color: var(--border-hover); }
 
+/* 时间行 + 右侧的删除按钮 */
+.pet-memory-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .pet-memory-meta {
   font-size: 10.5px;
   color: var(--text-faint);
+}
+
+/* 每条右侧那个小「×」。平时低调（避免一堆红叉糊满列表），悬停才现出危险色 */
+.pet-memory-del {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .12s, color .12s;
+}
+
+.pet-memory-del:hover {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+.pet-memory-del:disabled {
+  opacity: .4;
+  cursor: default;
 }
 
 .pet-memory-text {

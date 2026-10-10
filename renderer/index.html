@@ -1103,7 +1103,10 @@
             <label class="field">
               <span class="field-label">桌宠温度</span>
               <input id="s-pet-temp" type="number" min="0" max="2" step="0.1" placeholder="跟随全局" />
-              <span class="field-help">留空 = 用上面的全局温度。宠物要的是有个性，可以给高一点</span>
+              <span class="field-help">
+                取值范围 <b>0 ~ 2</b>：越小越稳、越大越跳。留空 = 跟随上面的全局温度；
+                全局也没设时按 0.85。宠物要的是有个性，可以给高一点
+              </span>
             </label>
             <label class="field">
               <span class="field-label">长期记忆保留条数</span>
@@ -1128,7 +1131,8 @@
             <textarea id="s-pet-persona" rows="7" spellcheck="false" aria-label="桌宠人格设定"></textarea>
             <span class="field-help">
               这就是桌宠的「角色卡」——它是什么性格、怎么说话、什么时候该闭嘴。
-              存在独立的 <code>data/pet/persona/</code> 里，改完可以直接分享给别人用。
+              <b>人格跟形象绑定</b>：换形象就换一套人格，各形象互不干扰。
+              存在独立的 <code>data/pet/persona/</code>（按形象分文件），改完可以直接分享给别人用。
             </span>
           </div>
 

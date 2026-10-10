@@ -207,7 +207,17 @@ export function createCatFigure(opts = {}) {
   // 兜底：view 底理论上一定在脚底之上（余量 > 0），真要是数据坏了也别让脚飘起来
   const FEET_PAD = Math.max(0, VIEW[3] - FEET_Y);
 
-  function fitCanvas() {
+  /**
+   * 画布贴合容器。
+   *
+   * ⚠️ 常态下由 draw 里 `frameN % 20 === 0` 每 20 帧调一次（省掉每帧 getBoundingClientRect
+   *    的强制 layout）。但**窗口尺寸变化时必须立刻调一次** —— 见 refit()。
+   *
+   * force=true 时跳过下面那个 8% 容差：容差是为了「抖动一两像素就别重建位图」，
+   * 而窗口缩放（尤其是改幅小的那几次）恰好会落进 8% 里被静默跳过，
+   * 结果是位图维持旧尺寸、被新窗口的 CSS 拉伸 → 一瞬间的「拉长」。
+   */
+  function fitCanvas(force) {
     if (!container || !sizer) return;
     const rect = container.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
@@ -216,7 +226,7 @@ export function createCatFigure(opts = {}) {
     const cssH = cssW * vh / vw;
     const k = (window.devicePixelRatio || 1) * 1.25;
     const wantPx = Math.max(16, Math.round(cssW * k));
-    if (pxW && Math.abs(wantPx - pxW) / pxW < .08) return;
+    if (!force && pxW && Math.abs(wantPx - pxW) / pxW < .08) return;
     pxW = wantPx;
     sizer.style.width = `${f1(cssW)}px`;
     sizer.style.height = `${f1(cssH)}px`;
@@ -311,7 +321,10 @@ export function createCatFigure(opts = {}) {
     const g = o.gesture, gk = g ? g.k : 0;
     const env = (a, b) => smooth(0, a, gk) * (1 - smooth(b, 1, gk));
     const nod = g?.kind === 'nod' ? Math.sin(gk * Math.PI * 2) ** 2 * (1 - .3 * gk) : 0;
-    const shake = g?.kind === 'shake' ? Math.sin(gk * Math.PI * 6) * smooth(0, .12, gk) * (1 - gk) : 0;
+    // ⚠️ 摇头的圈数按**时长**反推：这里 sin(gk*π*6) 是「0.8 秒里甩 3 个来回」= 7.5Hz，
+    //    点一下就是一阵高频攒动，跟上面尾巴是同一类毛病。改成 π*4 = 0.8 秒 2 个来回
+    //    （2.5Hz），才像「摇头」而不是「打摆子」。改这条时要和 cat.js 的 GESTURE_DUR.shake 一起看。
+    const shake = g?.kind === 'shake' ? Math.sin(gk * Math.PI * 4) * smooth(0, .12, gk) * (1 - gk) : 0;
     const wave = g?.kind === 'wave' ? env(.15, .8) : 0;      // 一只手举到头侧挥
     const shiver = g?.kind === 'shiver' ? env(.08, .85) : 0; // 抱紧发抖、耳朵压下
     const flap = g?.kind === 'flap' ? env(.05, .75) : 0;     // 耳、尾、呆毛、双臂一起扑腾
@@ -338,7 +351,13 @@ export function createCatFigure(opts = {}) {
     const ears = sp.ears.step(earMood * 14 + sway * 10, dt) + (face === 'angry' ? 2.5 * Math.sin(t * 40) : 0) + flap * 13 * Math.sin(t * 26);
     const ahoge = sp.ahoge.step(-tiltVel * .12 - yawVel * .5 + sway * 18 + (face === 'surprised' ? -16 : 0) + (face === 'confused' ? 20 : 0) + (mode === 'sleep' ? 22 : 0) - hairY * 12, dt)
       + flap * 12 * Math.sin(t * 19);
-    const tail = sp.tail.step(sway * 14 + tailMood * 12, dt) + wagAmp * 13 * Math.sin(t * (4 + 5 * wagAmp)) + Math.sin(t * 1.3) * 3
+    // ⚠️ 尾巴摇动的**频率**上限卡死在 5.5Hz 左右，别往上加。
+    //    早先这里写的是 `t * (4 + 5 * wagAmp)`，happy / love / excited 的 wagAmp = 1
+    //    时角频率正好 9 —— 9Hz 已经越过「摆动」进入「抖动」的观感区间，而且
+    //    wagAmp 又用 ease(3, dt) 慢慢爬，于是「说完一句话尾巴高频抖 3 秒多」。
+    //    5.5Hz 是猫科摆尾观感的上限：再快就只是机械振动了。
+    //    幅度系数 13 也一起收到 11（9Hz 时摆幅看着比 5Hz 时大得多，是频率带的错觉）。
+    const tail = sp.tail.step(sway * 14 + tailMood * 12, dt) + wagAmp * 11 * Math.sin(t * (3.2 + 2.3 * wagAmp)) + Math.sin(t * 1.3) * 3
       + flap * 14 * Math.sin(t * 17);
 
     /* 腿：kit 给的是髋->脚线段（按 Coo 的尺寸），取角度（脚在髋右前方为正） */
@@ -463,6 +482,17 @@ export function createCatFigure(opts = {}) {
     draw,
     setFacing,
     groupTilt,
+    /**
+     * 窗口尺寸变了：立刻按新尺寸重建位图，别等 draw 里那个 20 帧周期。
+     *
+     * 为什么需要（问题：改「大小」时宠物被拉长一瞬间）——
+     * 主进程 commitScale 一次 setContentBounds 就把窗口改到新尺寸（立即生效），
+     * 而这里的位图尺寸只在 `frameN % 20 === 0` 时重算（60fps 下最多滞后 0.33 秒），
+     * 那段时间 canvas 还是旧尺寸的像素、被 CSS 拉成新的容器大小 = 变形。
+     * 渲染层已经监听了 window.resize（用于重建掩码），在同一个回调里调这个
+     * 就能把空档压到 1 帧以内。
+     */
+    refit() { fitCanvas(true); },
     /** 她自己画的短手势：点头、摇头、招手 */
     gestures: ['nod', 'shake', 'wave'],
     /** 忘掉运动状态（弹簧、时钟），给从头重放时间线的调用方 */

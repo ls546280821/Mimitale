@@ -213,15 +213,50 @@ function renderMemory(items, digest) {
   for (const item of items) {
     const when = item.at ? new Date(item.at).toLocaleString('zh-CN', { hour12: false }) : '';
     const kind = item.kind === 'say' ? '说过' : item.kind === 'user' ? '偏好' : '记事';
+    // 每条一个删除按钮。记的是 item.id（不是数组下标）——
+    // 列表是从新到旧排的、而且随时可能被追加，下标会错位。
+    const del = h('button', {
+      class: 'pet-memory-del',
+      type: 'button',
+      title: '删掉这一条',
+      'aria-label': '删掉这一条记忆'
+    }, '×');
+    del.addEventListener('click', () => removeMemoryItem(item, del));
     box.appendChild(
       h(
         'div',
         { class: ['pet-memory-item', `kind-${item.kind || 'event'}`] },
-        h('span', { class: 'pet-memory-meta', text: `${kind} · ${when}` }),
+        h('span', { class: 'pet-memory-head' },
+          h('span', { class: 'pet-memory-meta', text: `${kind} · ${when}` }),
+          del),
         h('span', { class: 'pet-memory-text', text: item.text })
       )
     );
   }
+}
+
+/** 删一条记忆：先确认（删了就没了），成功再局部刷新记忆区 */
+async function removeMemoryItem(item, btn) {
+  const ok = await confirmDialog({
+    title: '删掉这条记忆？',
+    message: `「${String(item.text || '').slice(0, 60)}」\n\n删掉之后它就记不得这件事了，也没法撤销。`,
+    confirmText: '删掉',
+    danger: true
+  });
+  if (!ok) return;
+
+  btn.disabled = true;
+  const pet = currentPet();
+  const result = await api.petMemoryDelete({ petId: pet && pet.id, itemId: item.id })
+    .catch((err) => ({ ok: false, error: err && err.message }));
+  if (!result || !result.ok) {
+    btn.disabled = false;
+    showToast(`删除失败：${(result && result.error) || '未知原因'}`, 'error');
+    return;
+  }
+  await refreshPetCache();  // 状态行里的「记忆 N 条」要跟着变
+  renderStatusLine();
+  await refreshMemory();
 }
 
 /**
@@ -436,12 +471,18 @@ export function initPetSettings(opts) {
   //     而指向新目录，推送的 rig key 也跟着变，宠物窗口才会真的重载贴图。
   //     所以这里不用做「先看看目录有没有 model.json」的预检 —— 主进程读不到会
   //     自己退回空包，宠物窗口显示占位框，比在这里静默拒绝更好排查。
+  //
+  //  ⚠️ 人格是**跟着形象走**的（主进程那份人格文件按 source-skin 分仓），
+  //     所以切形象之后必须把人格框清空、让它重新装新形象的人格 ——
+  //     不清空的话 renderPetSettings 会因为「框里已有内容」而跳过回填，
+  //     用户看到的就是「切了形象，人格还是上一张的」。
   if (el.pet.skin) {
-    el.pet.skin.addEventListener('change', () => {
+    el.pet.skin.addEventListener('change', async () => {
       const [source, skin] = String(el.pet.skin.value || '').split('\u0000');
       if (!skin) return;
-      patchPet({ look: { kind: 'rig', source: source || 'assets', skin } });
-      showToast('形象已切换', 'ok');
+      el.pet.persona.value = '';       // 让下一步的重画把新形象的人格装进来
+      await patchPet({ look: { kind: 'rig', source: source || 'assets', skin } });
+      showToast('形象已切换（人格也跟着这张形象走）', 'ok');
     });
   }
 

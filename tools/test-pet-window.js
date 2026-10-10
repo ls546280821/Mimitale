@@ -870,6 +870,72 @@ section('「空闲小动作」开关：设置页 → 主进程 → 宠物窗口�
 }
 
 // ---------------------------------------------------------------------------
+section('散步：不会只往左右走（纵向那一趟不该被取消）');
+
+{
+  const walkSrc = read('main/pet-walk.js');
+
+  // ⚠️ 这条是「散步只往左右走」那个 bug 的核心：判据只看横向 dx 时，
+  //    纵向目标被压扁 + clamp 之后很容易落成「几乎正上/正下方」，被整趟取消。
+  ok(
+    !/Math\.abs\(dx\)\s*<\s*\d+\s*\)\s*\{\s*stopTrip/.test(stripComments(walkSrc)),
+    '不再用「只看 |dx|」取消一趟（那会专门毙掉纵向目标）'
+  );
+  ok(
+    /Math\.hypot\(dx,\s*dy\)/.test(walkSrc),
+    '改成按实际路程 hypot(dx, dy) 判「这一趟值不值得走」'
+  );
+
+  // 角度限制在离水平线 ±55°：既保留上下溜达，又不会出现「几乎垂直 → 原地挪」
+  ok(/Math\.PI\s*\*\s*55\s*\/\s*180/.test(walkSrc), '目标角度限制在 ±55°（不再全圆随机）');
+  ok(/Math\.random\(\)\s*<\s*0\.5\s*\?\s*-1\s*:\s*1/.test(walkSrc), '左右方向各半，不再偏向一侧');
+
+  // 朝向只由横向分量定；|dx| 太小时不发 facing（渲染层保持原朝向）
+  ok(
+    /facing\s*=\s*Math\.abs\(dx\)\s*<\s*\d+\s*\?\s*null/.test(walkSrc),
+    '纵向行走时不乱翻朝向（|dx| 小于阈值就不发 facing）'
+  );
+}
+
+// ---------------------------------------------------------------------------
+section('参数口径：尾巴摇动 / 缩放重算，别改回会「抖」的旧值');
+
+{
+  const figSrc = read('renderer/pet/cat-figure.js');
+
+  // ⚠️ 尾巴摇动频率曾经是 `4 + 5 * wagAmp`，wagAmp=1 时正好 9Hz = 观感上的「抖动」。
+  //    这是「点它/说完话尾巴抖得又快又久」的根因，别改回去。
+  ok(
+    !/Math\.sin\(t \* \(4 \+ 5 \* wagAmp\)\)/.test(stripComments(figSrc)),
+    '尾巴摇动不再用 9Hz 那套系数（4 + 5 * wagAmp）'
+  );
+  ok(
+    /3\.2 \+ 2\.3 \* wagAmp/.test(figSrc),
+    '尾巴频率改成上限 5.5Hz 的 `3.2 + 2.3 * wagAmp`'
+  );
+
+  // 摇头手势：原来 π*6（0.8 秒甩 3 个来回 = 7.5Hz），改成 π*4（2.5Hz）
+  ok(/Math\.sin\(gk \* Math\.PI \* 4\)/.test(figSrc), '摇头手势改成 π*4（2.5Hz，不再是 7.5Hz 的打摆子）');
+  ok(!/Math\.sin\(gk \* Math\.PI \* 6\)/.test(stripComments(figSrc)), '旧的 π*6 摇头已经清掉');
+
+  // 缩放：fitCanvas 要能吃 force 参数、并暴露 refit（窗口 resize 时立刻重算位图）
+  ok(/function fitCanvas\(force\)/.test(figSrc), 'fitCanvas 支持 force（绕过 8% 容差）');
+  ok(/refit\(\)\s*\{\s*fitCanvas\(true\)/.test(figSrc), 'figure 暴露 refit() = 强制重算');
+
+  const catSrc = read('renderer/pet/cat.js');
+  ok(/refit\(\)\s*\{\s*figure\?\.refit\(\)/.test(catSrc), 'catRig 把 refit 转出去');
+
+  const petSrc = read('renderer/pet/pet.js');
+  // ⚠️ 顺序不能反：refit 改了 canvas 尺寸，掩码要读新画布的像素
+  const resizeBlock = (petSrc.match(/addEventListener\('resize'[\s\S]{0,200}/) || [''])[0];
+  ok(/catRig\.refit\(\)/.test(resizeBlock), 'pet.js 的 resize 回调里调了 refit');
+  ok(
+    resizeBlock.indexOf('catRig.refit()') < resizeBlock.indexOf('rebuildMask()'),
+    'refit 在 rebuildMask **之前**（掩码要读新画布的像素）'
+  );
+}
+
+// ---------------------------------------------------------------------------
 console.log('');
 if (failures.length) {
   console.log(`✗ ${failures.length} 条失败 / 共 ${passed + failures.length} 条`);

@@ -37,6 +37,9 @@ const IDLE_TRICK_MS = [14000, 34000]; // 偶发小手势的间隔区间
 // 手势时长（秒）
 // ⚠️ 删掉一个手势时**记得同步删掉这一项**：`gesture.k += dt / (GESTURE_DUR[kind] || 1)`
 //    里 `|| 1` 是兜底，漏删不会报错，只会让那个手势默默变成 1 秒。
+// ⚠️ shake（摇头）的时长还要和 cat-figure.js 里的 `Math.sin(gk * Math.PI * 4)` 对得上：
+//    那条公式的周期数是按「这个时长里甩 2 个来回」定的。只改一边就会变成
+//    「甩到一半被切断」或「甩完了还在原地空转」。
 const GESTURE_DUR = { nod: .9, shake: .8, wave: 1.4 };
 
 // 空闲时会随机做的小手势 —— 这是**全集**，用户能在设置里关掉其中几个。
@@ -262,7 +265,10 @@ function setBusy(b) {
 /** 话说出来了（pet:say）→ 开心一小会儿 */
 function said() {
   wake('happy');
-  setTimeout(() => { if (face === 'happy') face = 'neutral'; }, 3500);
+  // ⚠️ happy 的尾巴摇幅是满值（MOOD.happy = [.8, 1]），这个时长直接决定
+  //    「说完一句话之后尾巴还要摇多久」。原来 3500ms 偏久 —— 话本身通常 1~2 秒就播完，
+  //    尾巴却还在摇，观感是「它已经说完了怎么还在抖」。2200ms 和一句话的节奏对齐。
+  setTimeout(() => { if (face === 'happy') face = 'neutral'; }, 2200);
 }
 
 /** 流式增量（pet:chunk）：第一个字冒出来 = 从「想事情」转「开口说」。
@@ -284,7 +290,10 @@ function poked() {
   // ⚠️ 这里**不看** enabledGestures：点它一下是**交互反馈**，不是「自己待着时的小动作」。
   //    用户在设置里关掉「点头/摇头」的意思是"我希望它安静待着"，不是"我点它它也该没反应"。
   gesture = { kind: Math.random() < 0.5 ? 'nod' : 'shake', k: 0 };
-  setTimeout(() => { if (face === 'surprised' || face === 'shy') face = 'neutral'; }, 2200);
+  // ⚠️ 2200ms 是「惊讶/害羞」的表情维持时长，**不是**尾巴的摇动时长 ——
+  //    但两者会叠在一起看：惊讶的 MOOD 摇幅是 .2、害羞是 .3，都不算大。
+  //    真正的尾巴问题在 cat-figure.js 的 wagAmp 频率，别在这里调。
+  setTimeout(() => { if (face === 'surprised' || face === 'shy') face = 'neutral'; }, 1800);
 }
 
 /**
@@ -341,6 +350,9 @@ export const catRig = {
   },
 
   applyState,
+
+  /** 窗口尺寸变了：立刻按新尺寸重建位图（理由见 cat-figure.js 的 refit 注释） */
+  refit() { figure?.refit(); },
 
   setBusy, said, chunk, poked,
   setGestures,
